@@ -32,6 +32,9 @@ type manifest struct {
 // ExportBundle writes e as a bundle to dst (through a temporary file). The VM must be stopped:
 // the workspace lock is held while the disk is copied.
 func ExportBundle(ctx context.Context, e VMEntry, dst string, progress func(done, total int64)) error {
+	if err := refuseReimsCtl(e.Config, "Export"); err != nil {
+		return err
+	}
 	dir, err := e.Config.WorkspaceDir()
 	if err != nil {
 		return err

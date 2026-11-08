@@ -368,6 +368,7 @@ var portFree = func(p int) bool {
 // NextSSHPort is the lowest port from FirstSSHPort up that no VM but exceptID uses and that
 // probe (nil: bind on 127.0.0.1) says is free.
 func NextSSHPort(exceptID string, probe func(int) bool) (int, error) {
+	refreshAllReimsCtl(context.Background())
 	db, err := openDB()
 	if err != nil {
 		return 0, err
@@ -460,6 +461,7 @@ func CreateVM(c Config) (VMEntry, error) {
 	if err := check.Validate(); err != nil {
 		return VMEntry{}, err
 	}
+	refreshAllReimsCtl(context.Background()) // their ports, as reims-ctl has them now
 	db, err := openDB()
 	if err != nil {
 		return VMEntry{}, err
@@ -527,6 +529,9 @@ func SaveVM(e VMEntry, c Config) error {
 	if e.Path != "" { // a standalone --config file
 		return SaveConfig(e.Path, c)
 	}
+	if e.Config.Backend == BackendReimsCtl {
+		return saveReimsCtl(e, c)
+	}
 	c.Name = strings.TrimSpace(c.Name)
 	if c.Name == "" {
 		return &FieldError{"name", "give the VM a name"}
@@ -567,6 +572,9 @@ const snapshotFile = BootDir + "/vm.json"
 
 // writeSnapshot writes the generated copy when the workspace exists; it never creates one.
 func writeSnapshot(c Config) {
+	if c.Backend == BackendReimsCtl { // reims-ctl's folder: the app writes nothing there
+		return
+	}
 	dir, err := c.WorkspaceDir()
 	if err != nil || !exists(dir) {
 		return
@@ -769,6 +777,9 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 			return e, fmt.Errorf("VM %s no longer exists", e.ID)
 		}
 		e = cur
+	}
+	if err := refuseReimsCtl(e.Config, "Move"); err != nil {
+		return e, err
 	}
 	if _, ok := FindRun(e); ok {
 		return e, errors.New("shut down the VM before moving it")

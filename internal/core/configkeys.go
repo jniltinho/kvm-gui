@@ -191,6 +191,19 @@ func SetVMConfig(e VMEntry, values map[string]string) (VMEntry, []string, error)
 	if err := c.Validate(); err != nil {
 		return e, nil, err
 	}
+	if cur.Config.Backend == BackendReimsCtl { // its settings are reims-ctl's: written with reims-ctl set
+		tx.Rollback()
+		db.Close()
+		if err := saveReimsCtl(cur, c); err != nil {
+			return e, nil, err
+		}
+		vms, err := ListVMs()
+		if err != nil {
+			return e, nil, err
+		}
+		cur, _ = FindVM(vms, cur.ID)
+		return cur, ConfigWarnings(cur), nil
+	}
 	if err := updateVM(tx, cur.ID, c); err != nil {
 		return e, nil, err
 	}

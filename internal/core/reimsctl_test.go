@@ -350,3 +350,86 @@ func TestReimsCtlPrepare(t *testing.T) {
 	}
 	_ = exec.Command
 }
+
+// Each setting goes to its own reims-ctl set option; nothing else is written (task 4.6).
+func TestReimsSetArgs(t *testing.T) {
+	yes, no := true, false
+	got := ReimsSet{CPUs: 8, MemoryMiB: 16384, Displays: 2, SSHPort: 2301, StopTimeout: 30, Resolution: "2560x1440", GPU: "auto", MAC: "52:54:00:aa:bb:cc", HiDPI: &yes, Audio: &no}.args()
+	want := []string{"--cpus", "8", "--memory", "16G", "--displays", "2", "--resolution", "2560x1440", "--hidpi", "true", "--gpu", "auto",
+		"--audio", "false", "--ssh-port", "2301", "--mac", "52:54:00:aa:bb:cc", "--stop-timeout", "30"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("set options:\n%q\nwant\n%q", got, want)
+	}
+	if a := (ReimsSet{MemoryMiB: 6000}).args(); !slices.Equal(a, []string{"--memory", "6000M"}) {
+		t.Fatalf("memory in MiB: %q", a)
+	}
+	if a := (ReimsSet{}).args(); len(a) != 0 {
+		t.Fatalf("no change: %q", a)
+	}
+	c, _ := ParseReimsCommand(fixture(t, "custom.sh"))
+	if s := c.settings(); s != (ReimsSettings{CPUs: 4, MemoryMiB: 8192, Resolution: "1920x1080", Displays: 1, SSHPort: 2299, MAC: "52:54:00:12:34:56"}) {
+		t.Fatalf("settings from the command: %+v", s)
+	}
+}
+
+// A port changed with reims-ctl itself is seen before the next allocation and warned when
+// shared; settings go through reims-ctl set; Move, Export and passthrough are refused the same
+// way for every caller (task 4.6).
+func TestReimsCtlSettings(t *testing.T) {
+	isolateXDG(t, t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	f := newFakeReimsCtl(t, "")
+	e, err := CreateVM(Config{Name: "Mac", Workspace: f.vmDir, Backend: BackendReimsCtl, ReimsCtlName: "mac", SSHPort: 2299})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other := testDefaults()
+	other.Name, other.Workspace, other.SSHPort = "Other", filepath.Join(t.TempDir(), "o"), 2300
+	o, err := CreateVM(other)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// reims-ctl set mac --ssh-port 2300, outside the app.
+	cmd := filepath.Join(filepath.Dir(filepath.Dir(f.bin)), "cmd.sh")
+	write(t, cmd, strings.Replace(readFile(t, cmd), "127.0.0.1:2299-:22", "127.0.0.1:2300-:22", 1))
+	if p, err := NextSSHPort("", func(int) bool { return true }); err != nil || p == 2300 {
+		t.Fatalf("next port: %d %v", p, err)
+	}
+	got, _ := FindVM(mustList(t), e.ID)
+	if got.Config.SSHPort != 2300 || got.Config.RAMMiB != 8192 || got.Config.VCPUs != 4 {
+		t.Fatalf("refreshed: %+v", got.Config)
+	}
+	if w := SSHPortWarning(2300, o.ID); !strings.Contains(w, "Mac") {
+		t.Fatalf("shared port warning: %q", w)
+	}
+	// Settings are written with reims-ctl set, from SaveVM (GUI, CLI config set) and SetVMConfig (MCP).
+	c := got.Config
+	c.RAMMiB, c.Name = 16384, "Mac Tahoe"
+	if err := SaveVM(got, c); err != nil {
+		t.Fatal(err)
+	}
+	got, _ = FindVM(mustList(t), e.ID)
+	if _, _, err := SetVMConfig(got, map[string]string{"vcpus": "8", "cores": "8"}); err != nil {
+		t.Fatal(err)
+	}
+	calls := readFile(t, f.calls)
+	if !strings.Contains(calls, "set mac --memory 16G ") || !strings.Contains(calls, "set mac --cpus 8 ") {
+		t.Fatalf("reims-ctl set calls:\n%s", calls)
+	}
+	if got, _ := FindVM(mustList(t), e.ID); got.Config.Name != "Mac Tahoe" {
+		t.Fatal("the name is the app's own")
+	}
+	// Refused the same way for every caller.
+	got, _ = FindVM(mustList(t), e.ID)
+	gpu := got.Config
+	gpu.GPU = "0000:03:00.0"
+	for name, err := range map[string]error{
+		"move":        func() error { _, err := MoveVM(got, t.TempDir()); return err }(),
+		"export":      ExportBundle(t.Context(), got, filepath.Join(t.TempDir(), "x.tar"), nil),
+		"passthrough": SaveVM(got, gpu),
+	} {
+		if err == nil || !strings.Contains(err.Error(), ErrReimsCtlUnsupported.Error()) {
+			t.Errorf("%s: %v", name, err)
+		}
+	}
+}

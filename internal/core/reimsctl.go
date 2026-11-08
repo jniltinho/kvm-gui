@@ -221,6 +221,7 @@ func refreshReimsCtl(ctx context.Context, r ReimsCtl, c *Config) error {
 		return err
 	}
 	c.Workspace, c.Disks = v.Dir, nil
+	cmd.settings().apply(c)
 	for _, f := range cmd.driveFiles() {
 		c.Disks = append(c.Disks, Disk{Path: f, Format: "qcow2", Bus: BusSATA})
 	}
@@ -507,6 +508,8 @@ func (c Config) validateReimsCtl() error {
 		return &FieldError{"reims_ctl_name", "a reims-ctl VM name: letters, digits, '.', '_' and '-'"}
 	case c.ReimsCtlConfig != "" && !filepath.IsAbs(c.ReimsCtlConfig):
 		return &FieldError{"reims_ctl_config", "an absolute folder"}
+	case c.GPU != "":
+		return &FieldError{"gpu", refuseReimsCtl(c, "GPU passthrough").Error()}
 	}
 	return nil
 }
@@ -521,6 +524,15 @@ func (v *VM) startReimsCtl(c Config) error {
 		return err
 	}
 	if err := refreshReimsCtl(ctx, r, &c); err != nil {
+		return err
+	}
+	if v.ID != "" { // the port inventory sees what reims-ctl has now
+		if db, err := openDB(); err == nil {
+			updateVM(db, v.ID, c)
+			db.Close()
+		}
+	}
+	if err := checkSSHPort(c); err != nil {
 		return err
 	}
 	dir := c.Workspace
