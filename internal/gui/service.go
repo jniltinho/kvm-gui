@@ -166,14 +166,15 @@ type Profile struct {
 
 // Catalog is what the wizard and Settings offer on this host.
 type Catalog struct {
-	Versions       []Choice  `json:"versions"`
-	Profiles       []Profile `json:"profiles"`
-	NICModels      []string  `json:"nicModels"`
-	GuestNICModels []string  `json:"guestNicModels"`
-	Resolutions    []string  `json:"resolutions"`
-	Bridges        []string  `json:"bridges"`
-	HostMemMiB     int       `json:"hostMemMiB"`
-	HostThreads    int       `json:"hostThreads"`
+	Versions         []Choice  `json:"versions"`
+	Profiles         []Profile `json:"profiles"`
+	NICModels        []string  `json:"nicModels"`
+	GuestNICModels   []string  `json:"guestNicModels"`
+	Resolutions      []string  `json:"resolutions"`      // macOS (Reims vGPU)
+	GuestResolutions []string  `json:"guestResolutions"` // Linux, Windows and Other
+	Bridges          []string  `json:"bridges"`
+	HostMemMiB       int       `json:"hostMemMiB"`
+	HostThreads      int       `json:"hostThreads"`
 	// Recommended CPU and RAM for a macOS VM on this host (core.Recommended).
 	RecRAMMiB    int    `json:"recRamMiB"`
 	RecVCPUs     int    `json:"recVcpus"`
@@ -189,7 +190,7 @@ func (a *App) Catalog() Catalog {
 	h := core.SystemHost()
 	mem := h.MemTotalMiB()
 	rec := core.Recommended(core.Defaults(), runtime.NumCPU(), mem)
-	c := Catalog{NICModels: core.NICModels, GuestNICModels: core.GuestNICModels, Resolutions: core.Resolutions,
+	c := Catalog{NICModels: core.NICModels, GuestNICModels: core.GuestNICModels, Resolutions: core.Resolutions, GuestResolutions: core.GuestResolutions,
 		Bridges: core.HostBridges(), HostMemMiB: mem, HostThreads: runtime.NumCPU(),
 		RecRAMMiB: rec.RAMMiB, RecVCPUs: rec.VCPUs, MinMacRAMMiB: core.MinRAMMiB, MacDiskGiB: core.DefaultDiskGiB,
 		Workspace: core.WorkspaceRoot()}

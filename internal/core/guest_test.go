@@ -409,3 +409,51 @@ func TestGuestTopoext(t *testing.T) {
 		}
 	}
 }
+
+// 3D (virgl) graphics: virtio-vga-gl with the resolution as EDID, drawn by the host's render node
+// over the app's VNC screen, or in QEMU's window with OpenGL; never for Windows.
+func TestGuestVirgl(t *testing.T) {
+	defer func(f func() string) { RenderNode = f }(RenderNode)
+	RenderNode = func() string { return "/dev/dri/renderD128" }
+	ub := testGuest(t, "ubuntu")
+	ub.Graphics, ub.Resolution = GraphicsVirtioGL, "2560x1440"
+	if err := ub.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	a, err := guestArgs(ub, ub.Workspace, Firmware{}, "/run/x/qmp.sock", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := argPairs(a)
+	for _, want := range []string{"-device virtio-vga-gl,edid=on,xres=2560,yres=1440", "-display egl-headless,rendernode=/dev/dri/renderD128 -vnc unix:"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("no %q in %s", want, s)
+		}
+	}
+	ub.Display = DisplayWindow
+	if s := argPairs(must(guestArgs(ub, ub.Workspace, Firmware{}, "/run/x/qmp.sock", ""))); !strings.Contains(s, "-display gtk,gl=on") || strings.Contains(s, "-vnc") {
+		t.Errorf("QEMU window: %s", s)
+	}
+	ub.Graphics, ub.Display, ub.Resolution = GraphicsVirtio, "", ""
+	if s := argPairs(must(guestArgs(ub, ub.Workspace, Firmware{}, "/run/x/qmp.sock", ""))); !strings.Contains(s, "-device virtio-vga,edid=on,xres=1920,yres=1080") || !strings.Contains(s, "-display none") {
+		t.Errorf("2D with the default resolution: %s", s)
+	}
+	w := testGuest(t, "windows11")
+	w.Graphics = GraphicsVirtioGL
+	if err := w.Validate(); err == nil {
+		t.Error("3D accepted for Windows, which has no virgl driver")
+	}
+	if err := checkRenderNode([]string{"-display", "egl-headless,rendernode=/nonexistent/renderD999"}); err == nil {
+		t.Error("a render node that cannot be opened was accepted")
+	}
+	if err := checkRenderNode([]string{"-display", "none"}); err != nil {
+		t.Errorf("2D start refused: %v", err)
+	}
+}
+
+func must[T any](v T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return v
+}

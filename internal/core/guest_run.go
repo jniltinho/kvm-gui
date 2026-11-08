@@ -65,8 +65,30 @@ func checkDevices(qemu string, args []string) error {
 	return nil
 }
 
+// checkRenderNode refuses a 3D (virgl) start that draws on a render node this user cannot open:
+// QEMU would only say it failed to set up EGL.
+func checkRenderNode(args []string) error {
+	for i, a := range args {
+		if a != "-display" || i+1 >= len(args) || !strings.HasPrefix(args[i+1], "egl-headless") {
+			continue
+		}
+		_, node, _ := strings.Cut(args[i+1], "rendernode=")
+		if node == "" {
+			return errors.New("3D (virgl) graphics need a GPU on the host and there is none (/dev/dri/renderD*): choose another graphics controller in Settings › Display")
+		}
+		f, err := os.OpenFile(node, os.O_RDWR, 0)
+		if err != nil {
+			return fmt.Errorf("3D (virgl) graphics cannot use the host's GPU (%v): log in on the desktop, or join the render group (sudo usermod -aG render $USER, then log in again)", err)
+		}
+		f.Close()
+	}
+	return nil
+}
+
 func deviceSetting(dev string) string {
 	switch {
+	case dev == "virtio-vga-gl":
+		return "Graphics (3D needs QEMU's OpenGL modules: qemu-system-modules-opengl on Ubuntu and Debian)"
 	case dev == "vmware-svga" || dev == "VGA" || dev == "virtio-vga" || strings.HasPrefix(dev, "apple-gfx"):
 		return "Graphics"
 	case dev == "virtio-9p-pci":
@@ -211,6 +233,9 @@ func (v *VM) startGuest(c Config) error {
 	qemu := SystemQEMU()
 	if err == nil {
 		err = checkDevices(qemu, args)
+	}
+	if err == nil {
+		err = checkRenderNode(args)
 	}
 	if err != nil {
 		stopTPMNow(stopTPM)

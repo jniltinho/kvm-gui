@@ -28,8 +28,16 @@ const (
 // Graphics for Linux, Windows and Other VMs.
 const (
 	GraphicsVirtio = "virtio-vga"
-	GraphicsVGA    = "vga"
+	// GraphicsVirtioGL is virtio-gpu with virgl: the guest's OpenGL drawn by a GPU of the host
+	// (RenderNode), with no passthrough. Linux and Other guests: Windows has no virgl driver.
+	GraphicsVirtioGL = "virtio-vga-gl"
+	GraphicsVGA      = "vga"
 )
+
+// GuestResolutions are the screen sizes offered to Linux, Windows and Other VMs, as their
+// display's preferred mode (EDID): the common laptop and monitor sizes, ultrawide ones and 4K.
+var GuestResolutions = []string{"1280x720", "1280x800", "1366x768", "1440x900", "1600x900", "1680x1050",
+	"1920x1080", "1920x1200", "2560x1080", "2560x1440", "2560x1600", "3440x1440", "3840x2160"}
 
 // Disk buses for Linux, Windows and Other VMs.
 const (
@@ -197,8 +205,17 @@ func (c Config) validateGuest() error {
 	case c.RootPatch:
 		return &FieldError{"root_patch", "root-patch mode is for macOS VMs"}
 	}
-	if c.Graphics != GraphicsVirtio && c.Graphics != GraphicsVGA {
-		return &FieldError{"graphics", "expected " + GraphicsVirtio + " or " + GraphicsVGA}
+	switch c.Graphics {
+	case GraphicsVirtio, GraphicsVGA:
+	case GraphicsVirtioGL:
+		if c.Guest == GuestWindows {
+			return &FieldError{"graphics", "3D (virgl) has no Windows driver: choose " + GraphicsVirtio + " for Windows"}
+		}
+	default:
+		return &FieldError{"graphics", "expected " + GraphicsVirtio + ", " + GraphicsVirtioGL + " or " + GraphicsVGA}
+	}
+	if c.Resolution != "" && !slices.Contains(GuestResolutions, c.Resolution) {
+		return &FieldError{"resolution", "expected one of " + strings.Join(GuestResolutions, ", ")}
 	}
 	if c.Firmware != FirmwareUEFI && c.Firmware != FirmwareBIOS {
 		return &FieldError{"firmware", "expected uefi or bios"}
@@ -371,10 +388,19 @@ func guestArgs(c Config, dir string, fw Firmware, qmpSocket, tpmSock string) ([]
 	}
 	firstNIC, moreNICs := netArgs(c, BridgeHelper())
 	args = append(args, firstNIC...)
-	if c.Graphics == GraphicsVirtio {
-		args = append(args, "-device", "virtio-vga")
-	} else {
-		args = append(args, "-device", "VGA")
+	// The resolution goes to the guest as its display's preferred mode (EDID): without it Linux
+	// starts at 1280x800 and the screen is stretched, blurred, over the app's screen area.
+	edid := ""
+	if w, h, ok := strings.Cut(c.ReimsResolution(), "x"); ok {
+		edid = ",edid=on,xres=" + w + ",yres=" + h
+	}
+	switch c.Graphics {
+	case GraphicsVirtio:
+		args = append(args, "-device", "virtio-vga"+edid)
+	case GraphicsVirtioGL:
+		args = append(args, "-device", "virtio-vga-gl"+edid)
+	default:
+		args = append(args, "-device", "VGA"+edid)
 	}
 	args = append(args, "-device", "ich9-intel-hda", "-device", "hda-duplex")
 	if p.RNG {
@@ -411,3 +437,22 @@ var amdHost = sync.OnceValue(func() bool {
 	b, _ := os.ReadFile("/proc/cpuinfo")
 	return strings.Contains(string(b), "AuthenticAMD")
 })
+
+// RenderNode is the host GPU that draws a 3D (virgl) guest: the first render node of a Mesa driver
+// (AMD, Intel, nouveau), which virglrenderer is tested on most, else the first one. "" when the
+// host has none. shortcut: no setting picks another GPU; add one when a host needs it.
+var RenderNode = func() string {
+	nodes, _ := filepath.Glob("/dev/dri/renderD*")
+	slices.Sort(nodes)
+	for _, n := range nodes {
+		drv, _ := os.Readlink(filepath.Join("/sys/class/drm", filepath.Base(n), "device", "driver"))
+		switch filepath.Base(drv) {
+		case "amdgpu", "radeon", "i915", "xe", "nouveau":
+			return n
+		}
+	}
+	if len(nodes) > 0 {
+		return nodes[0]
+	}
+	return ""
+}

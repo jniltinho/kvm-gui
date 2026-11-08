@@ -8,7 +8,7 @@ virt-manager's (libosinfo):
 
 | Profile | Firmware | Disk | Network | Graphics | Extras |
 |---|---|---|---|---|---|
-| `ubuntu`, `debian`, `fedora`, `rocky`, `arch`, `opensuse`, `linux` | UEFI | virtio | virtio-net-pci | virtio-vga | virtio-rng |
+| `ubuntu`, `debian`, `fedora`, `rocky`, `arch`, `opensuse`, `linux` | UEFI | virtio | virtio-net-pci | virtio-vga (3D optional) | virtio-rng |
 | `windows10` | UEFI | SATA | e1000e | VGA | Hyper-V enlightenments |
 | `windows11` | UEFI + Secure Boot | SATA | e1000e | VGA | TPM 2.0, Hyper-V enlightenments |
 | `other` | BIOS | SATA | e1000 | VGA | |
@@ -52,7 +52,28 @@ guest); USB devices can be passed through by vendor and product id when your use
 device node (kvm-gui never changes host permissions). A device the host's QEMU lacks (for example
 Rocky Linux's `qemu-kvm` has no `vmware-svga` and no 9p) stops the start with the setting to change.
 
+## Display: resolution and 3D acceleration
+
+**Resolution** (Settings › Display, `config set resolution=2560x1440`) is the screen size the guest
+starts with, given to it as its display's preferred mode (EDID): HD (1280×720) to 4K UHD
+(3840×2160), ultrawide sizes included. The guest can still change it in its own display settings.
+
+**Enable 3D acceleration** (Settings › Display, under the Paravirtualized controller;
+`config set graphics=virtio-vga-gl`) gives Linux and Other guests virtio-gpu with virgl: the
+guest's OpenGL is drawn by a GPU of the host, with no passthrough, so the host keeps the GPU and
+its monitors. kvm-gui picks the first render node of a Mesa driver (AMD, Intel, nouveau), else the
+first one; the screen stays in the app (QEMU's `egl-headless` display feeds the VNC socket) or, with
+Screen set to QEMU's window, in a GTK window drawn with OpenGL. It needs QEMU's OpenGL modules
+(`qemu-system-modules-opengl` on Ubuntu and Debian) and access to `/dev/dri/renderD*` (the desktop
+user has it; otherwise the `render` group). It is OpenGL only: Vulkan in the guest needs Venus
+(QEMU 9.2 or later, as on Ubuntu 26.04 and Debian 13), which kvm-gui does not set up yet. Windows
+has no virgl driver, so the box is off for Windows VMs.
+
 ## Validated
+
+- 3D acceleration on the reference host (Ubuntu 24.04, QEMU 8.2.2, virglrenderer 1.0): the
+  Kubuntu 24.04.2 live ISO started from `kvm-gui vm start` with `graphics=virtio-vga-gl` showed its
+  welcome screen at 1920×1080 over the VNC socket, QEMU drawing on the RX 6700 XT's render node.
 
 On the reference host (Ubuntu 24.04, KVM), in the build image with `/dev/kvm`
 (`go test -tags integration -run RealGuest ./internal/core`):

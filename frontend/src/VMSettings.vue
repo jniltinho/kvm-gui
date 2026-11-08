@@ -63,8 +63,25 @@ function setProfile(id: string) {
   if (p.guest !== "linux") c.value.shared_folders = [];
 }
 const graphicsOptions = computed<Option<string>[]>(() => (mac.value ? ["vmware-svga", "reims-vgpu"] : ["virtio-vga", "vga"]).map((g) => [g, label(g)]));
-const graphics = computed({ get: () => graphicsOf(c.value), set: (g: string) => { c.value.graphics = g === "vmware-svga" ? "" : g; } });
-const resolutionOptions = computed<Option<string>[]>(() => (cat.value?.resolutions ?? []).map((r) => [r, r]));
+// 3D acceleration is virtio-vga's virgl variant (virtio-vga-gl), shown as VirtualBox shows it: a box
+// under the controller. Windows has no virgl driver.
+const graphics = computed({
+  get: () => (graphicsOf(c.value) === "virtio-vga-gl" ? "virtio-vga" : graphicsOf(c.value)),
+  set: (g: string) => { c.value.graphics = g === "vmware-svga" ? "" : g === "virtio-vga" && accel3d.value ? "virtio-vga-gl" : g; },
+});
+const can3d = computed(() => !mac.value && c.value.guest !== "windows" && graphics.value === "virtio-vga");
+const accel3d = computed({
+  get: () => c.value.graphics === "virtio-vga-gl",
+  set: (on: boolean) => { c.value.graphics = on ? "virtio-vga-gl" : "virtio-vga"; },
+});
+const RES_NAMES: Record<string, string> = {
+  "1280x720": "HD", "1280x800": "WXGA", "1366x768": "HD laptop", "1440x900": "WXGA+", "1600x900": "HD+",
+  "1680x1050": "WSXGA+", "1920x1080": "Full HD", "1920x1200": "WUXGA", "2560x1080": "Ultrawide Full HD",
+  "2560x1440": "QHD", "2560x1600": "WQXGA", "3440x1440": "Ultrawide QHD", "3840x2160": "4K UHD",
+};
+// macOS on Reims vGPU: the sizes it supports; other guests: the common monitor sizes.
+const resolutionOptions = computed<Option<string>[]>(() => ((mac.value ? cat.value?.resolutions : cat.value?.guestResolutions) ?? [])
+  .map((r) => [r, RES_NAMES[r] ? `${RES_NAMES[r]} (${r.replace("x", "×")})` : r.replace("x", "×")]));
 const DISPLAY: Option<string>[] = [["app", "Inside the app"], ["window", "QEMU's own window"]];
 const display = computed({ get: () => c.value.display || "app", set: (v: string) => { c.value.display = v === "app" ? "" : v; } });
 const FIRMWARE: Option<string>[] = [["uefi", "UEFI"], ["bios", "Legacy BIOS"]];
@@ -226,10 +243,18 @@ onMounted(async () => { try { cat.value = await GetCatalog(); } catch (e) { prob
           <div class="form">
             <span class="lbl">Graphics controller</span>
             <Dropdown v-model="graphics" :options="graphicsOptions" :width="260" aria-label="Graphics controller" :disabled="fixed" v-bind="inv('graphics')" />
-            <template v-if="c.graphics === 'reims-vgpu'">
+            <template v-if="!mac">
+              <span class="lbl">Features</span>
+              <div>
+                <label class="chk" :class="{ off: fixed || !can3d }"><input v-model="accel3d" type="checkbox" :disabled="fixed || !can3d" /> Enable 3D acceleration</label>
+                <p class="muted">{{ c.guest === "windows" ? "Not for Windows: it has no driver for it." : graphics !== "virtio-vga" ? "Needs the Paravirtualized (virtio-vga) controller." : "The guest's OpenGL drawn by the host's GPU (virgl), with no passthrough: smoother desktops and video in Linux." }}</p>
+              </div>
+            </template>
+            <template v-if="c.graphics === 'reims-vgpu' || !mac">
               <span class="lbl">Resolution</span>
-              <Dropdown :model-value="c.resolution || '1920x1080'" :options="resolutionOptions" :width="140" aria-label="Resolution" :disabled="running" v-bind="inv('resolution')" @update:model-value="(v: string) => (c.resolution = v)" />
-              <div v-if="cat?.reimsMissing" class="span2 note warn">Reims vGPU is not installed on this host: install it before you start this VM.
+              <Dropdown :model-value="c.resolution || '1920x1080'" :options="resolutionOptions" :width="240" aria-label="Resolution" :disabled="running" v-bind="inv('resolution')" @update:model-value="(v: string) => (c.resolution = v)" />
+              <p v-if="!mac" class="span2 muted">The screen size the guest starts with (it can still change it in its own display settings).</p>
+              <div v-if="c.graphics === 'reims-vgpu' && cat?.reimsMissing" class="span2 note warn">Reims vGPU is not installed on this host: install it before you start this VM.
                 <details class="tech"><summary>Details</summary><p>{{ cat.reimsMissing }}</p></details></div>
             </template>
             <span class="lbl">Screen</span>

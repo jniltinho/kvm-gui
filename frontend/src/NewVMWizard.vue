@@ -40,6 +40,13 @@ const guestOptions: Option<Guest>[] = GUESTS.map(([id, l]) => [id, l]);
 const versionOptions = computed<Option<string>[]>(() => (cat.value?.versions ?? []).map((v) => [v.id, `macOS ${v.name}`]));
 const profileOptions = computed<Option<string>[]>(() => (cat.value?.profiles ?? []).filter((p) => p.guest === n.guest).map((p) => [p.id, p.name]));
 const graphicsOptions = computed<Option<string>[]>(() => (mac.value ? ["vmware-svga", "reims-vgpu"] : ["virtio-vga", "vga"]).map((g) => [g, label(g)]));
+// 3D acceleration, as in Settings: virtio-vga's virgl variant, not for Windows.
+const controller = computed({
+  get: () => (n.graphics === "virtio-vga-gl" ? "virtio-vga" : n.graphics),
+  set: (g: string) => { n.graphics = g === "virtio-vga" && n.graphics === "virtio-vga-gl" ? "virtio-vga-gl" : g; },
+});
+const can3d = computed(() => !mac.value && n.guest !== "windows" && controller.value === "virtio-vga");
+const accel3d = computed({ get: () => n.graphics === "virtio-vga-gl", set: (on: boolean) => { n.graphics = on ? "virtio-vga-gl" : "virtio-vga"; } });
 // macOS boots only with a power-of-two core count (cores of two threads): offer those.
 const macCPUs = computed<Option<number>[]>(() => [1, 2, 4, 8, 16, 32].filter((x) => x <= Math.max(2, cat.value?.hostThreads ?? 32)).map((x) => [x, `${x}`]));
 const firmwareOptions: Option<string>[] = [["uefi", "UEFI"], ["bios", "Legacy BIOS"]];
@@ -63,7 +70,7 @@ function applyDefaults() {
   const d = defaults();
   if (!d) return;
   const fits: Record<string, boolean> = {
-    graphics: graphicsOptions.value.some((o) => o[0] === n.graphics) && !(reims.value && n.graphics !== "reims-vgpu"),
+    graphics: graphicsOptions.value.some((o) => o[0] === controller.value) && !(reims.value && n.graphics !== "reims-vgpu") && !(n.graphics === "virtio-vga-gl" && n.guest === "windows"),
     vcpus: !mac.value || macCPUs.value.some((o) => o[0] === n.vcpus),
     disk: !mac.value || n.disk === "new",
   };
@@ -276,7 +283,11 @@ onBeforeUnmount(() => off?.());
               <span class="muted">host: {{ cat.hostThreads }} threads{{ mac ? "; macOS needs a power-of-two core count" : "" }}</span></div>
             <span v-if="msg('vcpus', 'cores')" id="wz-err-vcpus" class="span2 bad">{{ msg("vcpus", "cores") }}</span>
             <span class="lbl">Graphics</span>
-            <Dropdown v-model="n.graphics" :options="graphicsOptions" :width="240" aria-label="Graphics" data-field="graphics" :disabled="reims" v-bind="inv('graphics')" />
+            <Dropdown v-model="controller" :options="graphicsOptions" :width="240" aria-label="Graphics" data-field="graphics" :disabled="reims" v-bind="inv('graphics')" />
+            <template v-if="!mac">
+              <span class="lbl"></span>
+              <label class="chk" :class="{ off: !can3d }"><input v-model="accel3d" type="checkbox" :disabled="!can3d" /> Enable 3D acceleration (virgl: the host's GPU draws the guest's OpenGL)</label>
+            </template>
             <span v-if="msg('graphics')" id="wz-err-graphics" class="span2 bad">{{ msg("graphics") }}</span>
             <div v-if="n.graphics === 'reims-vgpu' && cat.reimsMissing" class="span2 note warn">
               Reims vGPU is not installed on this host. {{ reims ? "reims-ctl comes with it: install it to create this VM." : "You can create the VM now; install Reims vGPU before its first start." }}

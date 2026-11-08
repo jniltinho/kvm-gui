@@ -371,7 +371,7 @@ onBeforeUnmount(() => {
           <div class="vm-t">
             <div class="vm-name"><b>{{ vm.name }}</b> <span class="vm-os">({{ vm.os }})</span></div>
             <div class="vm-state"><img :src="`./icons/${vm.running ? 'state-running' : 'state-off'}.svg`" alt="" /> {{ starting === vm.id ? "Starting…" : vm.state }}</div>
-            <div class="vm-sum">{{ (vm.memoryMiB / 1024).toFixed(vm.memoryMiB % 1024 ? 1 : 0) }} GiB · {{ vm.cpus }} CPUs · {{ vm.graphics === 'reims-vgpu' ? 'Reims vGPU' : vm.guest === 'macos' ? 'VMware SVGA' : vm.graphics === 'virtio-vga' ? 'virtio-vga' : 'VGA' }}</div>
+            <div class="vm-sum">{{ (vm.memoryMiB / 1024).toFixed(vm.memoryMiB % 1024 ? 1 : 0) }} GiB · {{ vm.cpus }} CPUs · {{ vm.graphics === 'reims-vgpu' ? 'Reims vGPU' : vm.guest === 'macos' ? 'VMware SVGA' : vm.graphics === 'virtio-vga' ? 'virtio-vga' : vm.graphics === 'virtio-vga-gl' ? 'virtio-gpu 3D' : 'VGA' }}</div>
           </div>
         </li>
       </ul>

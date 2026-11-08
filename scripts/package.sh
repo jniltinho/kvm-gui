@@ -29,7 +29,7 @@ Section: utils
 Priority: optional
 Architecture: amd64
 Depends: libgtk-4-1, libwebkitgtk-6.0-4, qemu-system-x86, qemu-system-gui, qemu-utils, ovmf, pkexec
-Recommends: swtpm
+Recommends: swtpm, qemu-system-modules-opengl
 Replaces: macos-kvm-gui
 Breaks: macos-kvm-gui
 Provides: macos-kvm-gui

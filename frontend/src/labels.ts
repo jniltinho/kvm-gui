@@ -13,6 +13,7 @@ const NAMES: Record<string, string> = {
   "vmware-svga": "VMware SVGA",
   "reims-vgpu": "Reims vGPU (Metal)",
   "virtio-vga": "Paravirtualized (virtio-vga)",
+  "virtio-vga-gl": "Paravirtualized 3D (virtio-gpu, virgl)",
   vga: "Standard VGA",
   virtio: "virtio-blk",
   sata: "SATA (AHCI)",

@@ -81,6 +81,7 @@ export interface Catalog {
   nicModels: string[];
   guestNicModels: string[];
   resolutions: string[];
+  guestResolutions: string[];
   bridges: string[];
   hostMemMiB: number;
   hostThreads: number;

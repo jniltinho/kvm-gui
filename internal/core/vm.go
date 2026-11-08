@@ -96,7 +96,13 @@ func runArgs(c Config, qmpSocket string) []string {
 		// the physical scancode, so keys a US layout lacks (ABNT2's ç and "/?", the ISO key left
 		// of Z) were lost. Without it the scancode goes through and macOS's input source applies.
 		// lock-key-sync=off keeps QEMU from injecting Caps Lock presses inferred from keysyms.
-		args = append(args, "-display", "none", "-vnc", "unix:"+qemuPath(VNCSocket(qmpSocket))+",lock-key-sync=off")
+		display := "none"
+		if c.Graphics == GraphicsVirtioGL { // the host GPU draws, the VNC socket shows it
+			display = "egl-headless,rendernode=" + qemuPath(RenderNode())
+		}
+		args = append(args, "-display", display, "-vnc", "unix:"+qemuPath(VNCSocket(qmpSocket))+",lock-key-sync=off")
+	} else if c.Graphics == GraphicsVirtioGL {
+		args = append(args, "-display", "gtk,gl=on") // QEMU's own window, drawn with OpenGL
 	}
 	return append(args, qmpArgs(qmpSocket)...)
 }
