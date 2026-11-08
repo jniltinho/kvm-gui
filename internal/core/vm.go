@@ -229,6 +229,11 @@ func (v *VM) Start(c Config) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
+	if v.ID != "" { // an interrupted snapshot operation is finished or undone first
+		if err := recoverSnapshotOps(VMEntry{ID: v.ID, Config: c}); err != nil {
+			return fmt.Errorf("an interrupted snapshot operation could not be completed: %w", err)
+		}
+	}
 	if c.Backend == BackendReimsCtl {
 		return v.startReimsCtl(c)
 	}

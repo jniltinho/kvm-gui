@@ -89,21 +89,23 @@ type Config struct {
 	// (guest.go); macOS VMs keep the fields above.
 	// Backend is "" (the app's own pipeline) or BackendReimsCtl: a macOS VM upstream's reims-ctl
 	// created and keeps, by its name in the configuration folder ReimsCtlConfig (design D19).
-	Backend        string         `json:"backend,omitempty"`
-	ReimsCtlName   string         `json:"reims_ctl_name,omitempty"`
-	ReimsCtlConfig string         `json:"reims_ctl_config,omitempty"`
-	Guest          string         `json:"guest,omitempty"`
-	Profile        string         `json:"profile,omitempty"`  // OS profile id (Profiles)
-	Firmware       string         `json:"firmware,omitempty"` // FirmwareUEFI or FirmwareBIOS
-	SecureBoot     bool           `json:"secure_boot,omitempty"`
-	TPM            bool           `json:"tpm,omitempty"`
-	Disks          []Disk         `json:"disks,omitempty"`
-	Optical        []string       `json:"optical,omitempty"`    // ISO files as CD/DVD drives; "" = an empty drive
-	BootOrder      string         `json:"boot_order,omitempty"` // "cdrom", "disk", or "" (CD first while a medium is in)
-	Serial         string         `json:"serial,omitempty"`     // "", SerialFile or SerialSocket
-	SharedFolders  []SharedFolder `json:"shared_folders,omitempty"`
-	USBDevices     []USBDevice    `json:"usb_devices,omitempty"`
-	Description    string         `json:"description,omitempty"`
+	Backend        string `json:"backend,omitempty"`
+	ReimsCtlName   string `json:"reims_ctl_name,omitempty"`
+	ReimsCtlConfig string `json:"reims_ctl_config,omitempty"`
+	// CurrentSnapshot is the snapshot the VM was last taken from or restored to ("" = none).
+	CurrentSnapshot string         `json:"current_snapshot,omitempty"`
+	Guest           string         `json:"guest,omitempty"`
+	Profile         string         `json:"profile,omitempty"`  // OS profile id (Profiles)
+	Firmware        string         `json:"firmware,omitempty"` // FirmwareUEFI or FirmwareBIOS
+	SecureBoot      bool           `json:"secure_boot,omitempty"`
+	TPM             bool           `json:"tpm,omitempty"`
+	Disks           []Disk         `json:"disks,omitempty"`
+	Optical         []string       `json:"optical,omitempty"`    // ISO files as CD/DVD drives; "" = an empty drive
+	BootOrder       string         `json:"boot_order,omitempty"` // "cdrom", "disk", or "" (CD first while a medium is in)
+	Serial          string         `json:"serial,omitempty"`     // "", SerialFile or SerialSocket
+	SharedFolders   []SharedFolder `json:"shared_folders,omitempty"`
+	USBDevices      []USBDevice    `json:"usb_devices,omitempty"`
+	Description     string         `json:"description,omitempty"`
 	// DiskGiB is the size of a new VM's first disk (created by CreateVM); never saved.
 	DiskGiB int `json:"-"`
 }

@@ -235,12 +235,13 @@ type guestExt struct {
 	Backend       string         `json:"backend,omitempty"`
 	ReimsCtlName  string         `json:"reims_ctl_name,omitempty"`
 	ReimsCtlConf  string         `json:"reims_ctl_config,omitempty"`
+	CurrentSnap   string         `json:"current_snapshot,omitempty"`
 }
 
 func extJSON(c Config) string {
 	x := guestExt{c.Guest, c.Profile, c.Firmware, c.SecureBoot, c.TPM, c.Disks, c.Optical, c.BootOrder,
-		c.Serial, c.SharedFolders, c.USBDevices, c.Description, c.Backend, c.ReimsCtlName, c.ReimsCtlConfig}
-	if x.Guest == "" && x.Description == "" && x.Backend == "" {
+		c.Serial, c.SharedFolders, c.USBDevices, c.Description, c.Backend, c.ReimsCtlName, c.ReimsCtlConfig, c.CurrentSnapshot}
+	if x.Guest == "" && x.Description == "" && x.Backend == "" && x.CurrentSnap == "" {
 		return ""
 	}
 	b, _ := json.Marshal(x)
@@ -257,7 +258,7 @@ func applyExt(c *Config, s string) error {
 	}
 	c.Guest, c.Profile, c.Firmware, c.SecureBoot, c.TPM, c.Disks, c.Optical, c.BootOrder = x.Guest, x.Profile, x.Firmware, x.SecureBoot, x.TPM, x.Disks, x.Optical, x.BootOrder
 	c.Serial, c.SharedFolders, c.USBDevices, c.Description = x.Serial, x.SharedFolders, x.USBDevices, x.Description
-	c.Backend, c.ReimsCtlName, c.ReimsCtlConfig = x.Backend, x.ReimsCtlName, x.ReimsCtlConf
+	c.Backend, c.ReimsCtlName, c.ReimsCtlConfig, c.CurrentSnapshot = x.Backend, x.ReimsCtlName, x.ReimsCtlConf, x.CurrentSnap
 	return nil
 }
 
