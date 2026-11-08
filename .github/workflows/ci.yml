@@ -32,3 +32,35 @@ jobs:
         run: make self-test
       - name: Artifacts (.deb, .rpm, AppImage, binary, SHA256SUMS)
         run: make dist
+      - name: Keep the artifacts for the distribution checks
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/kvm-gui_*.deb
+            dist/kvm-gui-*.rpm
+            dist/kvm-gui-*-x86_64.AppImage
+            dist/kvm-gui-v*-linux-amd64
+            dist/SHA256SUMS
+          retention-days: 7
+
+  # Each artifact on a clean distribution: the package with apt or dnf, the AppImage and the binary
+  # with the documented libraries, no recommended packages, and the upgrade from macos-kvm-gui.
+  distributions:
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        dist: [ubuntu24.04, ubuntu26.04, debian13, rocky10]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Clean ${{ matrix.dist }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: chmod +x dist/*.AppImage dist/kvm-gui-v*-linux-amd64 && scripts/check-dist.sh ${{ matrix.dist }} all
