@@ -6,11 +6,19 @@ name: Reims vGPU packages
 # `kvm-gui reims install` downloads (Ubuntu only), with their corresponding source, on a
 # release of their own. Tag: reims-<7-digit commit>.
 # After a release, reims/manifest.json takes the published SHA-256 files.
+# reims-upstream.yml calls it with another upstream commit (its `commit` input): the Dockerfiles are
+# then pinned to that commit for the build only, and the release is tagged at the calling commit.
 
 on:
   push:
     tags:
       - 'reims-[0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f][0-9a-f]'
+  workflow_call:
+    inputs:
+      commit:
+        description: upstream commit (40 hex digits) to build instead of the pinned one
+        type: string
+        required: true
 
 jobs:
   build:
@@ -28,10 +36,18 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Check the tag against the pinned commit
+      - name: Check the tag against the pinned commit, or pin the requested one
+        env:
+          COMMIT: ${{ inputs.commit }}
         run: |
-          commit="$(sed -n 's/^ARG REIMS_COMMIT=\([0-9a-f]\{7\}\).*/\1/p' reims/Dockerfile)"
-          test "$GITHUB_REF_NAME" = "reims-$commit" || { echo "the tag must be reims-$commit"; exit 1; }
+          if [ -n "$COMMIT" ]; then
+            echo "$COMMIT" | grep -Eqx '[0-9a-f]{40}' || { echo "commit must be 40 hex digits"; exit 1; }
+            sed -i "s/^ARG REIMS_COMMIT=.*/ARG REIMS_COMMIT=$COMMIT/" reims/Dockerfile reims/Dockerfile.rocky
+            grep -H '^ARG REIMS_COMMIT=' reims/Dockerfile reims/Dockerfile.rocky
+          else
+            commit="$(sed -n 's/^ARG REIMS_COMMIT=\([0-9a-f]\{7\}\).*/\1/p' reims/Dockerfile)"
+            test "$GITHUB_REF_NAME" = "reims-$commit" || { echo "the tag must be reims-$commit"; exit 1; }
+          fi
 
       # The image (about 4.5 GB) and the build (about 3 GB) do not fit the runner's free space.
       - name: Free disk space
@@ -87,17 +103,23 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Version from the tag
+      - name: Version from the tag or the requested commit
         id: v
-        run: echo "version=${GITHUB_REF_NAME#reims-}" >> "$GITHUB_OUTPUT"
+        env:
+          COMMIT: ${{ inputs.commit }}
+        run: |
+          if [ -n "$COMMIT" ]; then v="${COMMIT:0:7}"; else v="${GITHUB_REF_NAME#reims-}"; fi
+          echo "version=$v" >> "$GITHUB_OUTPUT"
 
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
           name: Reims vGPU QEMU ${{ steps.v.outputs.version }}
+          tag_name: reims-${{ steps.v.outputs.version }}
+          target_commitish: ${{ github.sha }}
           make_latest: false # the app's own releases stay "latest"
           body: |
-            Reims vGPU's QEMU (https://github.com/steelbrain/reims-vgpu) built for Ubuntu 24.04 and 26.04, which `kvm-gui reims install` downloads, and for Debian 13 and Rocky Linux 10 (manual install: point reims_qemu at it). The source archive is the corresponding source of these binaries (GPL-2.0); see THIRD_PARTY_NOTICES.md.
+            Reims vGPU's QEMU (https://github.com/steelbrain/reims-vgpu) built for Ubuntu 24.04 and 26.04, which `kvm-gui reims install` downloads when reims/manifest.json pins this commit, and for Debian 13 and Rocky Linux 10 (manual install: point reims_qemu at it). Upstream commit: https://github.com/steelbrain/reims-vgpu/commit/${{ inputs.commit || steps.v.outputs.version }}. The source archive is the corresponding source of these binaries (GPL-2.0); see THIRD_PARTY_NOTICES.md.
           files: |
             dist/*.tar.gz
             dist/*.sha256

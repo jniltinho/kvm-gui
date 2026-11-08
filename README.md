@@ -27,11 +27,13 @@ One binary: a desktop GUI in Go + [Wails](https://wails.io) (Vue 3, Vite Plus, T
 - **Snapshots** (offline, journaled), **full clones**, and **bundles** to move a VM between hosts.
 - VMs started from the GUI or by an agent keep running when the app closes.
 
-The work is planned in the OpenSpec change [`migrate-gui-to-go-wails`](openspec/changes/migrate-gui-to-go-wails/proposal.md); the Rust app `reims-gui` is archived, read-only, in [`archive/rust/reims-gui`](archive/rust/reims-gui/ARCHIVED.md).
+The work is planned in the OpenSpec change [`migrate-gui-to-go-wails`](openspec/changes/migrate-gui-to-go-wails/proposal.md); the Rust app `reims-gui` is archived, read-only, in [`archive/rust/reims-gui`](archive/rust/reims-gui/ARCHIVED.md), and its old builds in the [`archive`](https://github.com/jniltinho/kvm-gui/releases/tag/archive) release.
 
 ## Install
 
-Each release has five files: an AppImage, a plain binary, a `.deb`, an `.rpm` and `SHA256SUMS`. Check them first:
+**Status:** the Wails GUI is on `main` and not released yet; until its first release, build it with `make dist` (below). The latest release, [v0.13.0](https://github.com/jniltinho/kvm-gui/releases/tag/v0.13.0), is the previous `macos-kvm-gui` (command line and Fyne GUI). The archived Rust app's releases (`reims-gui` 0.1.5 and 0.1.6) are kept, for history only, in the [`archive`](https://github.com/jniltinho/kvm-gui/releases/tag/archive) release.
+
+Each kvm-gui release has five files: an AppImage, a plain binary, a `.deb`, an `.rpm` and `SHA256SUMS`. Check them first:
 
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS
