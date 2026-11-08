@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" stroke-linejoin="miter" stroke-linecap="square">
+  <!-- Original artwork for kvm-gui; BSD-3-Clause. -->
+  <circle cx="8" cy="8" r="7" fill="#2f6e9e"/>
+  <circle cx="8" cy="8" r="5.8" fill="#4d97cf"/>
+  <path d="M5.5 6A2.5 2.5 0 1 1 9.2 8.2C8.5 8.6 8.5 9 8.5 10H7.3C7.3 8.6 7.6 8 8.5 7.4A1.3 1.3 0 1 0 6.7 6Z" fill="#ffffff"/>
+  <path d="M7.3 11H8.7V12.4H7.3Z" fill="#ffffff"/>
+</svg>

@@ -8,17 +8,117 @@ const call = <T>(method: string, ...args: unknown[]) =>
     throw e instanceof Error ? e.message : e;
   });
 
+export type Guest = "macos" | "linux" | "windows" | "other";
+
 export interface VM {
   id: string;
   name: string;
+  guest: Guest;
+  os: string;
   version: string;
   state: string;
+  running: boolean;
   graphics: string;
   memoryMiB: number;
   cpus: number;
 }
 
+export interface NIC { enabled: boolean; mode: string; bridge?: string; model: string; mac: string }
+export interface Disk { path: string; format: string; bus: string }
+export interface SharedFolder { path: string; tag: string; read_only?: boolean }
+export interface USBDevice { vendor: string; product: string }
+
+/** internal/core.Config as JSON (snake_case keys, as the core stores it). */
+export interface Config {
+  name?: string;
+  workspace: string;
+  version: string;
+  ram_mib: number;
+  cores: number;
+  vcpus: number;
+  ssh_port: number;
+  gpu?: string;
+  display?: string;
+  networks: NIC[] | null;
+  root_patch?: boolean;
+  graphics?: string;
+  resolution?: string;
+  guest?: string;
+  profile?: string;
+  firmware?: string;
+  secure_boot?: boolean;
+  tpm?: boolean;
+  disks?: Disk[];
+  optical?: string[];
+  boot_order?: string;
+  serial?: string;
+  shared_folders?: SharedFolder[];
+  usb_devices?: USBDevice[];
+  description?: string;
+}
+
+export interface DiskInfo { path: string; format: string; bus: string; sizeBytes: number; usedBytes: number; missing: boolean }
+
+export interface VMInfo extends VM {
+  config: Config;
+  disks: DiskInfo[];
+  recovery: string;
+  hasVars: boolean;
+  sshWarn: string;
+}
+
+export interface Profile {
+  id: string; name: string; guest: Guest; firmware: string; secureBoot: boolean; tpm: boolean;
+  diskBus: string; nic: string; graphics: string; ramMiB: number; minRamMiB: number; diskGiB: number;
+}
+
+export interface Catalog {
+  versions: { id: string; name: string }[];
+  profiles: Profile[];
+  nicModels: string[];
+  guestNicModels: string[];
+  resolutions: string[];
+  bridges: string[];
+  hostMemMiB: number;
+  hostThreads: number;
+  recRamMiB: number;
+  recVcpus: number;
+  minMacRamMiB: number;
+  macDiskGiB: number;
+  workspace: string;
+  reimsMissing: string;
+}
+
+export interface Result { id?: string; notice?: string; field?: string; error?: string }
+
+export interface NewVM {
+  name: string; folder: string; guest: Guest; version: string; profile: string; iso: string; graphics: string;
+  ramMiB: number; vcpus: number; firmware: string; secureBoot: boolean; tpm: boolean;
+  disk: "new" | "existing" | "none"; diskGiB: number; diskPath: string;
+}
+
+export interface Prefs { workspace: string; theme: string; scale: string; hostKey: string }
+export interface Medium extends DiskInfo { kind: "disk" | "optical"; vms: string[] }
+
 export const Version = () => call<string>("Version");
 export const Theme = () => call<string>("Theme");
 export const VMs = () => call<VM[]>("VMs");
 export const Ready = () => call<void>("Ready");
+export const GetVM = (id: string) => call<VMInfo>("VM", id);
+export const GetCatalog = () => call<Catalog>("Catalog");
+export const DetectISO = (path: string) => call<{ label: string; profile: string; guest: Guest | ""; name: string }>("DetectISO", path);
+export const CreateVM = (n: NewVM) => call<Result>("CreateVM", n);
+export const SaveVM = (id: string, c: Config, resetVars: boolean) => call<Result>("SaveVM", id, c, resetVars);
+export const AddVM = (path: string) => call<Result>("AddVM", path);
+export const DeleteVM =(id: string, purge: boolean) => call<string[]>("DeleteVM", id, purge);
+export const SelectVM = (id: string) => call<void>("SelectVM", id);
+export const ShutDown = (id: string) => call<void>("ShutDown", id);
+export const GetLog = (id: string) => call<string>("Log", id);
+export const GetMedia = () => call<Medium[]>("Media");
+export const GetPrefs = () => call<Prefs>("Preferences");
+export const SetTheme = (id: string) => call<void>("SetTheme", id);
+export const SetScale = (p: string) => call<void>("SetScale", p);
+export const SetWorkspace = (p: string) => call<void>("SetWorkspace", p);
+/** Native file chooser; "" when cancelled. kind: "iso", "disk" or "". */
+export const PickFile = (title: string, kind = "") => call<string>("PickFile", title, kind);
+export const PickFolder = (title: string) => call<string>("PickFolder", title);
