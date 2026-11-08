@@ -62,8 +62,10 @@ func Run(o Options) error {
 		LogLevel:    slog.LevelInfo, // never Debug: Wails logs binding arguments there
 		Services:    []application.Service{application.NewService(svc)},
 		OnShutdown:  embeds.releaseAll, // embedded VM windows go back to the desktop first
-		Assets:      application.AssetOptions{Handler: application.AssetFileServerFS(dist), DisableLogging: true},
-		Linux:       application.LinuxOptions{ProgramName: "kvm-gui"},
+		// The handler below lets embedded VM windows go before quitting: one cleanup, not two.
+		DisableDefaultSignalHandler: true,
+		Assets:                      application.AssetOptions{Handler: application.AssetFileServerFS(dist), DisableLogging: true},
+		Linux:                       application.LinuxOptions{ProgramName: "kvm-gui"},
 	}
 	winOpts := application.WebviewWindowOptions{
 		Title: "kvm-gui", Width: 1280, Height: 800, MinWidth: 800, MinHeight: 560,
@@ -169,12 +171,14 @@ func Run(o Options) error {
 		o.Name, o.Title, o.Width, o.Height, o.MinWidth, o.MinHeight = "vm:"+id, title, 1280, 860, 480, 320
 		w := open(o, "/#/vm/"+url.PathEscape(id))
 		// The embedded VM window goes back to the desktop before this window is destroyed.
-		w.RegisterHook(events.Common.WindowClosing, func(*application.WindowEvent) { embeds.drop(id) })
+		w.RegisterHook(events.Common.WindowClosing, func(*application.WindowEvent) { embeds.dropHost(id, "vm") })
 	}
 	if o.Show != "" {
 		var once sync.Once
 		win.OnWindowEvent(events.Common.WindowShow, func(*application.WindowEvent) { once.Do(func() { showVM(svc, o.Show) }) })
 	}
+	// The Manager's Screen tab gives its VM windows back to the desktop before the Manager goes.
+	win.RegisterHook(events.Common.WindowClosing, func(*application.WindowEvent) { embeds.dropHost("", "manager") })
 	svc.mainWindow = func() *application.WebviewWindow { return win }
 	svc.vmWindow = func(id string) *application.WebviewWindow {
 		if w, ok := app.Window.GetByName("vm:" + id); ok {

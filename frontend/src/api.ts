@@ -18,6 +18,7 @@ export interface VM {
   version: string;
   state: string;
   running: boolean;
+  screen: boolean; // the run exports its screen to the app
   graphics: string;
   memoryMiB: number;
   cpus: number;
@@ -139,7 +140,7 @@ export const GetScreen = (id: string) => call<{ url: string; token: string; gene
 
 // Reims vGPU's own window placed over the page rectangle (CSS pixels): "embedded", "waiting", or
 // "unavailable" with the reason (the page uses the viewer then).
-export interface EmbedState { state: "embedded" | "waiting" | "unavailable"; reason: string }
-export const EmbedScreen = (id: string, host: "manager" | "vm", x: number, y: number, w: number, h: number, dpr: number) =>
-  call<EmbedState>("EmbedScreen", id, host, x, y, w, h, dpr);
-export const EmbedVisible = (id: string, visible: boolean) => call<void>("EmbedVisible", id, visible);
+export interface EmbedState { state: "embedded" | "waiting" | "elsewhere" | "unavailable"; reason: string }
+export const EmbedScreen = (id: string, host: "manager" | "vm", take: boolean, x: number, y: number, w: number, h: number, dpr: number) =>
+  call<EmbedState>("EmbedScreen", id, host, take, x, y, w, h, dpr);
+export const EmbedVisible = (id: string, host: "manager" | "vm", visible: boolean) => call<void>("EmbedVisible", id, host, visible);

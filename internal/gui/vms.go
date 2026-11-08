@@ -23,6 +23,7 @@ type VM struct {
 	Version   string `json:"version"`
 	State     string `json:"state"`
 	Running   bool   `json:"running"`
+	Screen    bool   `json:"screen"` // the run exports its screen to the app (else QEMU's own window)
 	Graphics  string `json:"graphics"`
 	MemoryMiB int    `json:"memoryMiB"`
 	CPUs      int    `json:"cpus"`
@@ -52,13 +53,13 @@ func osName(c core.Config) string {
 }
 
 func row(e core.VMEntry) VM {
-	_, running := core.FindRun(e)
+	run, running := core.FindRun(e)
 	state := "Powered Off"
 	if running {
 		state = "Running"
 	}
 	return VM{ID: e.ID, Name: e.DisplayName(), Guest: guestOf(e.Config), OS: osName(e.Config), Version: e.Config.Version,
-		State: state, Running: running, Graphics: e.Config.Graphics, MemoryMiB: e.Config.RAMMiB, CPUs: e.Config.VCPUs}
+		State: state, Running: running, Screen: running && run.VNCSocket != "", Graphics: e.Config.Graphics, MemoryMiB: e.Config.RAMMiB, CPUs: e.Config.VCPUs}
 }
 
 // VMs lists the VMs with their state, a running QEMU found through /proc included.
@@ -502,8 +503,11 @@ func (a *App) Start(id string, headless bool) error {
 	if err != nil {
 		return err
 	}
-	if _, err = core.StartDetached(ctx, self, e, core.StartOptions{Starter: core.StarterGUI,
-		EmbedX11: !headless && onX11(), KextsSnapshot: string(snapshot)}); err != nil {
+	o := core.StartOptions{Starter: core.StarterGUI, EmbedX11: !headless && onX11(), KextsSnapshot: string(snapshot)}
+	if headless {
+		o.Display = core.DisplayApp // Normal keeps the VM's Display setting: QEMU's window when it says so
+	}
+	if _, err = core.StartDetached(ctx, self, e, o); err != nil {
 		return err
 	}
 	return nil // the Manager shows the screen in its Screen tab; Show opens a window of its own
@@ -556,8 +560,9 @@ func (a *App) Log(id string) (string, error) {
 			newest, at = f, st.ModTime().UnixNano()
 		}
 	}
+	embedding := embedLines(id)
 	if newest == "" {
-		return "", nil
+		return embedding, nil
 	}
 	f, err := os.Open(newest)
 	if err != nil {
@@ -568,7 +573,25 @@ func (a *App) Log(id string) (string, error) {
 		f.Seek(-logLimit, io.SeekEnd)
 	}
 	b, err := io.ReadAll(f)
-	return newest + "\n\n" + string(b), err
+	return newest + "\n\n" + string(b) + embedding, err
+}
+
+// embedLines is what embedding did with VM id (embed.log), the last 50 lines, for its Logs tool.
+func embedLines(id string) string {
+	b, err := os.ReadFile(filepath.Join(core.StateDir(), "logs", "embed.log"))
+	if err != nil {
+		return ""
+	}
+	var mine []string
+	for l := range strings.Lines(string(b)) {
+		if strings.Contains(l, " "+id+": ") {
+			mine = append(mine, l)
+		}
+	}
+	if len(mine) == 0 {
+		return ""
+	}
+	return "\n--- Reims vGPU's window in the app (" + filepath.Join(core.StateDir(), "logs", "embed.log") + ")\n" + strings.Join(mine[max(0, len(mine)-50):], "")
 }
 
 // Medium is a disk or optical image the VMs use (File › Media manager).

@@ -1,10 +1,11 @@
 package gui
 
 /*
-#cgo pkg-config: gtk4 x11 webkitgtk-6.0
+#cgo pkg-config: gtk4 x11 xfixes webkitgtk-6.0
 #include <gtk/gtk.h>
 #include <gdk/x11/gdkx.h>
 #include <X11/Xlib.h>
+#include <X11/extensions/Xfixes.h>
 #include <webkit/webkit.h>
 
 static GtkWidget *find_webview(GtkWidget *w) {
@@ -39,20 +40,26 @@ static unsigned long window_xid(void *w) {
 }
 
 // add_save_set puts xid in the save-set of GTK's own X connection, the one that created the app's
-// windows: if the app dies, the X server gives the embedded window back to the desktop.
+// windows, with XFixes' root target: if the app dies, the X server puts the embedded window on the
+// root, mapped (a plain save-set would leave it in the window manager's frame of the app's window).
+// The request's X error is trapped and returned: the window may be gone already, and an untrapped
+// error aborts a GTK app. -1: not on X11; -2: no XFixes.
 static int add_save_set(unsigned long xid) {
 	GdkDisplay *d = gdk_display_get_default();
 	if (d == NULL || !GDK_IS_X11_DISPLAY(d)) return -1;
 	Display *x = gdk_x11_display_get_xdisplay(d);
-	XAddToSaveSet(x, (Window)xid);
-	XFlush(x);
-	return 0;
+	int ev, er, major = 5, minor = 0;
+	if (!XFixesQueryExtension(x, &ev, &er) || !XFixesQueryVersion(x, &major, &minor) || major < 4) return -2;
+	gdk_x11_display_error_trap_push(d);
+	XFixesChangeSaveSet(x, (Window)xid, SetModeInsert, SaveSetRoot, SaveSetMap);
+	return gdk_x11_display_error_trap_pop(d); // syncs: the X error code, 0 when it took
 }
 */
 import "C"
 
 import (
 	"errors"
+	"fmt"
 	"unsafe"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -74,8 +81,13 @@ func windowXID(w *application.WebviewWindow) uint32 {
 func gtkSaveSet(xid uint32) error {
 	var rc C.int
 	application.InvokeSync(func() { rc = C.add_save_set(C.ulong(xid)) })
-	if rc != 0 {
+	switch {
+	case rc == -1:
 		return errors.New("the app is not on X11")
+	case rc == -2:
+		return errors.New("the X server has no XFixes 4")
+	case rc != 0:
+		return fmt.Errorf("the X server refused the save-set (X error %d)", rc)
 	}
 	return nil
 }

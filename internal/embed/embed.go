@@ -7,13 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"os"
-	"os/exec"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/jezek/xgb"
+	"github.com/jezek/xgb/xfixes"
 	"github.com/jezek/xgb/xproto"
 )
 
@@ -131,14 +131,15 @@ type Embedded struct {
 	x0, y0                   int16
 	w, h                     uint16
 	alive, released, shown   bool
-	guard                    *exec.Cmd // StartGuard's process
-	guardIn                  io.WriteCloser
+	mu                       sync.Mutex // every method: the GUI calls from the page and from its pump
 }
 
 // Embed reparents child (whose _NET_WM_PID must still be pid: a window re-used by another
 // process is never taken) into a new container inside parent, unmapped until SetRect. saveSet
-// adds child to the save-set of the connection that created parent (GTK's), so the X server
-// puts it back on the root when the app dies; the container's own connection adds it too.
+// adds child to the save-set of the connection that created parent (GTK's), with XFixes' root
+// target, as the container's own connection does: when the app dies the X server puts the
+// window on the root, mapped. A plain save-set would put it in the window manager's frame of the
+// app's window, which the window manager then destroys with the VM's window in it.
 func (x *X) Embed(parent, child xproto.Window, pid uint32, saveSet func(uint32) error) (*Embedded, error) {
 	if x.pidOf(child) != pid {
 		return nil, errors.New("the window no longer belongs to the VM's QEMU")
@@ -162,7 +163,7 @@ func (x *X) Embed(parent, child xproto.Window, pid uint32, saveSet func(uint32) 
 	if err := xproto.ChangePropertyChecked(conn, xproto.PropModeReplace, e.container, x.atoms[containerMark], xproto.AtomCardinal, 32, 1, mark).Check(); err != nil {
 		return fail(err)
 	}
-	if err := xproto.ChangeSaveSetChecked(conn, xproto.SetModeInsert, child).Check(); err != nil {
+	if err := RootSaveSet(conn, child); err != nil {
 		return fail(err)
 	}
 	if saveSet != nil {
@@ -209,9 +210,21 @@ func (x *X) Embed(parent, child xproto.Window, pid uint32, saveSet func(uint32) 
 	return e, nil
 }
 
+// RootSaveSet adds w to conn's save-set with XFixes' root target (and mapping): if conn's client
+// dies, w goes to the root, never into another client's window.
+func RootSaveSet(conn *xgb.Conn, w xproto.Window) error {
+	if err := xfixes.Init(conn); err != nil {
+		return fmt.Errorf("XFixes: %w", err)
+	}
+	if _, err := xfixes.QueryVersion(conn, 5, 0).Reply(); err != nil {
+		return fmt.Errorf("XFixes: %w", err)
+	}
+	return xfixes.ChangeSaveSetChecked(conn, xproto.SetModeInsert, xfixes.SaveSetTargetRoot, xfixes.SaveSetMappingMap, w).Check()
+}
+
 // drain reads pending events: a destroyed child, or one another client reparented away, is lost.
 func (e *Embedded) drain() (configured bool) {
-	for {
+	for range 256 { // the rest next time: the lock is not held forever under a stream of events
 		ev, err := e.conn.PollForEvent()
 		if ev == nil && err == nil {
 			return configured
@@ -233,13 +246,32 @@ func (e *Embedded) drain() (configured bool) {
 			if ev.Event == e.child && e.alive && e.appActive() {
 				xproto.SetInputFocus(e.conn, xproto.InputFocusParent, e.child, xproto.TimeCurrentTime)
 			}
+		case xproto.FocusInEvent:
+			// A click on the VM: SDL keeps the button press, the window manager focuses the app's
+			// window; with the pointer over the VM, the keyboard is the VM's. Only focus coming
+			// from outside the app's window: the focus coming back from the VM (Inferior), or a
+			// grab's, would bounce it between the two forever.
+			if ev.Event == e.parent && ev.Mode == xproto.NotifyModeNormal &&
+				(ev.Detail == xproto.NotifyDetailNonlinear || ev.Detail == xproto.NotifyDetailAncestor) &&
+				e.alive && e.pointerOverChild() {
+				xproto.SetInputFocus(e.conn, xproto.InputFocusParent, e.child, xproto.TimeCurrentTime)
+			}
 		}
 	}
+	return configured
+}
+
+// pointerOverChild: the pointer is inside the VM's window.
+func (e *Embedded) pointerOverChild() bool {
+	p, err := xproto.QueryPointer(e.conn, e.child).Reply()
+	return err == nil && p.SameScreen && p.WinX >= 0 && p.WinY >= 0 && uint16(p.WinX) < e.w && uint16(p.WinY) < e.h && e.shown
 }
 
 // SetRect places the VM's window over the page's screen rectangle (physical pixels relative to
 // the app's window) and shows it; it sends nothing and returns false when nothing changed.
 func (e *Embedded) SetRect(x, y int16, w, h uint16) bool {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	w, h = max(w, 1), max(h, 1) // X refuses zero sizes
 	if e.shown && x == e.x0 && y == e.y0 && w == e.w && h == e.h {
 		return false
@@ -250,7 +282,7 @@ func (e *Embedded) SetRect(x, y int16, w, h uint16) bool {
 	e.w, e.h = w, h
 	e.configureChild()
 	if !e.shown {
-		e.Show()
+		e.show()
 	}
 	return true
 }
@@ -265,6 +297,8 @@ func (e *Embedded) configureChild() {
 // Pump handles pending events without blocking: a child that moved or resized itself (a guest
 // mode change) is put back over the rectangle; call it often (each frame or a short ticker).
 func (e *Embedded) Pump() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.drain() {
 		e.configureChild()
 	}
@@ -272,14 +306,25 @@ func (e *Embedded) Pump() {
 }
 
 // Show and Hide map and unmap it: hidden while an HTML dialog or menu covers the screen.
-func (e *Embedded) Show() { xproto.MapWindow(e.conn, e.container); e.shown = true; e.conn.Sync() }
-func (e *Embedded) Hide() { xproto.UnmapWindow(e.conn, e.container); e.shown = false; e.conn.Sync() }
+func (e *Embedded) Show() { e.mu.Lock(); defer e.mu.Unlock(); e.show() }
+func (e *Embedded) Hide() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	xproto.UnmapWindow(e.conn, e.container)
+	e.shown = false
+	e.conn.Sync()
+}
+func (e *Embedded) show() { xproto.MapWindow(e.conn, e.container); e.shown = true; e.conn.Sync() }
 
 // Focus gives the VM's window the keyboard; Unfocus gives it back to the app's window.
 func (e *Embedded) Focus() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return xproto.SetInputFocusChecked(e.conn, xproto.InputFocusParent, e.child, xproto.TimeCurrentTime).Check()
 }
 func (e *Embedded) Unfocus() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	return xproto.SetInputFocusChecked(e.conn, xproto.InputFocusParent, e.parent, xproto.TimeCurrentTime).Check()
 }
 
@@ -290,7 +335,7 @@ func (e *Embedded) inContainer() bool {
 }
 
 // Alive is false once QEMU's window is gone or another client took it.
-func (e *Embedded) Alive() bool { return e.alive }
+func (e *Embedded) Alive() bool { e.mu.Lock(); defer e.mu.Unlock(); return e.alive }
 
 // Child is the VM's window.
 func (e *Embedded) Child() xproto.Window { return e.child }
@@ -322,11 +367,12 @@ func (e *Embedded) appActive() bool {
 // Release puts a live VM window back on the desktop as a window of its own and removes the
 // container; the run goes on. Safe to call twice.
 func (e *Embedded) Release() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
 	if e.released {
 		return nil
 	}
 	e.released = true
-	e.stopGuard()
 	e.drain()
 	// Never trust alive here: destroying a container that still holds the VM's window destroys
 	// that window, and QEMU dies of the BadWindow.

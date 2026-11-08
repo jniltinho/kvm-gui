@@ -218,8 +218,8 @@ func vmStart(ctx context.Context, _ *mcp.CallToolRequest, in vmStartIn) (*mcp.Ca
 	if err != nil {
 		return nil, nil, err
 	}
-	o := core.StartOptions{Starter: core.StarterMCP, VerboseBoot: in.VerboseBoot}
-	if e.Config.Backend != core.BackendReimsCtl { // reims-ctl VMs boot reims-ctl's OpenCore: no kexts of the app
+	o := core.StartOptions{Starter: core.StarterMCP, VerboseBoot: in.VerboseBoot, Display: core.DisplayApp} // the agent sees the screen through VNC
+	if e.Config.Backend != core.BackendReimsCtl {                                                           // reims-ctl VMs boot reims-ctl's OpenCore: no kexts of the app
 		// Downloads happen here, under the client's request, so the wait below covers only QEMU.
 		ks, err := core.LoadExtraKexts()
 		if err != nil {

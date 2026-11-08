@@ -91,7 +91,8 @@ func atom(conn *xgb.Conn, name string) xproto.Atom {
 }
 
 // where finds the window titled title: "embedded" when a kvm-gui container holds it, "desktop"
-// when it is a window of its own (on the root or in a window manager's frame), else "gone".
+// when it is a window of its own (on the root or in a window manager's frame), "hidden" when it is
+// not viewable, else "gone".
 func where(title string) string {
 	conn, err := xgb.NewConn()
 	if err != nil {
@@ -112,6 +113,9 @@ func where(title string) string {
 				in = true
 			}
 			if n, err := xproto.GetProperty(conn, false, c, xproto.AtomWmName, xproto.GetPropertyTypeAny, 0, 256).Reply(); err == nil && string(n.Value) == title {
+				if a, err := xproto.GetWindowAttributes(conn, c).Reply(); err != nil || a.MapState != xproto.MapStateViewable {
+					return "hidden", true // on the desktop only when one can see it
+				}
 				if in {
 					return "embedded", true
 				}

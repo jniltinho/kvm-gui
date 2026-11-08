@@ -191,7 +191,7 @@ To check it, run `system_profiler SPDisplaysDataType` in the guest: it shows **A
 
 A Reims VM's screen is Reims vGPU's own accelerated window, opened by the library through SDL3 and Vulkan, whatever the VM's Display setting.
 
-**Inside the app on X11.** When the GUI starts a Reims VM in an X11 session, it takes Reims vGPU's window into the Manager's Screen tab, or into the VM's window when you pick Show (one of them at a time), and gives it back to the desktop before that window closes or the app exits; if the app is killed, a small guard process (`kvm-gui embed-guard`) puts the window back on the desktop so the VM keeps it. Click the screen to type in macOS; Ctrl+Alt+Super releases the capture. **In its own window** otherwise: on a Wayland desktop (XWayland included, which crashes when an app holding another client's window dies), and for VMs started by `vm start` or the MCP server. What the app did is in `~/.local/state/kvm-gui/logs/embed.log`.
+**Inside the app on X11.** When the GUI starts a Reims VM in an X11 session, it takes Reims vGPU's window into the Manager's Screen tab, or into the VM's window when you pick Show (one of them at a time), and gives it back to the desktop before that window closes or the app exits; if the app is killed, the X server puts the window back on the desktop (an XFixes save-set), so the VM keeps it. Click the screen to type in macOS; Ctrl+Alt+Super releases the capture. **In its own window** otherwise: on a Wayland desktop (XWayland included, which crashes when an app holding another client's window dies), and for VMs started by `vm start` or the MCP server. What the app did is in `~/.local/state/kvm-gui/logs/embed.log`.
 
 Either way the app still serves its private VNC socket, so:
 

@@ -8,7 +8,7 @@ import {
   type VM, type VMInfo,
 } from "./api";
 import { applySkin } from "./themes";
-import { askConfirm, showInfo } from "./ask";
+import { askConfirm, showInfo, askState } from "./ask";
 import AddVMDialog from "./AddVMDialog.vue";
 import AskDialog from "./AskDialog.vue";
 import Details from "./Details.vue";
@@ -259,7 +259,7 @@ function closeMenus(e: MouseEvent) {
 }
 
 function shortcut(e: KeyboardEvent) {
-  if (dialog.value || !e.ctrlKey || e.altKey) return;
+  if (e.defaultPrevented || dialog.value || !e.ctrlKey || e.altKey) return; // a guest's keys are its own
   const k = e.key.toLowerCase();
   if (k === "n") { e.preventDefault(); dialog.value = "new"; }
   else if (k === "s" && selected.value) { e.preventDefault(); void openSettings("general"); }
@@ -376,8 +376,8 @@ onBeforeUnmount(() => {
           </template>
 
           <div v-else-if="tool === 'screen'" class="screen-tab">
-            <VMScreen v-if="selected?.running && (reimsGPU || shownInfo?.config.display !== 'window')" :key="selected.id"
-              :id="selected.id" :name="selected.name" host="manager" :reims="reimsGPU" :covered="!!dialog || !!menu || startOpen" />
+            <VMScreen v-if="selected?.running && (reimsGPU || selected.screen)" :key="selected.id"
+              :id="selected.id" :name="selected.name" host="manager" :reims="reimsGPU" :covered="!!dialog || !!menu || startOpen || !!askState" />
             <p v-else-if="selected?.running" class="muted pad">The screen of {{ selected.name }} is in QEMU's own window (Settings › Display › Screen).</p>
             <p v-else-if="selected" class="muted pad">{{ selected.name }} is powered off: Start shows its screen here.</p>
           </div>

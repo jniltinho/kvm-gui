@@ -152,6 +152,21 @@ func TestScreenAuthentication(t *testing.T) {
 	if st := closedWith(t, c); st != websocket.StatusPolicyViolation {
 		t.Fatalf("stale run: %v", st)
 	}
+	// The run restarts while the dial waits for its socket: the new run's screen is not given.
+	var mu sync.Mutex
+	gen := "gen1"
+	s.findRun = func(vm string) (screenRun, bool) {
+		mu.Lock()
+		defer mu.Unlock()
+		return screenRun{gen, "/fake"}, vm == "vm1"
+	}
+	f := newFakeScreen()
+	s.dial = func(string) (screenSource, error) { mu.Lock(); gen = "gen2"; mu.Unlock(); return f, nil }
+	c, _ = dial(t, s, appOrigin)
+	auth(t, c, s.token, "gen1")
+	if st := closedWith(t, c); st != websocket.StatusPolicyViolation {
+		t.Fatalf("restart during the dial: %v", st)
+	}
 }
 
 // A message over 64 KiB closes the connection; frames go one at a time; every key and button

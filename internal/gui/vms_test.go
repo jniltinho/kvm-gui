@@ -101,3 +101,18 @@ func TestShowArg(t *testing.T) {
 		}
 	}
 }
+
+// A VM's Logs show what embedding did with that VM only.
+func TestEmbedLines(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	logf("vm-a: looking")
+	logf("vm-ab: looking")
+	logf("vm-a: embedded")
+	got := embedLines("vm-a")
+	if !strings.Contains(got, "vm-a: looking") || !strings.Contains(got, "vm-a: embedded") || strings.Contains(got, "vm-ab") {
+		t.Fatalf("embedLines: %q", got)
+	}
+	if embedLines("other") != "" {
+		t.Fatal("lines for a VM that has none")
+	}
+}

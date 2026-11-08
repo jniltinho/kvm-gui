@@ -174,6 +174,12 @@ func (s *screenServer) handle(w http.ResponseWriter, r *http.Request) {
 		conn.Close(websocket.StatusInternalError, "the VM's screen is not available")
 		return
 	}
+	// The dial retries the socket for a while: a run that restarted meanwhile is not this one.
+	if now, ok := s.findRun(a.VM); !ok || now.Generation != run.Generation {
+		src.Close()
+		conn.Close(websocket.StatusPolicyViolation, "that run is not running")
+		return
+	}
 	v := &viewer{conn: conn, src: src, keys: map[core.KeyCode]bool{}}
 	s.mu.Lock()
 	s.viewers[v] = struct{}{}

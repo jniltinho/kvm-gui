@@ -157,7 +157,7 @@ function onWheel(e: WheelEvent) {
 onMounted(() => {
   void connect();
   if (!props.interactive) return;
-  window.addEventListener("keydown", onKeyDown);
+  window.addEventListener("keydown", onKeyDown, true); // before the Manager's shortcuts: a grabbed key is the guest's
   window.addEventListener("keyup", onKeyUp);
   window.addEventListener("blur", onBlur);
   canvas.value?.addEventListener("wheel", onWheel, { passive: false });
@@ -167,7 +167,7 @@ onBeforeUnmount(() => {
   clearTimeout(retry);
   release();
   ws?.close();
-  window.removeEventListener("keydown", onKeyDown);
+  window.removeEventListener("keydown", onKeyDown, true);
   window.removeEventListener("keyup", onKeyUp);
   window.removeEventListener("blur", onBlur);
 });

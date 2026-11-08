@@ -3,7 +3,8 @@
 #   scripts/check-gnome.sh <24.04|26.04>
 # 24.04, GNOME on X11 (mutter 46): two fake Reims vGPU runs are embedded into their VM windows;
 # closing one window puts its VM's window back on the desktop while the other stays embedded; a
-# SIGKILL of the app puts the other back too (its embed guard), and neither fake QEMU loses its window.
+# SIGKILL of the app puts the other back too (the root-target save-set), and neither fake QEMU loses
+# its window.
 # 26.04, GNOME on Wayland only (mutter 50, XWayland on demand): the app embeds nothing and both VM
 # windows stay their own (design D6: XWayland crashes when an app holding a window dies).
 set -euo pipefail

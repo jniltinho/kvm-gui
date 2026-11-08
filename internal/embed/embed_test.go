@@ -19,12 +19,6 @@ import (
 // waits to be killed (FAKE_X_APP), besides the tests.
 func TestMain(m *testing.M) {
 	switch {
-	case os.Getenv("FAKE_X_GUARD") != "": // the guard the fake app starts (StartGuard)
-		if err := GuardMain(os.Args[1:]); err != nil {
-			fmt.Fprintln(os.Stderr, err)
-			os.Exit(1)
-		}
-		os.Exit(0)
 	case os.Getenv("FAKE_X_CLIENT") != "":
 		fakeClient()
 	case os.Getenv("FAKE_X_APP") != "":
@@ -105,19 +99,11 @@ func fakeApp() {
 	if err != nil {
 		os.Exit(5)
 	}
-	e, err := x.Embed(parent, child, uint32(pid), func(w uint32) error {
-		return xproto.ChangeSaveSetChecked(gtk, xproto.SetModeInsert, xproto.Window(w)).Check()
-	})
+	e, err := x.Embed(parent, child, uint32(pid), func(w uint32) error { return RootSaveSet(gtk, xproto.Window(w)) })
 	if err != nil {
 		os.Exit(6)
 	}
 	e.SetRect(10, 20, 300, 200)
-	if os.Getenv("FAKE_X_APP_GUARD") != "" {
-		os.Setenv("FAKE_X_GUARD", "1")
-		if err := e.StartGuard(os.Args[0]); err != nil {
-			os.Exit(7)
-		}
-	}
 	fmt.Println("embedded")
 	select {}
 }
@@ -258,9 +244,6 @@ func TestSurvivesSIGKILL(t *testing.T) {
 	}
 }
 
-// teardown is how long fakeWM takes to destroy the frame of a window that was destroyed.
-const teardown = 30 * time.Millisecond
-
 // fakeWM is a reparenting window manager like KWin: it frames every top-level window mapped on
 // the root, and on unmap puts the window back on the root and destroys the frame. stop ends it.
 func fakeWM(t *testing.T) (stop func()) {
@@ -296,11 +279,10 @@ func fakeWM(t *testing.T) (stop func()) {
 			case xproto.ConfigureRequestEvent:
 				xproto.ConfigureWindow(conn, ev.Window, xproto.ConfigWindowWidth|xproto.ConfigWindowHeight, []uint32{uint32(ev.Width), uint32(ev.Height)})
 			case xproto.DestroyNotifyEvent:
-				// Its client is gone: the frame goes, a moment later, like a real window manager's
-				// (several round trips: mutter's frames client, KWin's close effect).
+				// Its client is gone: the frame goes at once, whatever is still in it.
 				if f, ok := frames[ev.Window]; ok {
 					delete(frames, ev.Window)
-					time.AfterFunc(teardown, func() { xproto.DestroyWindow(conn, f); conn.Sync() })
+					xproto.DestroyWindow(conn, f)
 				}
 			case xproto.UnmapNotifyEvent:
 				if f, ok := frames[ev.Window]; ok && ev.Event == f {
@@ -368,9 +350,9 @@ func TestEmbedUnderWindowManager(t *testing.T) {
 	}
 }
 
-// The app is killed with SIGKILL under a reparenting window manager: the save-set moves the VM's
-// window into the frame of the app's window, which the window manager destroys. Without a guard
-// the VM loses its window (QEMU dies of it); the guard puts it back on the desktop first.
+// The app is killed with SIGKILL under a reparenting window manager that destroys the frame of
+// the app's window at once: a plain save-set would leave the VM's window in that frame, to be
+// destroyed with it; the root-target save-set puts it on the root first, mapped.
 func TestSIGKILLUnderWindowManager(t *testing.T) {
 	needX(t)
 	stop := fakeWM(t)
@@ -380,13 +362,10 @@ func TestSIGKILLUnderWindowManager(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer x.Close()
-	for _, guarded := range []bool{false, true} {
+	for range 3 {
 		client := startClient(t)
 		app := exec.Command(os.Args[0])
 		app.Env = append(os.Environ(), "FAKE_X_APP="+strconv.Itoa(client.Process.Pid))
-		if guarded {
-			app.Env = append(app.Env, "FAKE_X_APP_GUARD=1")
-		}
 		out, _ := app.StdoutPipe()
 		if err := app.Start(); err != nil {
 			t.Fatal(err)
@@ -395,19 +374,88 @@ func TestSIGKILLUnderWindowManager(t *testing.T) {
 		if n, _ := out.Read(buf); string(buf[:n]) != "embedded\n" {
 			app.Process.Kill()
 			app.Wait()
-			t.Fatalf("guarded %v: the fake app did not embed: %q", guarded, buf[:n])
+			t.Fatalf("the fake app did not embed: %q", buf[:n])
 		}
 		app.Process.Signal(syscall.SIGKILL)
 		app.Wait()
-		time.Sleep(10 * teardown)
-		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
-		_, err := x.FindWindow(ctx, uint32(client.Process.Pid), ReimsTitle)
+		ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+		_, err := x.FindWindow(ctx, uint32(client.Process.Pid), ReimsTitle) // viewable, outside any container
 		cancel()
-		if guarded && err != nil {
-			t.Fatalf("with a guard the VM lost its window: %v", err)
+		if err != nil {
+			t.Fatalf("the VM lost its window: %v", err)
 		}
-		if !guarded && err == nil {
-			t.Fatal("without a guard the window survived: the fake window manager does not destroy frames")
+	}
+}
+
+// A window manager that gives the focus back to the app's window whenever it goes to the VM (as
+// mutter does to a window it does not manage), with the pointer over the VM: the embedder must not
+// answer each return by focusing the VM again, or the two bounce forever and its lock is never
+// free (the page's next placement then waits forever).
+func TestFocusDoesNotBounce(t *testing.T) {
+	needX(t)
+	x, err := Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+	app, _ := xgb.NewConn()
+	defer app.Close()
+	parent, err := newWindow(app, uint32(os.Getpid()), "kvm-gui")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := startClient(t)
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	w, err := x.FindWindow(ctx, uint32(client.Process.Pid), ReimsTitle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err := x.Embed(parent, w, uint32(client.Process.Pid), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer e.Release()
+	e.SetRect(0, 0, 300, 200)
+	root := xproto.Setup(app).DefaultScreen(app).Root
+	xproto.WarpPointer(app, 0, root, 0, 0, 0, 0, 50, 50) // over the VM (the app's window is at 0,0)
+	wm, _ := xgb.NewConn()
+	defer wm.Close()
+	xproto.ChangeWindowAttributes(wm, w, xproto.CwEventMask, []uint32{xproto.EventMaskFocusChange})
+	wm.Sync()
+	moves := 0
+	stop := make(chan struct{})
+	go func() {
+		for {
+			ev, err := wm.WaitForEvent()
+			if ev == nil && err == nil {
+				return
+			}
+			if f, ok := ev.(xproto.FocusInEvent); ok && f.Event == w {
+				select {
+				case <-stop:
+					return
+				default:
+				}
+				moves++
+				xproto.SetInputFocus(wm, xproto.InputFocusParent, parent, xproto.TimeCurrentTime)
+				wm.Sync()
+			}
 		}
+	}()
+	// The window manager activates the app's window: the focus comes from outside.
+	xproto.SetInputFocus(app, xproto.InputFocusPointerRoot, xproto.InputFocusPointerRoot, xproto.TimeCurrentTime)
+	app.Sync()
+	xproto.SetInputFocus(app, xproto.InputFocusParent, parent, xproto.TimeCurrentTime)
+	app.Sync()
+	for end := time.Now().Add(time.Second); time.Now().Before(end); time.Sleep(20 * time.Millisecond) {
+		e.Pump()
+	}
+	close(stop)
+	if moves > 5 {
+		t.Fatalf("the focus went to the VM %d times in a second", moves)
+	}
+	if moves == 0 {
+		t.Fatal("the focus from outside, with the pointer over the VM, did not go to the VM")
 	}
 }

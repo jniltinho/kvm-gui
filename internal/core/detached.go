@@ -16,6 +16,7 @@ import (
 type StartOptions struct {
 	Starter       string // StarterGUI or StarterMCP
 	EmbedX11      bool   // GUI runs only: Reims vGPU opens its window on X11, to be embedded
+	Display       string // DisplayApp or DisplayWindow; "" keeps the VM's own setting
 	VerboseBoot   bool
 	KextsSnapshot string // the extra kexts the caller downloaded (JSON)
 }
@@ -43,7 +44,10 @@ func StartDetached(ctx context.Context, self string, e VMEntry, o StartOptions) 
 		return RunInfo{}, err
 	}
 	defer log.Close()
-	args := []string{"vm", "start", "--vm", e.ID, "--display", DisplayApp}
+	args := []string{"vm", "start", "--vm", e.ID}
+	if o.Display != "" {
+		args = append(args, "--display", o.Display)
+	}
 	if o.Starter == StarterGUI {
 		args = append(args, "--gui-run")
 	} else {

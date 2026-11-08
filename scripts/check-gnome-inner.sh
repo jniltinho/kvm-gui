@@ -65,7 +65,10 @@ if [[ $v == 26.04 ]]; then
 	echo "ok: GNOME $v on Wayland: no embedding, the VM windows stay their own"
 	exit 0
 fi
+# A page fully covered by another window runs no timers: each VM window is looked at in turn.
+wmctrl -a "Reims A [Running]"
 until_ 40 is reims-a embedded || fail "Reims A was not embedded"
+wmctrl -a "Reims B [Running]"
 until_ 40 is reims-b embedded || fail "Reims B was not embedded"
 echo "ok: two VM windows embedded under mutter on X11"
 wmctrl -c "Reims A [Running]"
