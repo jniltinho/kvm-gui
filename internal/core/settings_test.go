@@ -9,8 +9,8 @@ import (
 
 func TestSetting(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	write(t, filepath.Join(cfg, "macos-kvm-gui", ".env"), "# comment\nMKG_FOO = \"from-file\"\nMKG_BAR=x\n")
+	isolateXDG(t, cfg)
+	write(t, filepath.Join(cfg, "kvm-gui", ".env"), "# comment\nMKG_FOO = \"from-file\"\nMKG_BAR=x\n")
 	if got := Setting("MKG_FOO"); got != "from-file" {
 		t.Errorf(".env value: %q", got)
 	}
@@ -25,10 +25,10 @@ func TestSetting(t *testing.T) {
 
 func TestSettingsYAML(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	isolateXDG(t, cfg)
 	t.Setenv("MKG_THEME", "")
 	os.Unsetenv("MKG_THEME")
-	write(t, filepath.Join(cfg, "macos-kvm-gui", ".env"), "MKG_THEME=dark\nMKG_ASSETS_DIR=/from-env-file\n")
+	write(t, filepath.Join(cfg, "kvm-gui", ".env"), "MKG_THEME=dark\nMKG_ASSETS_DIR=/from-env-file\n")
 	if got := Setting("MKG_THEME"); got != "dark" {
 		t.Errorf("the default settings.yaml sets nothing, so .env applies: %q", got)
 	}
@@ -49,7 +49,7 @@ func TestSettingsYAML(t *testing.T) {
 }
 
 func TestAssetsDirOverride(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	if v := AssetVersions(); !strings.Contains(v, "OpenCore 1.") || !strings.Contains(v, "built in") {
 		t.Errorf("embedded versions: %q", v)
 	}
@@ -76,5 +76,18 @@ func TestAssetsDirOverride(t *testing.T) {
 	t.Setenv("MKG_ASSETS_DIR", partial)
 	if err := w.PrepareBoot(testDefaults(), false); err == nil || !strings.Contains(err.Error(), "BOOTx64.efi") {
 		t.Fatalf("an override without BOOTx64.efi must be refused: %v", err)
+	}
+}
+
+// KVM_GUI_* names win over MKG_* ones (spec file-layout).
+func TestKVMGUIVariables(t *testing.T) {
+	isolateXDG(t, t.TempDir())
+	t.Setenv("MKG_THEME", "dark")
+	if Setting("MKG_THEME") != "dark" {
+		t.Fatal("MKG_THEME alone")
+	}
+	t.Setenv("KVM_GUI_THEME", "xp")
+	if Setting("MKG_THEME") != "xp" {
+		t.Fatal("KVM_GUI_THEME must win")
 	}
 }

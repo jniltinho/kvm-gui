@@ -63,11 +63,11 @@ func TestValidateNICs(t *testing.T) {
 		"too many":    {ok, ok, ok, ok, ok},
 	}
 	for name, nics := range cases {
-		if err := validateNICs(nics); err == nil {
+		if err := validateNICs(nics, NICModels); err == nil {
 			t.Errorf("%s must be refused", name)
 		}
 	}
-	if err := validateNICs([]NIC{ok}); err != nil {
+	if err := validateNICs([]NIC{ok}, NICModels); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 50; i++ {
@@ -152,7 +152,7 @@ func TestSSHPortInUse(t *testing.T) {
 
 func TestMigrationToVersion2(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	isolateXDG(t, cfg)
 	path, _ := DBPath()
 	os.MkdirAll(filepath.Dir(path), 0o755)
 	// A version 1 database, as the previous release left it.

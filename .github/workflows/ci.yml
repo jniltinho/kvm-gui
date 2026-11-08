@@ -1,0 +1,74 @@
+# kvm-gui's checks. Everything runs in the build image (build/linux.Dockerfile) through make, so the
+# runner needs only Docker and make. No Rust is built here: the archived reims-gui is not built, and
+# Reims vGPU's QEMU has its own workflow (reims-release.yml).
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the package version comes from the last v* tag
+      - name: Let WebKit's sandbox create user namespaces (Ubuntu 24.04 runners restrict them)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Go checks (gofmt, go vet, go test -race with every tool required)
+        run: make test
+      - name: THIRD_PARTY_LICENSES.txt is current
+        run: make licenses && git diff --exit-code THIRD_PARTY_LICENSES.txt
+      - name: Layering and skin tokens
+        run: make layers
+      - name: OpenSpec (validate --all --strict)
+        run: make openspec
+      - name: Frontend lint (Vite Plus)
+        run: make frontend-check
+      - name: Embedding a VM's X11 window, SIGKILL included (Xvfb)
+        run: make test-embed
+      - name: The Manager opens and loads the VM list (Xvfb)
+        run: make self-test
+      - name: Artifacts (.deb, .rpm, AppImage, binary, SHA256SUMS)
+        run: make dist
+      - name: Keep the artifacts for the distribution checks
+        uses: actions/upload-artifact@v4
+        with:
+          name: dist
+          path: |
+            dist/kvm-gui_*.deb
+            dist/kvm-gui-*.rpm
+            dist/kvm-gui-*-x86_64.AppImage
+            dist/kvm-gui-v*-linux-amd64
+            dist/SHA256SUMS
+          retention-days: 7
+
+  # Each artifact on a clean distribution: the package with apt or dnf, the AppImage and the binary
+  # with the documented libraries, no recommended packages, and the upgrade from macos-kvm-gui.
+  distributions:
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        dist: [ubuntu24.04, ubuntu26.04, debian13, rocky10]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
+      - name: Let WebKit's sandbox create user namespaces (Ubuntu 24.04 runners restrict them)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+      - name: Clean ${{ matrix.dist }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: chmod +x dist/*.AppImage dist/kvm-gui-v*-linux-amd64 && scripts/check-dist.sh ${{ matrix.dist }} all

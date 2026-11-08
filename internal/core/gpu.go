@@ -7,7 +7,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
+	"syscall"
 )
 
 type Compat int
@@ -260,22 +262,99 @@ const (
 	vfioUdev     = "udev/rules.d/99-macos-kvm-gui-vfio.rules"
 )
 
-// reserveScript is constant: the IDs arrive as $1 and are checked again here. It holds a
-// host-wide lock and rolls the files back if the initramfs cannot be rebuilt.
+// reserveScript is constant: the IDs arrive as $1 and the initramfs tool as $2, both checked again
+// here. It holds a host-wide lock and rolls the files back if the initramfs cannot be rebuilt.
 const reserveScript = `case "$1" in ""|*[!0-9a-f:,]*) echo "invalid PCI IDs" >&2; exit 2;; esac
+case "$2" in update-initramfs) rebuild() { update-initramfs -u -k all; };; dracut) rebuild() { dracut --regenerate-all --force; };; *) echo "invalid initramfs tool" >&2; exit 2;; esac
 exec 9>/run/lock/macos-kvm-gui-host.lock && flock -n 9 || { echo "another GPU change is running" >&2; exit 3; }
 printf 'options vfio-pci ids=%s disable_vga=1\nsoftdep amdgpu pre: vfio-pci\nsoftdep radeon pre: vfio-pci\nsoftdep nouveau pre: vfio-pci\nsoftdep nvidia pre: vfio-pci\nsoftdep snd_hda_intel pre: vfio-pci\n' "$1" > /etc/modprobe.d/macos-kvm-gui-vfio.conf || exit 1
 printf 'SUBSYSTEM=="vfio", GROUP="kvm", MODE="0660"\n' > /etc/udev/rules.d/99-macos-kvm-gui-vfio.rules || exit 1
-if ! update-initramfs -u -k all; then
+if ! rebuild; then
   rm -f /etc/modprobe.d/macos-kvm-gui-vfio.conf /etc/udev/rules.d/99-macos-kvm-gui-vfio.rules
-  update-initramfs -u -k all
+  rebuild
   echo "initramfs rebuild failed; the reservation was rolled back" >&2
   exit 1
 fi`
 
-const releaseScript = `exec 9>/run/lock/macos-kvm-gui-host.lock && flock -n 9 || { echo "another GPU change is running" >&2; exit 3; }
+const releaseScript = `case "$1" in update-initramfs) rebuild() { update-initramfs -u -k all; };; dracut) rebuild() { dracut --regenerate-all --force; };; *) echo "invalid initramfs tool" >&2; exit 2;; esac
+exec 9>/run/lock/macos-kvm-gui-host.lock && flock -n 9 || { echo "another GPU change is running" >&2; exit 3; }
 rm -f /etc/modprobe.d/macos-kvm-gui-vfio.conf /etc/udev/rules.d/99-macos-kvm-gui-vfio.rules || exit 1
-update-initramfs -u -k all || { echo "files removed, but the initramfs rebuild failed: run sudo update-initramfs -u -k all" >&2; exit 1; }`
+rebuild || { echo "files removed, but the initramfs rebuild failed: rebuild it with $1" >&2; exit 1; }`
+
+// initramfsTool rebuilds the initramfs: update-initramfs on Ubuntu and Debian, dracut on Rocky
+// Linux (every installed kernel).
+func (h Host) initramfsTool() (string, error) {
+	switch h.PackageManager() {
+	case "apt":
+		return "update-initramfs", nil
+	case "dnf":
+		return "dracut", nil
+	}
+	return "", errors.New("GPU reservation supports Ubuntu, Debian and Rocky Linux only: nothing was changed")
+}
+
+// gpuLock serializes the GPU checks of starts and Release: the check and the run record (or the
+// release) happen under it, so two starts cannot both pass, and Release cannot pass while a start
+// is taking the GPU.
+func gpuLock() (func(), error) {
+	f, err := os.OpenFile(filepath.Join(runBase(), "kvm-gui-gpu.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("another GPU start or a GPU release is in progress: try again in a moment: %w", ErrBusy)
+	}
+	return func() { f.Close() }, nil
+}
+
+// findRunFn is FindRun; tests replace it.
+var findRunFn = FindRun
+
+// gpuRunner is the running VM, other than except, that passes the GPU at addr through ("" = any GPU).
+func gpuRunner(addr, except string) (string, bool) {
+	if pid, ok := gpuProcess("/proc", addr); ok { // any QEMU passing it through, --config runs too
+		if name, ok := gpuRunnerDB(addr, except); ok {
+			return name, true
+		}
+		return fmt.Sprintf("a QEMU outside the VM list (pid %d)", pid), true
+	}
+	return gpuRunnerDB(addr, except)
+}
+
+// gpuProcess finds a QEMU with vfio-pci host=addr (any address when addr is "").
+func gpuProcess(proc, addr string) (int, bool) {
+	entries, _ := os.ReadDir(proc)
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || !isQEMU(filepath.Join(proc, e.Name())) {
+			continue
+		}
+		raw, _ := os.ReadFile(filepath.Join(proc, e.Name(), "cmdline"))
+		for _, a := range strings.Split(string(raw), "\x00") {
+			if h := suboption(strings.TrimPrefix(a, "vfio-pci,"), "host"); strings.HasPrefix(a, "vfio-pci,") && h != "" && (addr == "" || h == addr) {
+				return pid, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func gpuRunnerDB(addr, except string) (string, bool) {
+	vms, err := ListVMs()
+	if err != nil {
+		return "", false
+	}
+	for _, e := range vms {
+		if e.ID == except || e.Config.GPU == "" || (addr != "" && e.Config.GPU != addr) {
+			continue
+		}
+		if _, ok := findRunFn(e); ok {
+			return e.DisplayName(), true
+		}
+	}
+	return "", false
+}
 
 func vfioIDs(g GPU) (string, error) {
 	var ids []string
@@ -317,7 +396,11 @@ func (h Host) ReserveGPU(g GPU) error {
 	if err != nil {
 		return err
 	}
-	if err := h.runPrivileged(reserveScript, ids); err != nil {
+	tool, err := h.initramfsTool()
+	if err != nil {
+		return err
+	}
+	if err := h.runPrivileged(reserveScript, ids, tool); err != nil {
 		if errors.Is(err, ErrCancelled) {
 			return err
 		}
@@ -331,7 +414,19 @@ func (h Host) ReserveGPU(g GPU) error {
 
 // ReleaseGPU removes the reservation; the GPU gets its normal driver back after a reboot.
 func (h Host) ReleaseGPU() error {
-	if err := h.runPrivileged(releaseScript); err != nil {
+	unlock, err := gpuLock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if name, ok := gpuRunner("", ""); ok {
+		return fmt.Errorf("%s is running with the GPU passed through: shut it down before releasing the GPU", name)
+	}
+	tool, err := h.initramfsTool()
+	if err != nil {
+		return err
+	}
+	if err := h.runPrivileged(releaseScript, tool); err != nil {
 		if errors.Is(err, ErrCancelled) {
 			return err
 		}

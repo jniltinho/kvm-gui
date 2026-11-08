@@ -11,7 +11,9 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver, registered as "sqlite"
 )
@@ -38,19 +40,8 @@ func (e VMEntry) DisplayName() string {
 	return "macOS " + e.Config.Version
 }
 
-func appConfigDir() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "macos-kvm-gui"), nil
-}
-
-// DBPath is the database file.
-func DBPath() (string, error) {
-	dir, err := appConfigDir()
-	return filepath.Join(dir, "macos-kvm-gui.db"), err
-}
+// DBPath is the database file: ~/.local/share/kvm-gui/kvm-gui.db.
+func DBPath() (string, error) { return filepath.Join(DataDir(), "kvm-gui.db"), nil }
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS vms (
@@ -70,8 +61,22 @@ CREATE TABLE IF NOT EXISTS vms (
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`
 
 // schemaVersion is the database's PRAGMA user_version: 1 created the tables, 2 added the
-// network adapters, 3 root-patch mode, 4 the graphics adapter, 5 the Reims resolution.
-const schemaVersion = 5
+// network adapters, 3 root-patch mode, 4 the graphics adapter, 5 the Reims resolution, 6 the
+// guest settings (ext, JSON) and the snapshot tables.
+const schemaVersion = 6
+
+const schemaV6Snapshots = `
+CREATE TABLE IF NOT EXISTS snapshots (
+	id          TEXT PRIMARY KEY,
+	vm_id       TEXT NOT NULL,
+	parent_id   TEXT NOT NULL DEFAULT '',
+	name        TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+	state       TEXT NOT NULL DEFAULT '',
+	manifest    TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS snapshot_ops (id TEXT PRIMARY KEY, done_at TEXT NOT NULL DEFAULT (datetime('now')));`
 
 // migrate brings a database from version v to schemaVersion. Each step is safe to repeat, and
 // the version is written last, so an interrupted upgrade runs again on the next start.
@@ -131,6 +136,21 @@ func migrate(db *sql.DB, v int) error {
 			}
 		}
 	}
+	if v < 6 {
+		var n int
+		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('vms') WHERE name = 'ext'`).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := db.Exec(`ALTER TABLE vms ADD COLUMN ext TEXT NOT NULL DEFAULT ''`); err != nil &&
+				!strings.Contains(err.Error(), "duplicate column name") {
+				return err
+			}
+		}
+		if _, err := db.Exec(schemaV6Snapshots); err != nil {
+			return err
+		}
+	}
 	if v < 1 {
 		// Imported files are renamed as they are read, so a retry does not read them twice.
 		if err := importFiles(db); err != nil {
@@ -151,16 +171,32 @@ func openDB() (*sql.DB, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
 	}
+	if err := migrateLegacy(path); err != nil {
+		return nil, fmt.Errorf("copying macos-kvm-gui's settings and VM list: %w", err)
+	}
 	// _txlock=immediate: a transaction takes the write lock at BEGIN, so two creates (from
 	// either app) cannot pick the same SSH port.
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_txlock=immediate")
 	if err != nil {
 		return nil, err
 	}
+	// A new database's switch to WAL can return SQLITE_BUSY at once, without the busy timeout,
+	// while another process (or connection) makes the same switch: retry for up to about 5 s.
 	var v int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+	for try := 0; ; try++ {
+		err = db.QueryRow(`PRAGMA user_version`).Scan(&v)
+		if err == nil || try == 50 || !strings.Contains(err.Error(), "SQLITE_BUSY") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("database %s: %w", path, err)
+	}
+	if v > schemaVersion {
+		db.Close()
+		return nil, fmt.Errorf("database %s has schema %d, newer than this kvm-gui knows (%d): use a newer kvm-gui; the file was not changed", path, v, schemaVersion)
 	}
 	if v < schemaVersion {
 		if err := migrate(db, v); err != nil {
@@ -171,7 +207,7 @@ func openDB() (*sql.DB, error) {
 	return db, nil
 }
 
-const vmColumns = `id, name, workspace, version, ram_mib, cores, vcpus, ssh_port, display, gpu, networks, root_patch, graphics, resolution`
+const vmColumns = `id, name, workspace, version, ram_mib, cores, vcpus, ssh_port, display, gpu, networks, root_patch, graphics, resolution, ext`
 
 // networksJSON stores the adapters; "" keeps a VM on its legacy single NAT adapter.
 func networksJSON(c Config) string {
@@ -182,11 +218,61 @@ func networksJSON(c Config) string {
 	return string(b)
 }
 
+// guestExt is the part of Config schema 6 stores as JSON in the ext column: the fields of
+// Linux, Windows and Other VMs. "" (every VM from before) is a macOS VM.
+type guestExt struct {
+	Guest         string         `json:"guest,omitempty"`
+	Profile       string         `json:"profile,omitempty"`
+	Firmware      string         `json:"firmware,omitempty"`
+	SecureBoot    bool           `json:"secure_boot,omitempty"`
+	TPM           bool           `json:"tpm,omitempty"`
+	Disks         []Disk         `json:"disks,omitempty"`
+	Optical       []string       `json:"optical,omitempty"`
+	BootOrder     string         `json:"boot_order,omitempty"`
+	Serial        string         `json:"serial,omitempty"`
+	SharedFolders []SharedFolder `json:"shared_folders,omitempty"`
+	USBDevices    []USBDevice    `json:"usb_devices,omitempty"`
+	Description   string         `json:"description,omitempty"`
+	Backend       string         `json:"backend,omitempty"`
+	ReimsCtlName  string         `json:"reims_ctl_name,omitempty"`
+	ReimsCtlConf  string         `json:"reims_ctl_config,omitempty"`
+	CurrentSnap   string         `json:"current_snapshot,omitempty"`
+}
+
+func extJSON(c Config) string {
+	x := guestExt{c.Guest, c.Profile, c.Firmware, c.SecureBoot, c.TPM, c.Disks, c.Optical, c.BootOrder,
+		c.Serial, c.SharedFolders, c.USBDevices, c.Description, c.Backend, c.ReimsCtlName, c.ReimsCtlConfig, c.CurrentSnapshot}
+	if x.Guest == "" && x.Description == "" && x.Backend == "" && x.CurrentSnap == "" {
+		return ""
+	}
+	b, _ := json.Marshal(x)
+	return string(b)
+}
+
+func applyExt(c *Config, s string) error {
+	if s == "" {
+		return nil
+	}
+	var x guestExt
+	if err := json.Unmarshal([]byte(s), &x); err != nil {
+		return err
+	}
+	c.Guest, c.Profile, c.Firmware, c.SecureBoot, c.TPM, c.Disks, c.Optical, c.BootOrder = x.Guest, x.Profile, x.Firmware, x.SecureBoot, x.TPM, x.Disks, x.Optical, x.BootOrder
+	c.Serial, c.SharedFolders, c.USBDevices, c.Description = x.Serial, x.SharedFolders, x.USBDevices, x.Description
+	c.Backend, c.ReimsCtlName, c.ReimsCtlConfig, c.CurrentSnapshot = x.Backend, x.ReimsCtlName, x.ReimsCtlConf, x.CurrentSnap
+	return nil
+}
+
 func scanVM(row interface{ Scan(...any) error }) (VMEntry, error) {
 	var e VMEntry
 	c := &e.Config
-	var nets string
-	err := row.Scan(&e.ID, &c.Name, &c.Workspace, &c.Version, &c.RAMMiB, &c.Cores, &c.VCPUs, &c.SSHPort, &c.Display, &c.GPU, &nets, &c.RootPatch, &c.Graphics, &c.Resolution)
+	var nets, ext string
+	err := row.Scan(&e.ID, &c.Name, &c.Workspace, &c.Version, &c.RAMMiB, &c.Cores, &c.VCPUs, &c.SSHPort, &c.Display, &c.GPU, &nets, &c.RootPatch, &c.Graphics, &c.Resolution, &ext)
+	if err == nil {
+		if xerr := applyExt(c, ext); xerr != nil {
+			return e, fmt.Errorf("VM %s: unreadable settings: %w", e.ID, xerr)
+		}
+	}
 	if err == nil && nets != "" {
 		if jerr := json.Unmarshal([]byte(nets), &c.Networks); jerr != nil {
 			return e, fmt.Errorf("VM %s: unreadable network adapters: %w", e.ID, jerr)
@@ -230,7 +316,7 @@ func Slug(name string) string {
 }
 
 // DefaultWorkspace is the app's Workspace when none is saved: the parent folder of every VM.
-const DefaultWorkspace = "~/macOS-VMs"
+const DefaultWorkspace = "~/KVM-VMs"
 
 // WorkspaceRoot is the folder that holds one subfolder per VM. VMs added before it existed (for
 // example an OSX-KVM folder) keep their own folder.
@@ -284,6 +370,7 @@ var portFree = func(p int) bool {
 // NextSSHPort is the lowest port from FirstSSHPort up that no VM but exceptID uses and that
 // probe (nil: bind on 127.0.0.1) says is free.
 func NextSSHPort(exceptID string, probe func(int) bool) (int, error) {
+	refreshAllReimsCtl(context.Background())
 	db, err := openDB()
 	if err != nil {
 		return 0, err
@@ -376,6 +463,7 @@ func CreateVM(c Config) (VMEntry, error) {
 	if err := check.Validate(); err != nil {
 		return VMEntry{}, err
 	}
+	refreshAllReimsCtl(context.Background()) // their ports, as reims-ctl has them now
 	db, err := openDB()
 	if err != nil {
 		return VMEntry{}, err
@@ -427,8 +515,8 @@ func insertVM(db dbtx, c Config) (VMEntry, error) {
 		}
 		id = fmt.Sprintf("%s-%d", base, i)
 	}
-	_, err := db.Exec(`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, c.Name, c.Workspace, c.Version, c.RAMMiB, c.Cores, c.VCPUs, c.SSHPort, c.Display, c.GPU, networksJSON(c), c.RootPatch, c.Graphics, c.Resolution)
+	_, err := db.Exec(`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, c.Name, c.Workspace, c.Version, c.RAMMiB, c.Cores, c.VCPUs, c.SSHPort, c.Display, c.GPU, networksJSON(c), c.RootPatch, c.Graphics, c.Resolution, extJSON(c))
 	if isUniqueErr(err) {
 		return VMEntry{}, &FieldError{"name", "a VM with this name already exists"}
 	}
@@ -442,6 +530,9 @@ func insertVM(db dbtx, c Config) (VMEntry, error) {
 func SaveVM(e VMEntry, c Config) error {
 	if e.Path != "" { // a standalone --config file
 		return SaveConfig(e.Path, c)
+	}
+	if e.Config.Backend == BackendReimsCtl {
+		return saveReimsCtl(e, c)
 	}
 	c.Name = strings.TrimSpace(c.Name)
 	if c.Name == "" {
@@ -464,8 +555,8 @@ func SaveVM(e VMEntry, c Config) error {
 
 func updateVM(db dbtx, id string, c Config) error {
 	res, err := db.Exec(`UPDATE vms SET name = ?, workspace = ?, version = ?, ram_mib = ?, cores = ?, vcpus = ?, ssh_port = ?,
-		display = ?, gpu = ?, networks = ?, root_patch = ?, graphics = ?, resolution = ?, updated_at = datetime('now') WHERE id = ?`,
-		c.Name, c.Workspace, c.Version, c.RAMMiB, c.Cores, c.VCPUs, c.SSHPort, c.Display, c.GPU, networksJSON(c), c.RootPatch, c.Graphics, c.Resolution, id)
+		display = ?, gpu = ?, networks = ?, root_patch = ?, graphics = ?, resolution = ?, ext = ?, updated_at = datetime('now') WHERE id = ?`,
+		c.Name, c.Workspace, c.Version, c.RAMMiB, c.Cores, c.VCPUs, c.SSHPort, c.Display, c.GPU, networksJSON(c), c.RootPatch, c.Graphics, c.Resolution, extJSON(c), id)
 	if isUniqueErr(err) {
 		return &FieldError{"name", "a VM with this name already exists"}
 	}
@@ -483,6 +574,9 @@ const snapshotFile = BootDir + "/vm.json"
 
 // writeSnapshot writes the generated copy when the workspace exists; it never creates one.
 func writeSnapshot(c Config) {
+	if c.Backend == BackendReimsCtl { // reims-ctl's folder: the app writes nothing there
+		return
+	}
 	dir, err := c.WorkspaceDir()
 	if err != nil || !exists(dir) {
 		return
@@ -491,8 +585,12 @@ func writeSnapshot(c Config) {
 		Note   string `json:"_note"`
 		Config Config `json:"config"`
 	}{"Generated from macos-kvm-gui.db; edit the VM in the app or with the CLI, not here.", c}, "", "  ")
-	if os.MkdirAll(filepath.Join(dir, BootDir), 0o755) == nil {
-		writeFileAtomic(filepath.Join(dir, snapshotFile), data, 0o644)
+	dirMode, fileMode := os.FileMode(0o755), os.FileMode(0o644)
+	if !c.MacOS() { // a Linux, Windows or Other VM's folder is private (TPM state, disks)
+		dirMode, fileMode = 0o700, 0o600
+	}
+	if os.MkdirAll(filepath.Join(dir, BootDir), dirMode) == nil {
+		writeFileAtomic(filepath.Join(dir, snapshotFile), data, fileMode)
 	}
 }
 
@@ -503,13 +601,32 @@ func ExportVM(e VMEntry) ([]byte, error) { return json.MarshalIndent(e.Config, "
 // else there is ever deleted.
 var workspaceFiles = []string{DiskFile, MediaFile, mediaMarker, stagingDir, BootDir}
 
+// ownedFiles are the files and folders the app created in c's folder: the macOS set, or for a
+// Linux, Windows or Other VM its disks inside the folder, UEFI variables, TPM state and serial log.
+// Disks elsewhere and ISO files are only used, never moved or deleted.
+func ownedFiles(c Config) []string {
+	if c.Backend == BackendReimsCtl {
+		return nil // reims-ctl's files: `reims-ctl delete` removes them
+	}
+	if c.MacOS() {
+		return append(slices.Clone(workspaceFiles), snapDir)
+	}
+	files := []string{GuestVarsFile, GuestVarsKind, GuestTPMDir, GuestSerialLog, snapDir}
+	for _, d := range c.Disks {
+		if !filepath.IsAbs(d.Path) {
+			files = append(files, filepath.Clean(d.Path))
+		}
+	}
+	return files
+}
+
 // DeleteVM removes the VM. With purge it also deletes, under the workspace lock, the files the
 // app created in the workspace, and the workspace folder if it ends up empty. It returns what
 // was deleted.
 func DeleteVM(e VMEntry, purge bool) ([]string, error) {
 	var removed []string
 	if purge {
-		if _, ok := FindRunning(e.Config); ok {
+		if _, ok := FindRun(e); ok {
 			return nil, errors.New("shut down the VM before deleting its files")
 		}
 		dir, err := e.Config.WorkspaceDir()
@@ -517,8 +634,17 @@ func DeleteVM(e VMEntry, purge bool) ([]string, error) {
 			return nil, err
 		}
 		w := NewWorkspace(dir)
-		err = w.withLock(func() error {
-			for _, f := range workspaceFiles {
+		// The locks a start takes (folder and every image), and the checks again under them.
+		unlock, err := (&VM{ID: e.ID}).lockRun(w, e.Config)
+		if err != nil {
+			return nil, fmt.Errorf("cannot delete its files: %w", err)
+		}
+		err = func() error {
+			defer unlock()
+			if err := checkNotShared(e, "delete its files"); err != nil {
+				return err
+			}
+			for _, f := range ownedFilesOf(e) {
 				p := w.Path(f)
 				if !exists(p) {
 					continue
@@ -532,7 +658,7 @@ func DeleteVM(e VMEntry, purge bool) ([]string, error) {
 				removed = append(removed, w.Dir)
 			}
 			return nil
-		})
+		}()
 		if err != nil {
 			return removed, err
 		}
@@ -551,6 +677,7 @@ func DeleteVM(e VMEntry, purge bool) ([]string, error) {
 	if _, err := db.Exec(`DELETE FROM vms WHERE id = ?`, e.ID); err != nil {
 		return removed, err
 	}
+	db.Exec(`DELETE FROM snapshots WHERE vm_id = ?`, e.ID) // its tree goes with it
 	return append(removed, "VM "+e.ID+" (database)"), nil
 }
 
@@ -604,10 +731,7 @@ func FindVM(vms []VMEntry, key string) (VMEntry, bool) {
 // importFiles moves VMs stored as files by older versions into a new database: the JSON files
 // under vms/ and the single-VM config.json. The originals are renamed, not deleted.
 func importFiles(db *sql.DB) error {
-	dir, err := appConfigDir()
-	if err != nil {
-		return err
-	}
+	dir := legacyConfigDir()
 	vmsDir := filepath.Join(dir, "vms")
 	files, _ := filepath.Glob(filepath.Join(vmsDir, "*.json"))
 	legacy := filepath.Join(dir, "config.json")
@@ -670,7 +794,10 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 		}
 		e = cur
 	}
-	if _, ok := FindRunning(e.Config); ok {
+	if err := refuseReimsCtl(e.Config, "Move"); err != nil {
+		return e, err
+	}
+	if _, ok := FindRun(e); ok {
 		return e, errors.New("shut down the VM before moving it")
 	}
 	c := e.Config
@@ -690,7 +817,15 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 		return e, errors.New("the new folder cannot be inside the current one")
 	}
 	src := NewWorkspace(from)
-	err = src.withLock(func() error {
+	unlockSrc, err := (&VM{ID: e.ID}).lockRun(src, e.Config)
+	if err != nil {
+		return e, fmt.Errorf("cannot move it: %w", err)
+	}
+	defer unlockSrc()
+	if err := checkNotShared(e, "move it"); err != nil {
+		return e, err
+	}
+	err = func() error {
 		return NewWorkspace(to).withLock(func() error {
 			if err := requireEmpty(to); err != nil {
 				return err
@@ -711,7 +846,7 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 					os.Remove(to)
 				}
 			}
-			for _, f := range workspaceFiles {
+			for _, f := range ownedFilesOf(e) {
 				if _, err := os.Lstat(src.Path(f)); errors.Is(err, os.ErrNotExist) {
 					continue
 				} else if err != nil {
@@ -735,7 +870,7 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 			os.Remove(from) // only when nothing else is left there
 			return nil
 		})
-	})
+	}()
 	if err != nil {
 		return e, err
 	}
@@ -796,3 +931,67 @@ func CreateVMWithDefaults(ctx context.Context, name, version, folder string, ssh
 
 // DefaultDiskGiB is a new VM's disk size.
 const DefaultDiskGiB = 80
+
+// checkNotShared refuses to move or delete a VM's own files while another VM, or another VM's
+// snapshot, uses one of them (B attached A's disk): that VM would lose it.
+func checkNotShared(e VMEntry, action string) error {
+	dir, err := e.Config.WorkspaceDir()
+	if err != nil {
+		return err
+	}
+	var mine []os.FileInfo
+	for _, f := range ownedFilesOf(e) {
+		if st, err := os.Stat(filepath.Join(dir, f)); err == nil && st.Mode().IsRegular() {
+			mine = append(mine, st)
+		}
+	}
+	if len(mine) == 0 {
+		return nil
+	}
+	shared := func(p string) bool {
+		st, err := os.Stat(p)
+		return err == nil && slices.ContainsFunc(mine, func(m os.FileInfo) bool { return os.SameFile(m, st) })
+	}
+	vms, err := ListVMs()
+	if err != nil {
+		return err
+	}
+	for _, o := range vms {
+		if o.ID == e.ID {
+			continue
+		}
+		odir, _ := o.Config.WorkspaceDir()
+		for _, st := range diskFiles(o.Config) {
+			if slices.ContainsFunc(mine, func(m os.FileInfo) bool { return os.SameFile(m, st) }) {
+				return fmt.Errorf("cannot %s: %s uses one of its disks", action, o.DisplayName())
+			}
+		}
+		snaps, _ := listSnapshots(o.ID, true)
+		for _, s := range snaps {
+			for _, d := range s.Manifest.Disks {
+				if shared(diskAbs(odir, d)) {
+					return fmt.Errorf("cannot %s: a snapshot of %s uses one of its disks", action, o.DisplayName())
+				}
+			}
+		}
+	}
+	return nil
+}
+
+// ownedFilesOf is ownedFiles plus the VM's own disks that only its snapshots still use (detached
+// since): moved and purged with the VM, never left behind; images outside the folder are not.
+func ownedFilesOf(e VMEntry) []string {
+	files := ownedFiles(e.Config)
+	if e.Config.Backend != "" || e.Config.MacOS() || e.ID == "" {
+		return files
+	}
+	snaps, _ := listSnapshots(e.ID, true)
+	for _, s := range snaps {
+		for _, d := range s.Manifest.Disks {
+			if !filepath.IsAbs(d) && filepath.Base(d) == d && !slices.Contains(files, d) {
+				files = append(files, d)
+			}
+		}
+	}
+	return files
+}

@@ -81,6 +81,12 @@ func BuildArgs(c Config, w Workspace, qmpSocket string, withMedia bool, gpuFuncs
 		}
 	}
 	args = append(args, moreNICs...)
+	return append(args, runArgs(c, qmpSocket)...)
+}
+
+// runArgs are the run's display and control sockets, the same for every guest type.
+func runArgs(c Config, qmpSocket string) []string {
+	var args []string
 	if c.InApp() || c.Reims() {
 		// A Reims VM's screen is always the library's own window (-display none); the VNC
 		// socket still serves the Preview and screen capture.
@@ -92,15 +98,28 @@ func BuildArgs(c Config, w Workspace, qmpSocket string, withMedia bool, gpuFuncs
 		// lock-key-sync=off keeps QEMU from injecting Caps Lock presses inferred from keysyms.
 		args = append(args, "-display", "none", "-vnc", "unix:"+qemuPath(VNCSocket(qmpSocket))+",lock-key-sync=off")
 	}
-	// A second monitor for one other process (the MCP server or an attached app): QMP serves
-	// one client per monitor, and the starter keeps the first.
-	return append(args, "-qmp", "unix:"+qemuPath(qmpSocket)+",server=on,wait=off",
-		"-qmp", "unix:"+qemuPath(ControlSocket(qmpSocket))+",server=on,wait=off")
+	return append(args, qmpArgs(qmpSocket)...)
 }
 
-// ControlSocket is the second QMP socket next to a run's QMP socket.
+// qmpArgs are a run's three QMP monitors, one client each: the starter's qmp.sock, the GUI's
+// qmp-gui.sock and qmp-control.sock for the CLI and the MCP server, so the GUI and an agent never
+// compete for one monitor; each gets the events on its own (design D2).
+func qmpArgs(qmpSocket string) []string {
+	var args []string
+	for _, s := range []string{qmpSocket, GUISocket(qmpSocket), ControlSocket(qmpSocket)} {
+		args = append(args, "-qmp", "unix:"+qemuPath(s)+",server=on,wait=off")
+	}
+	return args
+}
+
+// ControlSocket is the CLI's and the MCP server's QMP socket next to a run's QMP socket.
 func ControlSocket(qmpSocket string) string {
 	return filepath.Join(filepath.Dir(qmpSocket), "qmp-control.sock")
+}
+
+// GUISocket is the GUI's QMP socket next to a run's QMP socket.
+func GUISocket(qmpSocket string) string {
+	return filepath.Join(filepath.Dir(qmpSocket), "qmp-gui.sock")
 }
 
 // VNCSocket is the VNC socket next to a VM run's QMP socket.
@@ -166,15 +185,21 @@ type VM struct {
 	// EmbedX11 (set by the GUI before Start, never by the CLI or MCP): a Reims vGPU VM opens
 	// its window on X11 (SDL_VIDEO_DRIVER=x11) so the app can embed it in the Screen tab.
 	EmbedX11 bool
+	// ID and Starter (the VM's id, and StarterGUI, StarterCLI or StarterMCP): the run uses the
+	// VM's run directory and writes run.json there, so every other process finds it as this VM's
+	// run (design D4). Without an ID the run gets a temporary directory and no record.
+	ID, Starter string
 
-	mu       sync.Mutex
-	proc     *os.Process
-	qmp      *QMP
-	vncSock  string // set while running with the in-app display or Reims vGPU
-	discDone func() // releases the attached installer disc, if any
-	state    VMState
-	ioError  string
-	killed   bool
+	mu      sync.Mutex
+	proc    *os.Process
+	qmp     *QMP
+	vncSock string // set while running with the in-app display or Reims vGPU
+	disc    bool   // the run has the offline installer disc attached
+	state   VMState
+	ioError string
+	killed  bool
+	// guestOff: the guest shut itself down (QMP SHUTDOWN from the guest) before QEMU exited.
+	guestOff bool
 }
 
 func (v *VM) State() VMState {
@@ -206,6 +231,17 @@ func (v *VM) Start(c Config) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
+	if v.ID != "" { // an interrupted snapshot operation is finished or undone first
+		if err := recoverSnapshotOps(VMEntry{ID: v.ID, Config: c}); err != nil {
+			return fmt.Errorf("an interrupted snapshot operation could not be completed: %w", err)
+		}
+	}
+	if c.Backend == BackendReimsCtl {
+		return v.startReimsCtl(c)
+	}
+	if !c.MacOS() {
+		return v.startGuest(c)
+	}
 	dir, _ := c.WorkspaceDir()
 	w := NewWorkspace(dir)
 	if !w.Exists() {
@@ -214,7 +250,7 @@ func (v *VM) Start(c Config) error {
 	if !w.HasDisk() {
 		return fmt.Errorf("%s does not exist: create the disk in the Install tab", DiskFile)
 	}
-	if r, ok := FindRunning(c); ok {
+	if r, ok := v.findRun(c); ok {
 		who := "this app"
 		if !r.ByApp {
 			who = "another program (for example OSX-KVM's OpenCore-Boot.sh)"
@@ -236,12 +272,19 @@ func (v *VM) Start(c Config) error {
 	}
 	var gpuFuncs []string
 	if c.GPU != "" {
-		var err error
+		unlockGPU, err := gpuLock() // held until the run's record is written (launch returns)
+		if err != nil {
+			return err
+		}
+		defer unlockGPU()
+		if name, ok := gpuRunner(c.GPU, v.ID); ok {
+			return fmt.Errorf("GPU %s is passed through to %s, which is running: shut it down first", c.GPU, name)
+		}
 		if gpuFuncs, err = SystemHost().GPUReady(c, memlockLimit()); err != nil {
 			return err
 		}
 	}
-	qemu := "qemu-system-x86_64"
+	qemu := SystemQEMU()
 	if c.Reims() {
 		bin, warnings, err := SystemHost().ReimsReady(c)
 		if err != nil {
@@ -252,7 +295,7 @@ func (v *VM) Start(c Config) error {
 		}
 		qemu = bin
 	}
-	unlock, err := w.Lock()
+	unlock, err := v.lockRun(w, c)
 	if err != nil {
 		return err
 	}
@@ -260,11 +303,7 @@ func (v *VM) Start(c Config) error {
 	if err := w.PrepareBoot(c, w.HasMedia()); err != nil {
 		return fail(fmt.Errorf("could not prepare the boot files: %w", err))
 	}
-	base := os.Getenv("XDG_RUNTIME_DIR")
-	if base == "" {
-		base = os.TempDir()
-	}
-	qmpDir, err := os.MkdirTemp(base, "macos-kvm-gui-") // 0700
+	qmpDir, err := v.newRunDir()
 	if err != nil {
 		return fail(err)
 	}
@@ -281,34 +320,96 @@ func (v *VM) Start(c Config) error {
 		}
 	}
 	args := BuildArgs(c, w, sock, w.HasMedia(), gpuFuncs)
+	if err := checkDevices(qemu, args); err != nil {
+		if discDone != nil {
+			discDone()
+		}
+		os.RemoveAll(qmpDir)
+		return fail(err)
+	}
 	v.log(qemu + " " + strings.Join(args, " "))
 
+	var env []string
+	if c.Reims() {
+		env = reimsEnv(os.Environ(), v.EmbedX11)
+	}
+	return v.launch(launchSpec{
+		qemu: qemu, args: args, dir: dir, env: env, sock: sock, qmpDir: qmpDir, vnc: c.InApp() || c.Reims(), disc: discDone != nil,
+		afterExit: func(ran time.Duration) {
+			if discDone != nil {
+				discDone()
+			}
+			w.ClearRootPatchMarker(c, ran)
+		},
+		unlock: unlock,
+	})
+}
+
+// findRun is the run that keeps c from starting: through its disks, and through its run record.
+func (v *VM) findRun(c Config) (RunInfo, bool) {
+	if v.ID == "" {
+		return FindRunning(c)
+	}
+	return FindRun(VMEntry{ID: v.ID, Config: c})
+}
+
+// newRunDir is the run's private directory (0700), created under the VM's lock: the VM's own run
+// directory when ID is set, else a temporary one.
+func (v *VM) newRunDir() (string, error) {
+	if v.ID != "" {
+		return makeRunDir(v.ID)
+	}
+	return os.MkdirTemp(runBase(), "macos-kvm-gui-")
+}
+
+// launchSpec is one QEMU run: its command, its private run directory, and what to undo after it.
+type launchSpec struct {
+	qemu      string
+	args, env []string
+	dir       string // QEMU's working directory (the VM folder)
+	sock      string // the starter's QMP socket
+	qmpDir    string // the run's private directory, removed after the run
+	vnc       bool   // the run serves the VNC socket next to sock
+	disc      bool   // the offline installer disc is attached
+	afterExit func(ran time.Duration)
+	unlock    func() // the VM's locks, released last
+}
+
+// launch starts QEMU and returns once it runs; a goroutine waits for it, cleans up and reports
+// Stopped. On a start failure everything is undone before launch returns.
+func (v *VM) launch(l launchSpec) error {
 	started := make(chan error, 1)
 	go func() {
 		// Pdeathsig fires when the thread that created the process dies: it stays
 		// locked to this goroutine, which only ends after Wait.
 		runtime.LockOSThread()
-		cmd := exec.Command(qemu, args...)
-		cmd.Dir = dir
-		if c.Reims() {
-			cmd.Env = reimsEnv(os.Environ(), v.EmbedX11)
+		cmd := exec.Command(l.qemu, l.args...)
+		cmd.Dir = l.dir
+		if l.env != nil {
+			cmd.Env = l.env
 		}
 		cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM, Setpgid: true} // Ctrl+C in a terminal must not reach QEMU
 		pr, pw := io.Pipe()
 		cmd.Stdout, cmd.Stderr = pw, pw
 		if err := cmd.Start(); err != nil {
-			if discDone != nil {
-				discDone()
-			}
 			started <- err
 			return
 		}
-		v.mu.Lock()
-		v.proc, v.ioError, v.vncSock = cmd.Process, "", ""
-		if c.InApp() || c.Reims() { // BuildArgs serves VNC for both
-			v.vncSock = VNCSocket(sock)
+		if v.ID != "" {
+			// Without its record the run could be controlled by no one: it does not start.
+			if err := writeRunRecord(l.qmpDir, v.ID, v.Starter, cmd.Process.Pid); err != nil {
+				cmd.Process.Kill()
+				pw.Close()
+				cmd.Wait()
+				started <- fmt.Errorf("could not write run.json: %w", err)
+				return
+			}
 		}
-		v.discDone = discDone
+		v.mu.Lock()
+		v.proc, v.ioError, v.vncSock, v.disc, v.guestOff = cmd.Process, "", "", l.disc, false
+		if l.vnc {
+			v.vncSock = VNCSocket(l.sock)
+		}
 		v.mu.Unlock()
 		v.setState(Running, "") // before any Stopped from this same goroutine
 		started <- nil
@@ -327,34 +428,45 @@ func (v *VM) Start(c Config) error {
 				v.log(line)
 			}
 		}()
-		go v.connectQMP(sock)
+		go v.connectQMP(l.sock)
 
 		startedAt := time.Now()
 		err := cmd.Wait()
-		w.ClearRootPatchMarker(c, time.Since(startedAt))
 		pw.Close()
 		<-logDone
 		v.mu.Lock()
-		q, killed, discDone := v.qmp, v.killed, v.discDone
-		v.proc, v.qmp, v.killed, v.vncSock, v.discDone = nil, nil, false, "", nil
+		q, killed := v.qmp, v.killed
+		v.proc, v.qmp, v.killed, v.vncSock, v.disc = nil, nil, false, "", false
 		v.mu.Unlock()
-		if discDone != nil {
-			discDone()
-		}
 		if q != nil {
 			q.Close()
 		}
-		os.RemoveAll(qmpDir)
-		unlock()
+		if l.afterExit != nil {
+			l.afterExit(time.Since(startedAt))
+		}
+		os.RemoveAll(l.qmpDir)
+		l.unlock()
 		msg := explainExit(err, tail)
-		if killed {
+		v.mu.Lock()
+		guestOff := v.guestOff
+		v.mu.Unlock()
+		switch {
+		case killed:
 			msg = "Stopped by the user (forced)."
+		case guestOff && err != nil:
+			// Reims vGPU's window thread can crash while QEMU closes after the guest powered off
+			// (upstream, with reims-ctl start too): the guest's own shutdown completed.
+			msg = "The guest shut down; QEMU then ended abnormally while closing (" + err.Error() + ")."
 		}
 		v.setState(Stopped, msg)
 	}()
 	if err := <-started; err != nil {
-		os.RemoveAll(qmpDir)
-		return fail(fmt.Errorf("could not start QEMU: %w", err))
+		if l.afterExit != nil {
+			l.afterExit(0)
+		}
+		os.RemoveAll(l.qmpDir)
+		l.unlock()
+		return fmt.Errorf("could not start QEMU: %w", err)
 	}
 	return nil
 }
@@ -406,6 +518,12 @@ func (v *VM) onEvent(e QMPEvent) {
 		v.setState(Paused, msg)
 	case "RESUME":
 		v.setState(Running, "")
+	case "SHUTDOWN":
+		if e.Data["guest"] == true {
+			v.mu.Lock()
+			v.guestOff = true
+			v.mu.Unlock()
+		}
 	}
 }
 
@@ -413,6 +531,13 @@ func (v *VM) onEvent(e QMPEvent) {
 // VNCSocket returns the VNC socket of the running VM, or "" when it is stopped or uses
 // QEMU's own window.
 // Pid is QEMU's process id while it runs, else 0.
+// GuestShutDown reports whether the last run ended with the guest shutting itself down.
+func (v *VM) GuestShutDown() bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.guestOff
+}
+
 func (v *VM) Pid() int {
 	v.mu.Lock()
 	defer v.mu.Unlock()
@@ -433,7 +558,7 @@ func (v *VM) VNCSocket() string {
 func (v *VM) InstallerCommand() string {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.discDone == nil {
+	if !v.disc {
 		return ""
 	}
 	return DiscCommand

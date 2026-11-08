@@ -2,10 +2,15 @@
 
 [Documentation index](README.md)
 
-**Experimental.** [Reims vGPU](https://github.com/steelbrain/reims-vgpu) is a paravirtual GPU for macOS guests: macOS uses the paravirtualized graphics driver it already ships, and the host renders its Metal work through the host's own Vulkan driver. It needs no spare GPU, no VFIO and no host reboot, and it works with the GPU that drives your desktop, NVIDIA, AMD or Intel, including cards macOS has no driver for. Upstream is beta and has measured x86-64 guests on macOS 26 only; on this app's reference host, Sequoia 15.8.1 runs on it (see [validated results](#validated-results)).
+**Experimental.** [Reims vGPU](https://github.com/steelbrain/reims-vgpu) — the base of this page; its [README](https://github.com/steelbrain/reims-vgpu#readme) and [`docs/qemu.md`](https://github.com/steelbrain/reims-vgpu/blob/main/docs/qemu.md) are the source of truth, and this page does not repeat them — is a paravirtual GPU for macOS guests: macOS uses the paravirtualized graphics driver it already ships, and the host renders its Metal work through the host's own Vulkan driver. It needs no spare GPU, no VFIO and no host reboot, and it works with the GPU that drives your desktop, NVIDIA, AMD or Intel, including cards macOS has no driver for. Upstream is beta and has measured x86-64 guests on macOS 26 only; on this app's reference host, Sequoia 15.8.1 runs on it (see [validated results](#validated-results)).
 
 
 ![Settings › Display with Reims vGPU](screenshots/reims-settings.png)
+
+
+## VMs made by reims-ctl
+
+A macOS VM can also be one of upstream's `reims-ctl` VMs: the New VM wizard's **Create with reims-ctl**, `vm_create` with `backend: reims-ctl` in the [MCP server](mcp.md), or **Add › From reims-ctl** and `kvm-gui vm add --reims-ctl <name>` for one that kvm-gui's `reims-ctl` folders (`~/.config/kvm-gui/reims-ctl`) or your own `~/.config/reims-ctl` already have. The app runs it itself: it reads the QEMU command `reims-ctl command` prints, without running that script, refuses options that would take QEMU away from it (such as `-daemonize`), and adds its own screen and control sockets for that run only, so `reims-ctl start` still runs exactly upstream's command later. CPUs, memory, resolution, SSH port and MAC are changed with `reims-ctl set`; snapshots, clone, export, move and GPU passthrough are not available for these VMs yet.
 
 ## Why
 
@@ -23,7 +28,7 @@ Reims vGPU and GPU passthrough are mutually exclusive per VM. Other VMs keep VMw
 
 - **Ubuntu 24.04 or 26.04** for the prebuilt packages and the Docker build. Other distributions can point `reims_qemu` at a build of their own (see [which QEMU runs](#which-qemu-runs)).
 - **A Vulkan driver** for the host GPU: `mesa-vulkan-drivers` for AMD and Intel, or the NVIDIA driver. The app looks for an ICD manifest in `/usr/share/vulkan/icd.d` or `/etc/vulkan/icd.d`.
-- **`vm.max_map_count` of at least 64 per MiB of guest RAM plus 65536.** Reims vGPU maps guest memory in many small views: a 16 GiB VM needs 1114112, and Ubuntu's default (`/etc/sysctl.d/10-map-count.conf`) is 1048576. **Set up host** in the Host tab (or `macos-kvm-gui setup`) raises it to 2097152, enough for 30 GiB, and keeps it in `/etc/sysctl.d/90-macos-kvm-gui.conf`. By hand:
+- **`vm.max_map_count` of at least 64 per MiB of guest RAM plus 65536.** Reims vGPU maps guest memory in many small views: a 16 GiB VM needs 1114112, and Ubuntu's default (`/etc/sysctl.d/10-map-count.conf`) is 1048576. **Set up host** in the Host tab (or `kvm-gui setup`) raises it to 2097152, enough for 30 GiB, and keeps it in `/etc/sysctl.d/90-macos-kvm-gui.conf`. By hand:
 
   ```sh
   sudo sysctl -w vm.max_map_count=2097152
@@ -39,12 +44,12 @@ Reims vGPU and GPU passthrough are mutually exclusive per VM. Other VMs keep VMw
 
 | What | Automatic? | How |
 |---|---|---|
-| **Reims vGPU's QEMU on the host** (needed by every Reims vGPU VM) | **No**: install it once per host | Host tab › **Set up host** (once), then **Install Reims vGPU**; or `macos-kvm-gui reims install` / `reims-gui reims install` |
+| **Reims vGPU's QEMU on the host** (needed by every Reims vGPU VM) | **No**: install it once per host | Host tab › **Set up host** (once), then **Install Reims vGPU**; or `kvm-gui reims install` / `reims-gui reims install` |
 | Choosing Reims vGPU for a VM | Partly: the New VM wizard picks it for Sequoia and Tahoe **once it is installed** | Settings › Display › Graphics Controller › Reims vGPU, or `config set graphics=reims-vgpu` |
 | `ReimsVgpu.kext` (macOS Tahoe guests) | **Yes**: downloaded at the first start and injected by OpenCore | nothing to do |
 | `METAL_ERROR_MODE` inside macOS | **No**: once per macOS install | the commands under [First boot in macOS](#first-boot-in-macos) (also shown in Settings › Display) |
 
-Starting a Reims vGPU VM on a host without its QEMU does not download anything: Start stops with *"Reims vGPU is not installed (looked for …): install it in the Host tab or with `macos-kvm-gui reims install`"*. Prebuilt packages exist for Ubuntu 24.04 and 26.04, Debian 13 and Rocky Linux 10 (also RHEL and AlmaLinux 10); **Install Reims vGPU** picks the one for the host from `/etc/os-release` (reims-gui 0.1.5 and macos-kvm-gui 0.12.0 on; older versions knew only Ubuntu). **Build from source (Docker)** builds the Ubuntu ones only; on Debian and Rocky, install the package or build as below.
+Starting a Reims vGPU VM on a host without its QEMU does not download anything: Start stops with *"Reims vGPU is not installed (looked for …): install it in the Host tab or with `kvm-gui reims install`"*. Prebuilt packages exist for Ubuntu 24.04 and 26.04, Debian 13 and Rocky Linux 10 (also RHEL and AlmaLinux 10); **Install Reims vGPU** picks the one for the host from `/etc/os-release` (reims-gui 0.1.5 and macos-kvm-gui 0.12.0 on; older versions knew only Ubuntu). **Build from source (Docker)** builds the Ubuntu ones only; on Debian and Rocky, install the package or build as below.
 
 The app does not embed Reims vGPU. It installs a separate QEMU build into `<Workspace>/.reims/qemu/<build>` and points `<Workspace>/.reims/qemu/current` at it, next to `.kexts` and `.installers`. Nothing else on the host changes.
 
@@ -53,28 +58,28 @@ The app does not embed Reims vGPU. It installs a separate QEMU build into `<Work
 Click **Install Reims vGPU** in the Host tab, or run:
 
 ```sh
-macos-kvm-gui reims install
+kvm-gui reims install
 ```
 
-The app downloads the package for the host's Ubuntu release from this repository's Releases, from a release of its own tagged `reims-<commit>` (today `reims-c099dd5`), separate from the app's releases. The package is `reims-qemu-<commit>-ubuntu<release>-x86_64.tar.gz` (about 38 MB, upstream's QEMU and its data, stripped); the app checks it against the SHA-256 pinned in its embedded manifest (`internal/core/reims/manifest.json`), unpacks it, refusing absolute paths, `..`, links that leave the folder and anything other than files, folders and links, and activates it.
+The app downloads the package for the host's platform (Ubuntu 24.04, Ubuntu 26.04, Debian 13, Rocky Linux 10) from this repository's Releases, from a release of its own tagged `reims-<commit>` (today `reims-c099dd5`), separate from the app's releases. The package is `reims-qemu-<commit>-<platform>-x86_64.tar.gz` (about 38 MB, upstream's QEMU and its data, stripped); the app checks it against the SHA-256 pinned in its embedded manifest (`reims/manifest.json`), unpacks it, refusing absolute paths, `..`, links that leave the folder and anything other than files, folders and links, and activates it.
 
 ### Build from source
 
 Click **Build from source** in the Host tab, or run:
 
 ```sh
-macos-kvm-gui reims build                   # for the host's release
-macos-kvm-gui reims build --release 26.04   # for another one: staged, not activated
+kvm-gui reims build                   # for the host's release
+kvm-gui reims build --release 26.04   # for another one: staged, not activated
 ```
 
-The app builds upstream at the commit it pins with upstream's own `scripts/install-ctl.sh`, inside an `ubuntu:<release>` container from its embedded Dockerfile (`internal/core/reims/Dockerfile`), and strips the binaries. The first build downloads Rust, SDL3, QEMU's source and the Rust crates and took about 10 minutes on the reference host; the cache in `<Workspace>/.reims/build-<release>` makes later builds faster. Progress goes to the terminal or the Log tab. `reims-ctl` and `reims-util` are not built: the app runs QEMU itself.
+The app builds upstream at the commit it pins with upstream's own `scripts/install-ctl.sh`, inside an `ubuntu:<release>` container from its embedded Dockerfile (`reims/Dockerfile`), and strips the binaries. The recipe runs all of `install-ctl.sh`, so a build also has upstream's `reims-ctl` and `reims-util` in its `bin/`; the packages published so far (`reims-c099dd5`) have QEMU only, and the next `reims-<commit>` release brings both programs. The first build downloads Rust, SDL3, QEMU's source and the Rust crates and took about 10 minutes on the reference host; the cache in `<Workspace>/.reims/build-<release>` makes later builds faster. Progress goes to the terminal.
 
 ### Activation
 
 A package and a build are activated the same way: the new build is unpacked beside the others, then run on the host. `current` is switched (atomically) only when its `qemu-system-x86_64` finds every library (`ldd`; missing ones are named with their Ubuntu package), lists the `apple-gfx-pci` device and has its option ROM `share/qemu/ReimsVgpu.rom`. Otherwise `current` stays as it was. A build for another release than the host's stays staged. Older builds of the same release are removed, except one a running VM uses. Installs and builds take a host-wide lock, so two never run at once.
 
 ```sh
-macos-kvm-gui reims status
+kvm-gui reims status
 ```
 
 prints the QEMU a Reims VM runs, its build folder, upstream's commit and whether it lists `apple-gfx-pci`. The Host tab shows the same.
@@ -99,45 +104,45 @@ The binary must list `apple-gfx-pci` in `-device help`; the app checks it once p
 An Ubuntu build does not run on Debian (it links Ubuntu's `libjpeg.so.8`), so Debian gets its own build from the same Dockerfile with another base image. Verified on Debian 13.7 (QEMU lists `apple-gfx-pci`, no missing library):
 
 ```sh
-docker build --build-arg BASE=debian:13 -t reims-build:debian13 - < internal/core/reims/Dockerfile
+docker build --build-arg BASE=debian:13 -t reims-build:debian13 - < reims/Dockerfile
 mkdir -p ~/reims-debian
 docker run --rm -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) -v ~/reims-debian:/build reims-build:debian13
-sudo apt install libglib2.0-0t64 libpixman-1-0 libslirp0 libfdt1 libgtk-3-0t64 libpipewire-0.3-0t64 libpulse0 libasound2t64 libvulkan1 libgbm1
+sudo apt install libglib2.0-0t64 libpixman-1-0 libslirp0 libfdt1 libgtk-3-0t64 libpipewire-0.3-0t64 libpulse0 libasound2t64 libvulkan1 libgbm1 libusb-1.0-0
 ```
 
-Then point `reims_qemu` at `~/reims-debian/share/reims-ctl/qemu/current/bin/qemu-system-x86_64`. Or skip the build: the [`reims-c099dd5`](https://github.com/jniltinho/macos-kvm-gui/releases/tag/reims-c099dd5) release has `reims-qemu-c099dd5-debian13-x86_64.tar.gz`; unpack it and point `reims_qemu` at its `bin/qemu-system-x86_64`.
+Then point `reims_qemu` at `~/reims-debian/share/reims-ctl/qemu/current/bin/qemu-system-x86_64`. Or skip the build: the [`reims-c099dd5`](https://github.com/jniltinho/kvm-gui/releases/tag/reims-c099dd5) release has `reims-qemu-c099dd5-debian13-x86_64.tar.gz`; unpack it and point `reims_qemu` at its `bin/qemu-system-x86_64`.
 
 ### Rocky Linux (RHEL family)
 
-The app does not install or build for Rocky Linux itself, but `Dockerfile.rocky` (next to the Ubuntu `Dockerfile`, in `internal/core/reims/` and `reims-gui/crates/rg-reims/reims/`) builds the same QEMU, at the same commit and with the same layout, on `rockylinux/rockylinux:10`, with the build packages from dnf (EPEL and CRB). Upstream's `install-ctl.sh` only knows apt and pacman; on Rocky it just warns, and the image already has everything. Verified on Rocky Linux 10.2; the first build took about 5.5 minutes on the reference host (image 2.5, QEMU 3):
+`kvm-gui reims install` installs the published Rocky Linux 10 package; the app does not build for Rocky itself, but `reims/Dockerfile.rocky` builds the same QEMU, at the same commit and with the same layout, on `rockylinux/rockylinux:10`, with the build packages from dnf (EPEL and CRB). Upstream's `install-ctl.sh` only knows apt and pacman; on Rocky it just warns, and the image already has everything. Verified on Rocky Linux 10.2; the first build took about 5.5 minutes on the reference host (image 2.5, QEMU 3):
 
 ```sh
-docker build --build-arg ROCKY=10 -t reims-build:rocky10 - < internal/core/reims/Dockerfile.rocky
+docker build --build-arg ROCKY=10 -t reims-build:rocky10 - < reims/Dockerfile.rocky
 mkdir -p ~/reims-rocky
 docker run --rm -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) -v ~/reims-rocky:/build reims-build:rocky10
 # optional: reims-qemu-<commit>-rocky10-x86_64.tar.gz and its .sha256
-scripts/reims-package.sh pkg "$(readlink -f ~/reims-rocky/share/reims-ctl/qemu/current)" rocky10 dist
+reims/package.sh pkg "$(readlink -f ~/reims-rocky/share/reims-ctl/qemu/current)" rocky10 dist
 ```
 
 On the Rocky host, QEMU needs these runtime packages (BaseOS and AppStream only, no EPEL):
 
 ```sh
-sudo dnf install glib2 pixman libslirp libfdt gtk3 pipewire-libs pulseaudio-libs alsa-lib vulkan-loader mesa-libgbm
+sudo dnf install glib2 pixman libslirp libfdt gtk3 pipewire-libs pulseaudio-libs alsa-lib vulkan-loader mesa-libgbm libusb1
 ```
 
-Then point `reims_qemu` at `~/reims-rocky/share/reims-ctl/qemu/current/bin/qemu-system-x86_64` (see the list above) and check it with `qemu-system-x86_64 -device help | grep apple-gfx-pci`. Or skip the build: [`reims-c099dd5`](https://github.com/jniltinho/macos-kvm-gui/releases/tag/reims-c099dd5) has `reims-qemu-c099dd5-rocky10-x86_64.tar.gz` (built from this Dockerfile and checked in a clean Rocky Linux 10); `.github/workflows/reims-release.yml` builds it for later `reims-<commit>` releases too.
+Then point `reims_qemu` at `~/reims-rocky/share/reims-ctl/qemu/current/bin/qemu-system-x86_64` (see the list above) and check it with `qemu-system-x86_64 -device help | grep apple-gfx-pci`. Or skip the build: [`reims-c099dd5`](https://github.com/jniltinho/kvm-gui/releases/tag/reims-c099dd5) has `reims-qemu-c099dd5-rocky10-x86_64.tar.gz` (built from this Dockerfile and checked in a clean Rocky Linux 10); `.github/workflows/reims-release.yml` builds it for later `reims-<commit>` releases too.
 
 ## Turn it on for a VM
 
 - **App:** Settings › Display › **Graphics**: **Reims vGPU (experimental)**. The page shows the `METAL_ERROR_MODE` commands below and, for versions other than macOS 26, that upstream has not measured them. While Reims vGPU is selected the GPU passthrough choice is disabled, and the reverse.
 - **New VMs:** the New VM wizard picks Reims vGPU for Sequoia and Tahoe when it is installed; you can change it there or later.
-- **Command line:** `macos-kvm-gui config set graphics=reims-vgpu` (back with `graphics=vmware-svga`). `config show` prints it.
+- **Command line:** `kvm-gui config set graphics=reims-vgpu` (back with `graphics=vmware-svga`). `config show` prints it.
 
 Saving refuses a VM with both Reims vGPU and a GPU: `graphics: Reims vGPU and GPU passthrough cannot be used together: choose one of them (clear the GPU, or set graphics to vmware-svga)`. The setting is saved with the VM (database schema 4), and exported and imported with it. Switching back to VMware SVGA boots the same disk as before: OpenCore, NVRAM and the Mac identity do not change.
 
 ### Resolution
 
-Reims vGPU's display size is set per VM: Settings › Display › **Resolution** (enabled while Reims vGPU is selected; new VMs get 1920x1080), or `macos-kvm-gui config set resolution=2560x1440`. The choices are `1920x1080` (the default), `1920x1200`, `2048x1152`, `2304x1296`, `2560x1440`, `2560x1600` and `3840x2160`; anything else is refused with that list. It is passed to QEMU as `apple-gfx-pci,...,resolution=<WxH>`, saved with the VM (database schema 5) and exported and imported with it. VMware SVGA ignores it and keeps OpenCore's 1920x1080. The Details pane shows the resolution in use.
+Reims vGPU's display size is set per VM: Settings › Display › **Resolution** (enabled while Reims vGPU is selected; new VMs get 1920x1080), or `kvm-gui config set resolution=2560x1440`. The choices are `1920x1080` (the default), `1920x1200`, `2048x1152`, `2304x1296`, `2560x1440`, `2560x1600` and `3840x2160`; anything else is refused with that list. It is passed to QEMU as `apple-gfx-pci,...,resolution=<WxH>`, saved with the VM (database schema 5) and exported and imported with it. VMware SVGA ignores it and keeps OpenCore's 1920x1080. The Details pane shows the resolution in use.
 
 **The 2048 px rule.** Upstream (reims-vgpu `docs/qemu.md`): without ReimsVgpu.kext, WindowServer dies at boot often enough to matter on displays wider than 2048 px (the display is drawn in 1024 px tiles), and the kext loads on macOS 26 only. Measured on Sequoia (table below), 3840x2160 is the exception: macOS drives it as a HiDPI desktop and WindowServer did not crash. So the Settings page and `config set` warn for 2304x1296, 2560x1440 and 2560x1600 unless the VM is Tahoe. If WindowServer crashes, set the resolution back to 1920x1080.
 
@@ -186,25 +191,10 @@ To check it, run `system_profiler SPDisplaysDataType` in the guest: it shows **A
 
 A Reims VM's screen is Reims vGPU's own accelerated window, opened by the library through SDL3 and Vulkan, whatever the VM's Display setting.
 
-**Inside the Screen tab.** When the app starts the VM and its window is on X11 (directly, or through XWayland on a Wayland desktop), that window is moved into the **Screen** tab, the way [reims-gui](reims-gui.md) does it, with the same code (`reims-gui/crates/rg-x11` through a C ABI; see [development](development.md#embedding-reims-vgpus-window)):
-- It opens on the desktop for an instant and then joins the tab.
-- It follows the tab when the app window moves or resizes, at any HiDPI scale.
-- It hides while a dialog or a menu is open over it, or another tab is selected.
-- Click it to type in macOS; Ctrl+Alt+Super releases the capture, and a click on the app's own controls gives them the keyboard back.
-- On SIGTERM, SIGINT or SIGHUP the app puts the window back on the desktop before it exits. QEMU still stops with the app.
-
-![macOS on Reims vGPU inside the Go app's Screen tab](screenshots/reims-embedded.png)
-
-**In its own window** otherwise. The window stays on the desktop and keyboard and mouse go there when:
-- the VM was started by `vm start` or the MCP server;
-- the window could not be found within 30 seconds (the Log tab says why);
-- there is no X server;
-- the app was built without embedding (plain `go build`, without `-tags reims_embed`).
+**Inside the app on X11.** When the GUI starts a Reims VM in an X11 session, it takes Reims vGPU's window into the Manager's Screen tab, or into the VM's window when you pick Show (one of them at a time), and gives it back to the desktop before that window closes or the app exits; if the app is killed, the X server puts the window back on the desktop (an XFixes save-set), so the VM keeps it. Click the screen to type in macOS; Ctrl+Alt+Super releases the capture. **In its own window** otherwise: on a Wayland desktop (XWayland included, which crashes when an app holding another client's window dies), and for VMs started by `vm start` or the MCP server. What the app did is in `~/.local/state/kvm-gui/logs/embed.log`.
 
 Either way the app still serves its private VNC socket, so:
 
-- the **Preview** in Details keeps updating;
-- when the window is not embedded, the **Screen** tab does not attach; it says that the screen is in the Reims vGPU window;
 - the [MCP server](mcp.md)'s `screen_capture`, `send_keys`, `type_text` and `pointer` keep working, for VMs started by the app, by `vm start` or by the MCP server.
 
 VNC is not used as the screen because reading frames from the paravirtual GPU through QEMU's console is slow (upstream measured about 1.7 s per 1080p frame), fine for a preview but not to work in.
@@ -255,4 +245,4 @@ Reims vGPU is not part of the app's packages or source. The library is GPL-2.0-o
 
 ## Credits
 
-Reims vGPU is the work of [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu) and its contributors: the library, the `apple-gfx-pci` device in its QEMU fork, the measured command line this app follows, and `reims-ctl`/`reims-util`, upstream's own VM runner and OpenCore tools, which this app does not use. Bugs in the app's integration belong here; bugs in rendering belong upstream. See [references](references.md#reims-vgpu).
+Reims vGPU is the work of [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu) and its contributors: the library, the `apple-gfx-pci` device in its QEMU fork, the measured command line this app follows, and `reims-ctl`/`reims-util`, upstream's own VM runner and OpenCore tools: the app creates, adds and runs `reims-ctl` VMs with them (below). Bugs in the app's integration belong here; bugs in rendering belong upstream. See [references](references.md#reims-vgpu).

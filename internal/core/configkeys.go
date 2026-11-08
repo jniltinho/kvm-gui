@@ -3,6 +3,7 @@ package core
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -21,6 +22,31 @@ var ConfigKeys = map[string]func(*Config, string) error{
 	"cores":      intKey(func(c *Config, n int) { c.Cores = n }),
 	"vcpus":      intKey(func(c *Config, n int) { c.VCPUs = n }),
 	"ssh-port":   intKey(func(c *Config, n int) { c.SSHPort = n }),
+	// Linux, Windows and Other VMs.
+	"firmware":    func(c *Config, v string) error { c.Firmware = v; return nil },
+	"secure-boot": boolKey(func(c *Config, b bool) { c.SecureBoot = b }),
+	"tpm":         boolKey(func(c *Config, b bool) { c.TPM = b }),
+	"boot-order":  func(c *Config, v string) error { c.BootOrder = v; return nil },
+	"serial":      func(c *Config, v string) error { c.Serial = v; return nil },
+	"description": func(c *Config, v string) error { c.Description = v; return nil },
+	// iso puts an ISO in the first optical drive ("" ejects it), adding the drive if needed.
+	"iso": func(c *Config, v string) error {
+		if c.MacOS() {
+			return errors.New("macOS VMs get their install media from the Install steps")
+		}
+		if v != "" {
+			abs, err := filepath.Abs(v)
+			if err != nil {
+				return err
+			}
+			v = abs
+		}
+		if len(c.Optical) == 0 {
+			c.Optical = []string{""}
+		}
+		c.Optical[0] = v
+		return nil
+	},
 	"root-patch": func(c *Config, v string) error {
 		b, err := strconv.ParseBool(v)
 		if err != nil {
@@ -65,6 +91,17 @@ func init() {
 	}
 }
 
+func boolKey(set func(*Config, bool)) func(*Config, string) error {
+	return func(c *Config, v string) error {
+		b, err := strconv.ParseBool(v)
+		if err != nil {
+			return fmt.Errorf("%q is not true or false", v)
+		}
+		set(c, b)
+		return nil
+	}
+}
+
 func intKey(set func(*Config, int)) func(*Config, string) error {
 	return func(c *Config, v string) error {
 		n, err := strconv.Atoi(v)
@@ -78,7 +115,8 @@ func intKey(set func(*Config, int)) func(*Config, string) error {
 
 // AgentConfigKeys are the keys agents may set (MCP vm_config_set). root-patch needs a
 // confirmation and downloads, workspace is a folder change: those stay with the app and the CLI.
-var AgentConfigKeys = []string{"ssh-port", "ram", "cores", "vcpus", "graphics", "resolution", "display", "gpu", "version"}
+var AgentConfigKeys = []string{"ssh-port", "ram", "cores", "vcpus", "graphics", "resolution", "display", "gpu", "version",
+	"firmware", "secure-boot", "tpm", "boot-order", "serial", "description", "iso"}
 
 // ConfigWarnings are the warnings for saved settings: a shared SSH port, and a Reims resolution
 // that crashes WindowServer before Tahoe.
@@ -122,7 +160,7 @@ func SetVMConfig(e VMEntry, values map[string]string) (VMEntry, []string, error)
 		return e, nil, err
 	}
 	defer unlock()
-	if _, ok := FindRunning(e.Config); ok {
+	if _, ok := FindRun(e); ok {
 		return e, nil, errors.New("the VM is running: shut the VM down first")
 	}
 	db, err := openDB()
@@ -152,6 +190,19 @@ func SetVMConfig(e VMEntry, values map[string]string) (VMEntry, []string, error)
 	}
 	if err := c.Validate(); err != nil {
 		return e, nil, err
+	}
+	if cur.Config.Backend == BackendReimsCtl { // its settings are reims-ctl's: written with reims-ctl set
+		tx.Rollback()
+		db.Close()
+		if err := saveReimsCtl(cur, c); err != nil {
+			return e, nil, err
+		}
+		vms, err := ListVMs()
+		if err != nil {
+			return e, nil, err
+		}
+		cur, _ = FindVM(vms, cur.ID)
+		return cur, ConfigWarnings(cur), nil
 	}
 	if err := updateVM(tx, cur.ID, c); err != nil {
 		return e, nil, err

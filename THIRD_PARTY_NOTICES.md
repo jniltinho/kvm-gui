@@ -10,6 +10,7 @@ The app embeds the files below, built by `scripts/fetch-assets.sh` from the sour
 | WhateverGreen.kext | [acidanthera/WhateverGreen](https://github.com/acidanthera/WhateverGreen) | BSD-3-Clause |
 | OVMF (`OVMF_CODE_4M.fd`, `OVMF_VARS_4M.fd`) | Debian [`ovmf`](https://packages.debian.org/source/edk2) package, from [TianoCore EDK II](https://github.com/tianocore/edk2) | BSD-2-Clause-Patent and others; full text in `internal/assets/files/ovmf/copyright` |
 | Recovery download protocol (`internal/core/recovery.go`, ported to Go) | acidanthera's [macrecovery](https://github.com/acidanthera/OpenCorePkg/tree/master/Utilities/macrecovery), Copyright (c) 2019 vit9696 | BSD-3-Clause |
+| GUI skins (`frontend/src/themes/`) and components adapted from it (`Dropdown.vue`, `TabBar.vue`, `Modal.vue`, `ask.ts`, the menu bar in `App.vue`), and `internal/archtest/skins_test.go` | [jniltinho/goXterm](https://github.com/jniltinho/goXterm), Copyright (c) 2026 Nilton OS | MIT |
 
 Not embedded, downloaded at run time only when a VM's root-patch mode is turned on: AMFIPass, RSRHelper, RestrictEvents and KDKlessWorkaround, from [OpenCore Legacy Patcher](https://github.com/dortania/OpenCore-Legacy-Patcher)'s repository at the 2.5.1 commit (`payloads/Kexts`), checked against pinned SHA-256 sums. RestrictEvents is acidanthera's (BSD-3-Clause); OCLP's repository is under its own license (BSD-style, Copyright (c) 2020-2025 Dhinak G, Mykola Grymalyuk and individual contributors). This product includes software developed by Dortania and OpenCore Legacy Patcher contributors.
 
@@ -17,9 +18,62 @@ Not embedded, downloaded at run time only before a Tahoe VM on Reims vGPU starts
 
 The apple-smc key string passed to QEMU (`isa-applesmc,osk=…`) and the macOS recovery images downloaded from Apple's servers are not part of this project.
 
+## Go modules in the binary
+
+The binary is built from these modules (`go.mod`); each one's license text is in its source at the version `go.mod` names.
+
+| Module | Use | License |
+|---|---|---|
+| `github.com/wailsapp/wails/v3` | Wails, the desktop application framework | MIT |
+| `github.com/spf13/cobra` | Cobra, the command line | Apache-2.0 |
+| `github.com/spf13/pflag` | Cobra's flags | BSD-3-Clause |
+| `github.com/modelcontextprotocol/go-sdk` | the MCP server | MIT and Apache-2.0 (licensing transition, see its LICENSE) |
+| `modernc.org/sqlite` | the VM database (pure Go SQLite) | BSD-3-Clause |
+| `modernc.org/libc` | SQLite's C runtime in Go | BSD-3-Clause |
+| `modernc.org/mathutil` | used by modernc.org/sqlite | BSD-3-Clause |
+| `modernc.org/memory` | used by modernc.org/sqlite | BSD-3-Clause |
+| `gopkg.in/yaml.v3` | `settings.yaml` | MIT and Apache-2.0 |
+| `mvdan.cc/sh/v3` | the POSIX shell parser that reads `reims-ctl command` without running it | BSD-3-Clause |
+| `github.com/godbus/dbus/v5` | used by Wails | BSD-2-Clause |
+| `github.com/google/jsonschema-go` | used by the MCP SDK | MIT |
+| `github.com/google/uuid` | used by Wails | BSD-3-Clause |
+| `github.com/dustin/go-humanize` | used by modernc.org/sqlite | MIT |
+| `github.com/remyoudompheng/bigfft` | used by modernc.org/mathutil | BSD-3-Clause |
+| `github.com/segmentio/asm` | used by the MCP SDK | MIT |
+| `github.com/segmentio/encoding` | used by the MCP SDK | MIT |
+| `github.com/yosida95/uritemplate/v3` | used by the MCP SDK | BSD-3-Clause |
+| `github.com/ncruces/go-strftime` | used by modernc.org/sqlite | MIT |
+| `github.com/mattn/go-isatty` | used by Wails | MIT |
+| `github.com/jezek/xgb` | the X11 protocol for embedding a VM's own window (`internal/embed`) | BSD-3-Clause |
+| `github.com/coder/websocket` | the VM screen's WebSocket, and Wails | ISC |
+| `github.com/ebitengine/purego` | used by Wails | Apache-2.0 |
+| `github.com/go-ole/go-ole` | used by Wails on Windows only (not in the Linux binary) | MIT |
+| `github.com/inconshreveable/mousetrap` | used by Cobra on Windows only (not in the Linux binary) | Apache-2.0 |
+| `golang.org/x/oauth2` | used by the MCP SDK | BSD-3-Clause |
+| `golang.org/x/sync` |  | BSD-3-Clause |
+| `golang.org/x/sys` |  | BSD-3-Clause |
+| `golang.org/x/term` |  | BSD-3-Clause |
+| `golang.org/x/time` |  | BSD-3-Clause |
+| `github.com/niemeyer/pretty` | tests of gopkg.in/yaml.v3 only (not in the binary) | MIT |
+| `gopkg.in/check.v1` | tests of gopkg.in/yaml.v3 only (not in the binary) | BSD-2-Clause |
+
+## Frontend
+
+The GUI's page is built with these npm packages (`frontend/package.json`) and embedded in the binary.
+
+| Package | Use | License |
+|---|---|---|
+| `vue` | Vue 3, the GUI's components | MIT |
+| `@wailsio/runtime` | Wails' JavaScript runtime | MIT |
+| `tailwindcss` | Tailwind CSS (its generated CSS is in the binary) | MIT |
+| `vite-plus` | Vite Plus, the frontend build (build time only) | MIT |
+| `@tailwindcss/vite` | Tailwind's Vite plugin (build time only) | MIT |
+| `@vitejs/plugin-vue` | Vite's Vue plugin (build time only) | MIT |
+| `@vue/compiler-sfc` | Vue's single-file component compiler (build time only) | MIT |
+
 ## Reims vGPU
 
-Not embedded and not part of the app's packages. `macos-kvm-gui reims install` downloads, from this repository's separate `reims-<commit>` releases, a build of [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu)'s QEMU for the host's Ubuntu release (`reims-qemu-<commit>-ubuntu<release>-x86_64.tar.gz`, made by `.github/workflows/reims-release.yml` from `internal/core/reims/Dockerfile`), checked against the SHA-256 in `internal/core/reims/manifest.json`; `macos-kvm-gui reims build` builds the same thing from source on the user's machine instead. Each package holds:
+Not embedded and not part of the app's packages. `kvm-gui reims install` downloads, from this repository's separate `reims-<commit>` releases, a build of [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu)'s QEMU for the host's platform (`reims-qemu-<commit>-<platform>-x86_64.tar.gz` for `ubuntu24.04`, `ubuntu26.04`, `debian13` or `rocky10`, made by `.github/workflows/reims-release.yml` from `reims/Dockerfile` or `reims/Dockerfile.rocky`), checked against the SHA-256 in `reims/manifest.json`; `kvm-gui reims build` builds the same thing from source on the user's machine instead. From the release after `reims-c099dd5`, a package also holds upstream's `reims-ctl` and [steelbrain/reims-util](https://github.com/steelbrain/reims-util)'s `reims-util` (both GPL-2.0-or-later OR LGPL-3.0-or-later), and the source archive adds their crates and reims-util's source. Each package holds:
 
 | Component | Source | License |
 |---|---|---|

@@ -8,9 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
-	"github.com/jniltinho/macos-kvm-gui/internal/gui"
-	"github.com/jniltinho/macos-kvm-gui/internal/mcp"
+	"github.com/jniltinho/kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/mcp"
 )
 
 var (
@@ -20,22 +19,19 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "macos-kvm-gui",
-	Short: "Install and run macOS on Linux KVM (home lab use)",
-	Long: `macOS KVM installs and runs macOS on Linux KVM, with OpenCore and OVMF built in.
-Without a command it opens the desktop app; the commands below automate the same steps.
+	Use:   "kvm-gui",
+	Short: "Create and run macOS and other VMs on Linux KVM (home lab use)",
+	Long: `kvm-gui creates and runs macOS VMs (OpenCore and OVMF built in, Reims vGPU optional) on Linux KVM.
+Without a command it opens the desktop GUI; the commands below automate the same steps.
 
 For home lab use: macOS's license only allows it on Apple-branded hardware.`,
 	SilenceUsage: true,
-	RunE: func(*cobra.Command, []string) error {
-		gui.Run(version, cfgFile) // "" = the VM list; --config = one VM file
-		return nil
-	},
+	RunE:         func(*cobra.Command, []string) error { return runGUI() },
 }
 
 // Execute runs the command line; appVersion comes from the build.
-func Execute(appVersion string) {
-	version, rootCmd.Version = appVersion, appVersion
+func Execute(appVersion, licenseText string) {
+	version, rootCmd.Version, licenses = appVersion, appVersion, licenseText
 	if filepath.Base(os.Args[0]) == mcp.AskpassName { // ssh runs the binary as SSH_ASKPASS with its prompt
 		rootCmd.SetArgs([]string{mcp.AskpassName})
 	}
@@ -54,7 +50,7 @@ func init() {
 func currentVM() (core.VMEntry, error) {
 	if cfgFile != "" {
 		c, err := core.LoadConfig(cfgFile)
-		return core.VMEntry{ID: "config", Path: cfgFile, Config: c}, err
+		return core.VMEntry{ID: core.ConfigFileID(cfgFile), Path: cfgFile, Config: c}, err
 	}
 	vms, err := core.ListVMs()
 	if err != nil {
@@ -70,12 +66,12 @@ func currentVM() (core.VMEntry, error) {
 	}
 	if vmName != "" {
 		if e, ok := core.FindVM(vms, vmName); ok {
-			return e, nil
+			return recovered(e)
 		}
 		return core.VMEntry{}, fmt.Errorf("no VM named %q (see `vm list`)", vmName)
 	}
 	e, _ := core.SelectedVM(vms)
-	return e, nil
+	return recovered(e)
 }
 
 // loadConfig returns the current VM's settings and the file they live in.
@@ -91,4 +87,19 @@ func loadWorkspace() (core.Config, core.Workspace, error) {
 	}
 	dir, err := c.WorkspaceDir()
 	return c, core.NewWorkspace(dir), err
+}
+
+// recovered finishes or undoes e's interrupted snapshot operation before a command uses it.
+func recovered(e core.VMEntry) (core.VMEntry, error) {
+	if err := core.RecoverVM(e); err != nil {
+		return e, fmt.Errorf("an interrupted snapshot operation of %s could not be completed: %w", e.DisplayName(), err)
+	}
+	vms, err := core.ListVMs()
+	if err != nil {
+		return e, err
+	}
+	if cur, ok := core.FindVM(vms, e.ID); ok {
+		return cur, nil
+	}
+	return e, nil
 }

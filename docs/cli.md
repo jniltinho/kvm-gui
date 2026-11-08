@@ -1,11 +1,10 @@
 # Command line
 
-The same binary is a desktop app and a command line tool. Without a command it opens the GUI; with one it runs the same steps from a terminal, so installs can be scripted. Every command has `--help`.
+`kvm-gui` is the desktop GUI (the binary without a command, or `gui`), a command line tool and an MCP server. Every step runs from a terminal, so installs can be scripted. Every command has `--help`. The packages also install `macos-kvm-gui` as a link to `kvm-gui`.
 
 ```sh
-macos-kvm-gui                 # opens the desktop app (same as `macos-kvm-gui gui`)
-macos-kvm-gui --help          # all commands
-macos-kvm-gui --vm "Tahoe lab" config show       # act on another VM than the selected one
+kvm-gui --help          # all commands
+kvm-gui --vm "Tahoe lab" config show       # act on another VM than the selected one
 macos-kvm-gui --config ./lab.json config show   # use a standalone settings file
 ```
 
@@ -15,6 +14,7 @@ VMs live in `~/.config/macos-kvm-gui/macos-kvm-gui.db` (SQLite). Commands act on
 
 | Command | What it does |
 |---|---|
+| `gui [--show <vm>] [--safe-gpu]` | Opens the desktop GUI. `--show` also opens that VM's window (id or name); when the GUI is already open, it opens the window there. `--safe-gpu` (or `KVM_GUI_SAFE_GPU=1`) turns the window's GPU acceleration off. |
 | `check` | Runs the Host tab's checks. Exits with an error when any check fails. |
 | `mcp` | Runs the [MCP server](mcp.md) for AI agents on standard input and output. |
 | `setup` | Installs missing QEMU packages, loads the KVM module, adds you to the `kvm` group, enables `ignore_msrs` and raises `vm.max_map_count` to 2097152 for Reims vGPU. It asks for your password once, through `pkexec`. |
@@ -30,10 +30,16 @@ VMs live in `~/.config/macos-kvm-gui/macos-kvm-gui.db` (SQLite). Commands act on
 | `vm list` / `vm status [name]` | Lists the VMs (`*` marks the selected one) with their state, or shows one VM's state, PID, uptime and folder. VMs started outside the app, for example by OSX-KVM's script, show as running too. |
 | `vm create <name> [--version v] [--folder dir] [--ssh-port N]` | Adds a VM with CPU and RAM recommended for this host, selects it, and creates its folder (default `<Workspace>/<name>`) and its 80 GiB thin disk. It gets its own SSH port: the lowest from 2222 up that no other VM uses and that is free on 127.0.0.1, or `--ssh-port N` when no other VM has N (otherwise the next free one, with a `note:`). `vm import` applies the same rule to the imported VM's port. |
 | `vm select <name>` | Selects the VM the other commands and the app use. |
-| `vm move <name> [folder]` | Moves the VM's disk, install media, NVRAM, identity and boot files to a new folder on the same disk (default `<Workspace>/<name>`). |
-| `vm export <name> [file] [--full]` | Writes the settings as JSON, or with `--full` a `.tar` with the disk, NVRAM, identity and install media. |
-| `vm import <file> [--folder dir]` | Adds a VM from a `.json` or a `.tar`; a `.tar` is unpacked into a new folder. |
-| `vm delete <name> --yes [--purge]` | Removes the VM from the list; `--purge` also deletes the files the app created in its folder. |
+| `vm move <name> [folder]` | Moves the files the VM owns (its disks inside its folder, NVRAM, TPM state, identity, boot files and snapshots) to a new folder on the same disk (default `<Workspace>/<name>`). Refused while another VM, or another VM's snapshot, uses one of them. |
+| `vm export <name> [file] [--full]` | Writes the settings as JSON, or with `--full` a `.tar` bundle. A macOS VM without snapshots gets format 1 (disk, NVRAM, identity, install media); any other VM gets format 2: every disk (its own, external ones, and ones detached since a snapshot), the UEFI variables, the TPM state and the snapshots. A bundle with TPM state is created readable by you only (0600). |
+| `vm import <file> [--folder dir]` | Adds a VM from a `.json` or a `.tar`; a `.tar` is unpacked into a new folder, its files readable by you only, its snapshots kept. A name in use gets ` (imported)`. |
+| `vm clone <name> <new name> [--folder dir] [--new-tpm] [--keep-macs]` | Makes a full, independent copy of a powered-off VM: every disk is copied into the new folder (the originals are only read), with the UEFI variables and the TPM state (BitLocker keeps working), new MACs, the next free SSH port and, for macOS, a new Mac identity. Snapshots are not copied. `--new-tpm` starts with an empty TPM instead (BitLocker then asks for its recovery key). |
+| `vm add [--reims-ctl <name> --reims-ctl-config <dir>]` | Lists the VMs that kvm-gui's `reims-ctl` and your own `~/.config/reims-ctl` have and the app does not; with `--reims-ctl`, adds one. |
+| `vm delete <name> --yes [--purge]` | Removes the VM and its snapshot list; `--purge` also deletes the files the app created in its folder (images outside the folder are kept), and is refused while another VM uses one of them. |
+| `snapshot list <vm>` | Prints the VM's snapshot tree with dates, descriptions and `* Current state` under the snapshot it was last taken from or restored to. |
+| `snapshot take <vm> <name> [--description text]` | Takes a snapshot of a powered-off VM: every hard disk (qcow2 only; a raw disk is refused, naming it), the UEFI variables, the TPM state and the settings. Install media (ISOs, `BaseSystem.img`) are left out. |
+| `snapshot restore <vm> <snapshot> --yes` | Returns a powered-off VM to a snapshot. Its current state is lost unless you take a snapshot first; disks attached since are detached, not deleted. |
+| `snapshot delete <vm> <snapshot> --yes` | Deletes a snapshot; its children move under its parent. |
 | `vm start [--display app\|window] [-v] [--verbose-boot]` | Downloads the [extra kexts](architecture.md#extra-kexts) listed in `settings.yaml` that are not cached yet, then starts the VM in the foreground and returns when QEMU exits. `--verbose-boot` shows macOS's boot log on screen for this start (see [stuck at the Apple logo](troubleshooting.md#stuck-at-the-apple-logo)). See below. |
 | `gpu list` | Lists the display adapters, whether each can be passed to the VM, and why not. |
 | `gpu reserve <pci-address>` / `gpu release` | Reserves an eligible GPU for `vfio-pci`, or releases it. Both need a host reboot. Experimental. |
@@ -44,9 +50,13 @@ VMs live in `~/.config/macos-kvm-gui/macos-kvm-gui.db` (SQLite). Commands act on
 | `settings reset --yes` | Overwrites `settings.yaml` with the built-in default, which sets nothing. |
 | `version` | Shows the app version and the built-in boot file versions. |
 
+### Snapshots and interrupted operations
+
+Take, restore and delete each keep a journal in `<VM folder>/snapshots/`. If one is interrupted (the computer loses power, the process is killed), the next command, the app or the MCP server finishes or undoes it before the VM is used, so a VM is never left half restored. A snapshot holds qcow2 internal snapshots, so it lives inside the disk files: deleting a snapshot frees that space.
+
 ### `vm start`
 
-The command waits while the VM runs. The first **Ctrl+C** asks macOS to shut down (ACPI), and a second one forces the stop. With `display=app` there is no window: the command prints the private VNC socket, which any VNC viewer can open (for example `vncviewer /run/user/1000/macos-kvm-gui-*/vnc.sock`). With `--display window`, QEMU opens its own window. A VM with `graphics=reims-vgpu` always opens Reims vGPU's window and still prints the VNC socket; on Tahoe it first downloads ReimsVgpu.kext once ([ReimsVgpu.kext](reims-vgpu.md#reimsvgpukext-on-tahoe)). `-v` prints the QEMU command line and output.
+The command waits while the VM runs; the VMs that the app and the MCP server start run detached instead (`vm start --gui-run`, `--starter mcp`, hidden options) and keep running when the app or the agent exits. Every run writes `run.json` (its process and start time) in its private folder `$XDG_RUNTIME_DIR/kvm-gui/<vm>/`: only a run whose record names a VM is that VM's to control, so a VM that shares a disk with another VM's run shows as busy without control. The first **Ctrl+C** asks macOS to shut down (ACPI), and a second one forces the stop. With `display=app` there is no window: the command prints the private VNC socket, which any VNC viewer can open (for example `vncviewer /run/user/1000/macos-kvm-gui-*/vnc.sock`). With `--display window`, QEMU opens its own window. A VM with `graphics=reims-vgpu` always opens Reims vGPU's window and still prints the VNC socket; on Tahoe it first downloads ReimsVgpu.kext once ([ReimsVgpu.kext](reims-vgpu.md#reimsvgpukext-on-tahoe)). `-v` prints the QEMU command line and output.
 
 ## Automating an install
 
@@ -54,21 +64,21 @@ The command waits while the VM runs. The first **Ctrl+C** asks macOS to shut dow
 #!/usr/bin/env bash
 set -euo pipefail
 
-macos-kvm-gui setup || true            # may need a new login for the kvm group
-macos-kvm-gui check                    # stops the script if the host is not ready
+kvm-gui setup || true            # may need a new login for the kvm group
+kvm-gui check                    # stops the script if the host is not ready
 
-macos-kvm-gui vm create "Sonoma lab" --version sonoma   # recommended CPU/RAM, folder ~/macOS-VMs/sonoma-lab
-macos-kvm-gui config set display=window
+kvm-gui vm create "Sonoma lab" --version sonoma   # recommended CPU/RAM, folder ~/macOS-VMs/sonoma-lab
+kvm-gui config set display=window
 # optional: a second adapter on the host bridge br0 (see troubleshooting.md#bridged-networking)
-macos-kvm-gui config set nic2.enabled=true nic2.mode=bridged nic2.bridge=br0 nic2.model=vmxnet3 nic2.mac=random
-macos-kvm-gui download
-macos-kvm-gui disk create --size 80
+kvm-gui config set nic2.enabled=true nic2.mode=bridged nic2.bridge=br0 nic2.model=vmxnet3 nic2.mac=random
+kvm-gui download
+kvm-gui disk create --size 80
 
 # Install macOS inside the QEMU window (Disk Utility → Erase as APFS → Reinstall macOS).
-macos-kvm-gui vm start
+kvm-gui vm start
 
 # After macOS boots from the disk:
-macos-kvm-gui media remove --yes
+kvm-gui media remove --yes
 ```
 
 The steps inside the VM (erasing the disk and running the installer) stay manual.

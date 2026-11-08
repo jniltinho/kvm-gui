@@ -3,6 +3,7 @@ package core
 import (
 	"archive/tar"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -11,7 +12,7 @@ import (
 )
 
 func TestBundleRoundTrip(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	c := testDefaults()
 	c.Name, c.Workspace, c.GPU = "Lab", filepath.Join(t.TempDir(), "lab"), "0000:03:00.0"
@@ -68,12 +69,12 @@ func qcow2(t *testing.T, path, backing string) {
 		args = append(args, "-b", backing, "-F", "raw")
 	}
 	if out, err := exec.Command("qemu-img", append(args, path, "64M")...).CombinedOutput(); err != nil {
-		t.Skipf("qemu-img unavailable: %v %s", err, out)
+		needTool(t, fmt.Sprintf("qemu-img unavailable: %v %s", err, out))
 	}
 }
 
 func TestBundleRejectsDiskWithBackingFile(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	secret := filepath.Join(t.TempDir(), "host-file")
 	write(t, secret, "host data")
@@ -102,7 +103,7 @@ func TestBundleRejectsDiskWithBackingFile(t *testing.T) {
 }
 
 func TestBundleRejectsUnexpectedEntries(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	evil := filepath.Join(t.TempDir(), "evil.tar")
 	f, _ := os.Create(evil)
 	tw := tar.NewWriter(f)
@@ -128,7 +129,7 @@ func TestBundleRejectsUnexpectedEntries(t *testing.T) {
 }
 
 func TestImportSettings(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	c := testDefaults()
 	c.Name = "From JSON"
 	e, _ := CreateVM(c)

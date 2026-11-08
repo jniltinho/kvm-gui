@@ -106,7 +106,7 @@ func TestGraphicsValidate(t *testing.T) {
 }
 
 func TestGraphicsSchema4(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	path, _ := DBPath()
 	os.MkdirAll(filepath.Dir(path), 0o755)
 	// A version 3 database, as the previous release left it.
@@ -222,7 +222,7 @@ func TestReimsChecks(t *testing.T) {
 }
 
 func TestStartReimsWithoutBuild(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("MKG_REIMS_QEMU", "")
@@ -240,7 +240,7 @@ func TestStartReimsWithoutBuild(t *testing.T) {
 }
 
 func TestReimsQEMUSearch(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	data := t.TempDir()
 	t.Setenv("XDG_DATA_HOME", data)
 	t.Setenv("MKG_REIMS_QEMU", "")
@@ -248,7 +248,7 @@ func TestReimsQEMUSearch(t *testing.T) {
 	if err := SetWorkspaceRoot(root); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ReimsQEMU(); err == nil || !strings.Contains(err.Error(), filepath.Join(root, ".reims")) {
+	if _, err := ReimsQEMU(); err == nil || !strings.Contains(err.Error(), filepath.Join(data, "kvm-gui", "reims-ctl")) {
 		t.Fatalf("not installed: %v", err)
 	}
 	upstream := filepath.Join(data, "reims-ctl/qemu/current/bin/qemu-system-x86_64")
@@ -256,7 +256,8 @@ func TestReimsQEMUSearch(t *testing.T) {
 	if p, err := ReimsQEMU(); err != nil || p != upstream {
 		t.Fatalf("upstream install: %q %v", p, err)
 	}
-	own := filepath.Join(root, ".reims/qemu/current/bin/qemu-system-x86_64")
+	reims, _ := ReimsDir()
+	own := filepath.Join(reims, "qemu/current/bin/qemu-system-x86_64")
 	write(t, own, "")
 	if p, _ := ReimsQEMU(); p != own {
 		t.Fatalf("the app's install wins over upstream's: %q", p)
@@ -349,8 +350,8 @@ func TestReimsRealizesPaused(t *testing.T) {
 
 func TestReimsQEMURelative(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	dir := filepath.Join(cfg, "macos-kvm-gui")
+	isolateXDG(t, cfg)
+	dir := filepath.Join(cfg, "kvm-gui")
 	write(t, filepath.Join(dir, "bin", "qemu"), "")
 	write(t, filepath.Join(dir, "settings.yaml"), "reims_qemu: bin/qemu\n")
 	if q, err := ReimsQEMU(); err != nil || q != filepath.Join(dir, "bin", "qemu") {

@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" stroke-linejoin="miter" stroke-linecap="square">
+  <!-- Original artwork for kvm-gui; BSD-3-Clause. -->
+  <path d="M1 2H15V11H7L3 14V11H1Z" fill="#3a6f99"/>
+  <path d="M2 3H14V10H2Z" fill="#e4f0f9"/>
+  <path d="M4 5H12V6H4ZM4 7H10V8H4Z" fill="#3a6f99"/>
+</svg>

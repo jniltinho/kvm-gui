@@ -10,7 +10,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 var (
@@ -19,6 +19,10 @@ var (
 	vmBootLog bool
 	// vmKextsSnapshot is the MCP server's kexts snapshot (JSON), so its start uses what it downloaded.
 	vmKextsSnapshot string
+	// vmStarter is who started the run, recorded in run.json: cli, or mcp from the MCP server.
+	vmStarter string
+	// vmGUIRun and vmEmbedX11: the GUI's detached start; only it embeds Reims vGPU's X11 window.
+	vmGUIRun, vmEmbedX11 bool
 )
 
 var vmCmd = &cobra.Command{Use: "vm", Short: "Run the macOS VM"}
@@ -30,39 +34,47 @@ var vmStartCmd = &cobra.Command{
 Ctrl+C asks macOS to shut down (ACPI); a second Ctrl+C forces the stop.
 With display=app there is no window: the screen is on the printed private VNC socket.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		c, _, err := loadConfig()
+		starter, err := startStarter(cmd)
 		if err != nil {
 			return err
 		}
+		e, err := currentVM()
+		if err != nil {
+			return err
+		}
+		c := e.Config
 		if vmDisplay != "" {
 			c.Display = vmDisplay
 		}
 		c.VerboseBoot = vmBootLog
 		out := cmd.OutOrStdout()
-		var ks core.ExtraKexts
-		if vmKextsSnapshot != "" { // the MCP server's start, which already downloaded them
-			err = json.Unmarshal([]byte(vmKextsSnapshot), &ks)
-		} else {
-			ks, err = core.LoadExtraKexts()
-		}
-		if err != nil {
-			return err
-		}
-		if !ks.Ready() {
-			fmt.Fprintln(out, "vm: downloading the kexts listed in", core.SettingsFile())
-			if err := core.DownloadExtraKexts(cmd.Context(), ks); err != nil {
+		if c.Backend != core.BackendReimsCtl { // reims-ctl VMs boot reims-ctl's OpenCore: no kexts of the app
+			var ks core.ExtraKexts
+			if vmKextsSnapshot != "" { // the MCP server's start, which already downloaded them
+				err = json.Unmarshal([]byte(vmKextsSnapshot), &ks)
+			} else {
+				ks, err = core.LoadExtraKexts()
+			}
+			if err != nil {
 				return err
 			}
-		}
-		if c.ReimsKext() && !core.ReimsKextReady() {
-			fmt.Fprintln(out, "vm: downloading ReimsVgpu.kext (Reims vGPU on Tahoe)")
-			if err := core.DownloadReimsKext(cmd.Context()); err != nil {
-				return err
+			if !ks.Ready() {
+				fmt.Fprintln(out, "vm: downloading the kexts listed in", core.SettingsFile())
+				if err := core.DownloadExtraKexts(cmd.Context(), ks); err != nil {
+					return err
+				}
 			}
+			if c.ReimsKext() && !core.ReimsKextReady() {
+				fmt.Fprintln(out, "vm: downloading ReimsVgpu.kext (Reims vGPU on Tahoe)")
+				if err := core.DownloadReimsKext(cmd.Context()); err != nil {
+					return err
+				}
+			}
+			c.Extras = &ks
 		}
-		c.Extras = &ks
 		stopped := make(chan string, 1)
 		vm := &core.VM{
+			ID: e.ID, Starter: starter, EmbedX11: vmEmbedX11,
 			OnState: func(s core.VMState, msg string) {
 				if msg != "" {
 					fmt.Fprintln(out, "vm:", msg)
@@ -72,7 +84,7 @@ With display=app there is no window: the screen is on the printed private VNC so
 				}
 			},
 		}
-		if vmVerbose {
+		if vmVerbose || starter != core.StarterCLI { // a detached run's output is its start log
 			vm.OnLog = func(s string) { fmt.Fprintln(out, s) }
 		}
 		if err := vm.Start(c); err != nil {
@@ -91,7 +103,7 @@ With display=app there is no window: the screen is on the printed private VNC so
 		for asked := false; ; {
 			select {
 			case msg := <-stopped:
-				if msg != "" && !asked {
+				if msg != "" && !asked && !vm.GuestShutDown() {
 					return errors.New(msg)
 				}
 				return nil
@@ -116,7 +128,31 @@ func init() {
 	vmStartCmd.Flags().BoolVarP(&vmVerbose, "verbose", "v", false, "print the QEMU command line and output")
 	vmStartCmd.Flags().StringVar(&vmKextsSnapshot, "kexts-snapshot", "", "")
 	vmStartCmd.Flags().MarkHidden("kexts-snapshot")
+	vmStartCmd.Flags().StringVar(&vmStarter, "starter", core.StarterCLI, "")
+	vmStartCmd.Flags().MarkHidden("starter")
+	vmStartCmd.Flags().BoolVar(&vmGUIRun, "gui-run", false, "")
+	vmStartCmd.Flags().MarkHidden("gui-run")
+	vmStartCmd.Flags().BoolVar(&vmEmbedX11, "embed-x11", false, "")
+	vmStartCmd.Flags().MarkHidden("embed-x11")
 	vmStartCmd.Flags().BoolVar(&vmBootLog, "verbose-boot", false, "show macOS's boot log on screen instead of the logo, for this start only (boot-args -v debug=0x100)")
 	vmCmd.AddCommand(vmStartCmd)
 	rootCmd.AddCommand(vmCmd)
+}
+
+// startStarter is who starts this run: cli by default, mcp from the MCP server, gui with
+// --gui-run. --embed-x11 belongs to GUI runs only.
+func startStarter(cmd *cobra.Command) (string, error) {
+	if vmEmbedX11 && !vmGUIRun {
+		return "", errors.New("--embed-x11 needs --gui-run")
+	}
+	if vmGUIRun {
+		if cmd.Flags().Changed("starter") {
+			return "", errors.New("--gui-run and --starter cannot be used together")
+		}
+		return core.StarterGUI, nil
+	}
+	if vmStarter != core.StarterCLI && vmStarter != core.StarterMCP {
+		return "", fmt.Errorf("unknown starter %q", vmStarter)
+	}
+	return vmStarter, nil
 }

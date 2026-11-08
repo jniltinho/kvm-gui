@@ -1,79 +1,119 @@
-BIN     := dist/macos-kvm-gui
-VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
+BIN     := dist/kvm-gui
+VERSION ?= $(shell git describe --tags --match 'v[0-9]*' --dirty 2>/dev/null || echo v0.0.0-dev)
 LDFLAGS := -s -w -X main.version=$(VERSION)
-# reims-gui (Rust) builds in Docker (Ubuntu 24.04 image), with the same target dir as its build.sh.
-RG_VERSION := $(shell sed -n 's/^version = "\(.*\)"$$/\1/p' reims-gui/Cargo.toml | head -n 1)
-RG_TARGET  := target/release-24.04
+# production: Wails never swaps the embedded page for a dev server named in the environment.
+GO_TAGS := -tags production
 
-# Binaries go to dist/, which is git-ignored: nothing built is ever committed.
-# `make build` leaves both apps there: dist/macos-kvm-gui (Go) and dist/reims-gui (Rust).
-build: build-go build-rust
+# Everything runs in the build image (build/linux.Dockerfile): the host needs only Docker and make.
+# Go's build and module caches persist in ~/.cache/kvm-gui-build between runs.
+IMAGE := kvm-gui-build:24.04
+CACHE := $(HOME)/.cache/kvm-gui-build
+RUN   := docker run --rm --user $(shell id -u):$(shell id -g) -e HOME=/tmp \
+         -e GOCACHE=/cache/go-build -e GOMODCACHE=/cache/gomod -e GOFLAGS=-buildvcs=false \
+         -v $(CURDIR):/src -v $(CACHE):/cache -w /src $(IMAGE)
 
-# The Go app embeds Reims vGPU's window through reims-gui's rg-x11 (C ABI, crates/rg-x11-ffi),
-# built in Docker (Ubuntu 24.04 image) into the one path internal/embed links. Plain `go build`
-# without -tags reims_embed needs none of it and keeps the window standalone.
-EMBED_LIB := reims-gui/target/rg-x11-ffi/release/librg_x11_ffi.a
-GO_TAGS   := -tags reims_embed
+image:
+	mkdir -p $(CACHE)
+	docker build -t $(IMAGE) -f build/linux.Dockerfile build
 
-# The archive is pruned to the rgx_* functions and what they use (ld -r --gc-sections): Rust's
-# std otherwise brings weak pidfd_* references that the Ubuntu 24.04 linker binds to GLIBC_2.39,
-# raising the Go binary's floor above the 2.38 its packages declare (Debian 13, Fedora 39).
-embed-lib:
-	cd reims-gui && CARGO_TARGET_DIR=target/rg-x11-ffi scripts/cargo-docker.sh 24.04 sh -c '\
-		set -e; cargo build --release --locked -p rg-x11-ffi; cd target/rg-x11-ffi/release; \
-		roots=$$(nm -g --defined-only librg_x11_ffi.a 2>/dev/null | awk "/ T rgx_/{print \"-u \" \$$3}" | sort -u); \
-		ld -r --gc-sections $$roots --whole-archive librg_x11_ffi.a -o rg_x11_ffi.o; \
-		rm -f librg_x11_ffi.a; ar rcs librg_x11_ffi.a rg_x11_ffi.o; rm rg_x11_ffi.o'
+tidy: image embed-stub
+	$(RUN) go mod tidy
 
-build-go: embed-lib
-	mkdir -p dist
-	go build $(GO_TAGS) -o $(BIN) .
+# The binary embeds internal/gui/dist (//go:embed): a fresh checkout has no SPA build yet, so the
+# compile-only targets drop a placeholder page there (git-ignored; `make frontend` replaces it).
+embed-stub:
+	@test -e internal/gui/dist/index.html || { mkdir -p internal/gui/dist && echo '<!doctype html><title>kvm-gui</title>' > internal/gui/dist/index.html; }
 
-build-rust:
-	mkdir -p dist
-	cd reims-gui && CARGO_TARGET_DIR=$(RG_TARGET) scripts/cargo-docker.sh 24.04 cargo build --release --locked -p reims-gui
-	cp reims-gui/$(RG_TARGET)/release/reims-gui dist/reims-gui
+# The Vue / Vite Plus / Tailwind page into internal/gui/dist.
+frontend: image
+	$(RUN) sh -c 'cd frontend && npm ci --no-audit --no-fund && npm run build'
 
-# Stripped, reproducible-path binary with the version baked in (used by releases).
-build-prod: embed-lib
-	mkdir -p dist
-	go build $(GO_TAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) .
+# Frontend lint, type checks and unit tests (Vite Plus).
+frontend-check: image
+	$(RUN) sh -c 'cd frontend && npm ci --no-audit --no-fund && npx vp check --no-fmt && npx vp test run'
+
+# Layering: only internal/gui imports Wails; every skin defines the same tokens.
+layers: image embed-stub
+	$(RUN) go test ./internal/archtest
+
+# The GUI in a container: Xvfb, a session bus, and WebKit's own sandbox (bubblewrap), which needs
+# user namespaces and an unmasked /proc inside the container. The session bus needs this user's
+# passwd entry (CI runs as uid 1001, unknown to the image) and a runtime folder of its own.
+RUN_GUI := $(subst --rm,--rm --init --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+           --security-opt systempaths=unconfined -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro,$(RUN))
+
+# THIRD_PARTY_LICENSES.txt: every bundled component's license text (committed; CI checks it is current).
+licenses: image frontend
+	$(RUN) scripts/licenses.sh
+
+# Embedding of a VM's X11 window (internal/embed) under Xvfb, with an X client of the test binary.
+test-embed: image
+	$(RUN) sh -c 'Xvfb :58 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; DISPLAY=:58 MKG_REQUIRE_X=1 go test -race -count=1 -v ./internal/embed'
+
+# The Manager opens, loads the VM list and exits 0.
+self-test: build
+	$(RUN_GUI) sh -c 'export XDG_RUNTIME_DIR=$$(mktemp -d); Xvfb :57 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; \
+	  DISPLAY=:57 dbus-run-session timeout 120 ./$(BIN) --self-test >/tmp/self-test.log 2>&1 || { rc=$$?; echo "self-test exit $$rc"; \
+	  grep -m20 -nE "^(SIG|fatal error|panic|goroutine [0-9]+ \[running)|Gtk-|Gdk-|WebKit|EGL|MESA|bwrap|error" /tmp/self-test.log; head -30 /tmp/self-test.log; exit 1; }'
 
 # OpenCore's validator for the config.plist tests; downloaded once, never committed.
-internal/core/testdata/ocvalidate:
-	scripts/fetch-ocvalidate.sh
+internal/core/testdata/ocvalidate: | image
+	$(RUN) scripts/fetch-ocvalidate.sh
 
-test: internal/core/testdata/ocvalidate
-	test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w ."; exit 1; }
-	go vet ./...
-	go test -race ./...
+# MKG_REQUIRE_TOOLS=1: a test that needs qemu-img or ocvalidate fails instead of skipping.
+test: image embed-stub internal/core/testdata/ocvalidate
+	$(RUN) sh -c 'test -z "$$(gofmt -l .)" || { gofmt -l .; echo "run gofmt -w ."; exit 1; }; \
+	  go vet ./... && MKG_REQUIRE_TOOLS=1 go test -race ./...'
 
-# internal/embed's cgo wrapper against the real library, under Xvfb.
-test-embed: embed-lib
-	cd reims-gui && scripts/cargo-docker.sh 24.04 cargo build --locked -p rg-x11 --example sdl_window
-	go test $(GO_TAGS) -count=1 -v -run . ./internal/embed
+openspec: image
+	$(RUN) openspec validate --all --strict
 
-# Real QEMU/KVM boot of the embedded OpenCore in a temporary workspace.
-test-integration:
-	go test -race -tags integration -run Real ./internal/core
-
-# dist/: both apps' packages and SHA-256 files.
-package: package-go package-rust
-
-# The Go app's .tar.gz, .deb and .rpm for VERSION.
-package-go: build-prod
-	scripts/package.sh $(VERSION) $(BIN)
-
-# reims-gui's .deb and .tar.gz (one for Ubuntu 24.04 and 26.04), built in Docker.
-package-rust:
+build: image frontend
 	mkdir -p dist
-	reims-gui/scripts/build.sh
-	cp reims-gui/dist/reims-gui_$(RG_VERSION)_amd64.deb* reims-gui/dist/reims-gui-$(RG_VERSION)-x86_64.tar.gz* reims-gui/dist/reims-gui-$(RG_VERSION)-1.x86_64.rpm* dist/
+	$(RUN) go build $(GO_TAGS) -o $(BIN) .
 
-run: build-go
-	./$(BIN)
+# Stripped, reproducible-path binary with the version baked in (used by releases).
+build-prod: image frontend
+	mkdir -p dist
+	$(RUN) go build $(GO_TAGS) -trimpath -ldflags "$(LDFLAGS)" -o $(BIN) .
+
+# Real QEMU/KVM boot of the embedded OpenCore in a temporary workspace (needs /dev/kvm).
+test-integration: image
+	$(RUN_KVM) go test -race -tags integration -run Real ./internal/core
+RUN_KVM = $(subst --rm,--rm --device /dev/kvm --group-add $(shell stat -c %g /dev/kvm),$(RUN))
+
+# The .deb and .rpm of VERSION.
+package: build-prod
+	$(RUN) scripts/package.sh $(VERSION) $(BIN)
+
+# The AppImage: the binary, its desktop entry, icon and notices; GTK 4 and WebKitGTK 6.0 come from
+# the system. Built as .new then renamed, so a running copy is replaced too.
+appimage: build-prod
+	rm -f dist/kvm-gui-*-x86_64.AppImage dist/kvm-gui-*-linux-amd64
+	$(RUN) sh -c 'set -e; app=/tmp/AppDir; rm -rf $$app; \
+	  install -D -m 0755 $(BIN) $$app/usr/bin/kvm-gui; \
+	  install -D -m 0644 LICENSE $$app/usr/share/doc/kvm-gui/LICENSE; \
+	  install -D -m 0644 THIRD_PARTY_NOTICES.md $$app/usr/share/doc/kvm-gui/THIRD_PARTY_NOTICES.md; \
+	  install -D -m 0644 THIRD_PARTY_LICENSES.txt $$app/usr/share/doc/kvm-gui/THIRD_PARTY_LICENSES.txt; \
+	  install -D -m 0644 internal/assets/logo/logo.svg $$app/usr/share/icons/hicolor/scalable/apps/kvm-gui.svg; \
+	  cp internal/assets/logo/logo.svg $$app/kvm-gui.svg; \
+	  install -m 0755 build/linux/AppRun $$app/AppRun; cp build/linux/kvm-gui.desktop $$app/; \
+	  desktop-file-validate $$app/kvm-gui.desktop; \
+	  ARCH=x86_64 appimagetool --no-appstream --runtime-file /usr/local/share/appimage-runtime-x86_64 \
+	    $$app dist/kvm-gui-$(VERSION)-x86_64.AppImage.new >/dev/null; \
+	  mv -f dist/kvm-gui-$(VERSION)-x86_64.AppImage.new dist/kvm-gui-$(VERSION)-x86_64.AppImage'
+
+# dist/: every artifact, with SHA256SUMS. Run after each milestone.
+# dist/ holds exactly this build's five files: it is emptied first, and the work binary removed.
+dist: clean-dist package appimage
+	cp $(BIN) dist/kvm-gui-$(VERSION)-linux-amd64
+	rm -f $(BIN)
+	cd dist && rm -f SHA256SUMS && sha256sum kvm-gui_*.deb kvm-gui-*.rpm kvm-gui-*-x86_64.AppImage kvm-gui-*-linux-amd64 > SHA256SUMS && sha256sum -c SHA256SUMS
+
+clean-dist:
+	find dist -mindepth 1 -delete 2>/dev/null || true
 
 clean:
 	rm -rf dist
 
-.PHONY: build build-go build-rust build-prod embed-lib test-embed test test-integration package package-go package-rust run clean
+.PHONY: clean-dist licenses test-embed self-test image tidy embed-stub frontend frontend-check layers test openspec build build-prod test-integration package appimage dist clean

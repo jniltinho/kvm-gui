@@ -34,8 +34,9 @@ type VNC struct {
 	r    *bufio.Reader
 	wmu  sync.Mutex // serializes writes
 
-	mu  sync.Mutex // guards img
-	img *image.RGBA
+	mu    sync.Mutex // guards img and dirty
+	img   *image.RGBA
+	dirty image.Rectangle // changed since the last TakeDirty
 
 	extKeys  atomic.Bool
 	pixels   atomic.Int64 // pixel rectangles received since the last resize (Snapshot waits for them)
@@ -300,6 +301,7 @@ func (v *VNC) readUpdate() error {
 			}
 			v.mu.Lock()
 			v.img = blankFrame(w, hh)
+			v.dirty = v.img.Bounds()
 			v.mu.Unlock()
 			v.resized = true
 			v.pixels.Store(0)
@@ -327,6 +329,7 @@ func (v *VNC) readRaw(x, y, w, h int) error {
 			for i := off + 3; i < off+n; i += 4 {
 				v.img.Pix[i] = 255
 			}
+			v.dirty = v.dirty.Union(image.Rect(x, y+j, x+n/4, y+j+1))
 		}
 		v.mu.Unlock()
 	}
@@ -340,6 +343,7 @@ func (v *VNC) copyRect(sx, sy, dx, dy, w, h int) {
 	if sx+w > b.Max.X || dx+w > b.Max.X || sy+h > b.Max.Y || dy+h > b.Max.Y {
 		return
 	}
+	v.dirty = v.dirty.Union(image.Rect(dx, dy, dx+w, dy+h))
 	tmp := make([]byte, w*4*h) // through a copy, because source and destination may overlap
 	for j := range h {
 		o := v.img.PixOffset(sx, sy+j)
@@ -349,6 +353,25 @@ func (v *VNC) copyRect(sx, sy, dx, dy, w, h int) {
 		o := v.img.PixOffset(dx, dy+j)
 		copy(v.img.Pix[o:o+w*4], tmp[j*w*4:(j+1)*w*4])
 	}
+}
+
+// TakeDirty returns the part of the frame changed since the last call (empty when nothing
+// changed), its pixels (RGBA, row by row) and the frame's size, and starts over.
+func (v *VNC) TakeDirty() (image.Rectangle, []byte, int, int) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	b := v.img.Bounds()
+	r := v.dirty.Intersect(b)
+	v.dirty = image.Rectangle{}
+	if r.Empty() {
+		return r, nil, b.Dx(), b.Dy()
+	}
+	pix := make([]byte, 0, r.Dx()*r.Dy()*4)
+	for y := r.Min.Y; y < r.Max.Y; y++ {
+		o := v.img.PixOffset(r.Min.X, y)
+		pix = append(pix, v.img.Pix[o:o+r.Dx()*4]...)
+	}
+	return r, pix, b.Dx(), b.Dy()
 }
 
 // Key sends a key press or release. With QEMU extended key events the scancode is sent

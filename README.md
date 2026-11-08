@@ -1,99 +1,76 @@
 <p align="center">
-  <img src="internal/assets/logo/logo.svg" width="112" alt="macos-kvm-gui logo">
+  <img src="internal/assets/logo/logo.svg" width="112" alt="kvm-gui logo">
 </p>
 
-<h1 align="center">macOS KVM · reims-gui</h1>
+<h1 align="center">kvm-gui</h1>
 
 <p align="center">
-  <b>Run macOS on Linux with KVM, from a single desktop app.</b><br>
-  Download, install and boot macOS in a few clicks: OpenCore and OVMF are built in, nothing else to clone or script.
-</p>
-
-<p align="center">
-  <a href="https://github.com/jniltinho/macos-kvm-gui/actions/workflows/reims-gui-ci.yml"><img src="https://github.com/jniltinho/macos-kvm-gui/actions/workflows/reims-gui-ci.yml/badge.svg" alt="reims-gui CI"></a>
-  <a href="https://github.com/jniltinho/macos-kvm-gui/actions/workflows/reims-gui-release.yml"><img src="https://github.com/jniltinho/macos-kvm-gui/actions/workflows/reims-gui-release.yml/badge.svg" alt="reims-gui release"></a>
-  <a href="https://github.com/jniltinho/macos-kvm-gui/releases/latest"><img src="https://img.shields.io/github/v/release/jniltinho/macos-kvm-gui?color=blue" alt="Latest release"></a>
-  <a href="https://github.com/jniltinho/macos-kvm-gui/releases"><img src="https://img.shields.io/github/downloads/jniltinho/macos-kvm-gui/total?color=blue" alt="Downloads"></a>
-  <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.99-blue" alt="Rust 1.99"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/jniltinho/macos-kvm-gui?color=blue" alt="License"></a>
-  <a href="https://github.com/jniltinho/macos-kvm-gui/stargazers"><img src="https://img.shields.io/github/stars/jniltinho/macos-kvm-gui?style=social" alt="Stars"></a>
+  <b>Create and run macOS and other VMs on Linux KVM, from one binary.</b><br>
+  OpenCore and OVMF are built in; Reims vGPU gives macOS Metal through the host's Vulkan driver.
 </p>
 
 <p align="center">
-  <img src="docs/screenshots/reims-gui-screen-desktop.png" width="860" alt="reims-gui with macOS Sequoia on Reims vGPU inside the Screen tab">
-</p>
-
-<p align="center">
-  <b><a href="https://github.com/jniltinho/macos-kvm-gui/releases/latest">⬇ Download reims-gui (latest release)</a></b>
+  <a href="https://github.com/jniltinho/kvm-gui/actions/workflows/ci.yml"><img src="https://github.com/jniltinho/kvm-gui/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://github.com/jniltinho/kvm-gui/releases/latest"><img src="https://img.shields.io/github/v/release/jniltinho/kvm-gui?color=blue" alt="Latest release"></a>
+  <a href="https://go.dev/"><img src="https://img.shields.io/badge/go-1.27-blue" alt="Go 1.27"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/jniltinho/kvm-gui?color=blue" alt="License"></a>
 </p>
 
 > **For home lab use.** macOS is Apple's software, and its license only allows it on Apple-branded hardware. Make sure your use complies with Apple's macOS license terms. This project is not affiliated with Apple.
 
-This repository has two apps that read the same VMs and settings:
+## What it is
 
-| App | Language | Releases | Status |
-|---|---|---|---|
-| **[reims-gui](reims-gui/README.md)** | Rust (egui) | [`reims-gui-v*`](https://github.com/jniltinho/macos-kvm-gui/releases?q=reims-gui&expanded=true) | **Recommended.** Reims vGPU's Metal display inside the window; `.deb` for Ubuntu 24.04, 26.04 and Debian 13, `.rpm` for Rocky Linux 10 and Fedora 40+, `.tar.gz` |
-| macos-kvm-gui | Go (Fyne) | [`v*`](https://github.com/jniltinho/macos-kvm-gui/releases?q=macos-kvm-gui&expanded=true) | The first app; also embeds Reims vGPU's window since v0.11.0; `.deb`, `.rpm` (Fedora 39+), `.tar.gz` |
+One binary: a desktop GUI in Go + [Wails](https://wails.io) (Vue 3, Vite Plus, Tailwind) with VirtualBox-like workflows, the [command line](docs/cli.md) and an [MCP server](docs/mcp.md) for AI agents.
 
-## Download and install reims-gui
+- **macOS VMs**, with OpenCore and OVMF built in, or on [Reims vGPU](https://github.com/steelbrain/reims-vgpu) through upstream's `reims-ctl`.
+- **Linux, Windows and Other VMs**: OS profiles, ISO detection, UEFI with Secure Boot, TPM 2.0 through swtpm.
+- **Snapshots** (offline, journaled), **full clones**, and **bundles** to move a VM between hosts.
+- VMs started from the GUI or by an agent keep running when the app closes.
 
-From the [latest release](https://github.com/jniltinho/macos-kvm-gui/releases/latest), take the package for your system and check it:
+The work is planned in the OpenSpec change [`migrate-gui-to-go-wails`](openspec/changes/migrate-gui-to-go-wails/proposal.md); the Rust app `reims-gui` is archived, read-only, in [`archive/rust/reims-gui`](archive/rust/reims-gui/ARCHIVED.md), and its old builds in the [`archive`](https://github.com/jniltinho/kvm-gui/releases/tag/archive) release.
+
+## Install
+
+**Status:** the Wails GUI is on `main` and not released yet; until its first release, build it with `make dist` (below). The latest release, [v0.13.0](https://github.com/jniltinho/kvm-gui/releases/tag/v0.13.0), is the previous `macos-kvm-gui` (command line and Fyne GUI). The archived Rust app's releases (`reims-gui` 0.1.5 and 0.1.6) are kept, for history only, in the [`archive`](https://github.com/jniltinho/kvm-gui/releases/tag/archive) release.
+
+Each kvm-gui release has five files: an AppImage, a plain binary, a `.deb`, an `.rpm` and `SHA256SUMS`. Check them first:
 
 ```sh
-sha256sum -c reims-gui_0.1.6_amd64.deb.sha256
-sudo apt install ./reims-gui_0.1.6_amd64.deb          # Ubuntu 24.04, 26.04, Debian 13
-sudo dnf install ./reims-gui-0.1.6-1.x86_64.rpm       # Rocky Linux / RHEL / AlmaLinux 10, Fedora 40+
+sha256sum -c --ignore-missing SHA256SUMS
 ```
 
-It adds **Reims GUI** to the applications menu and pulls in QEMU (`qemu-system-x86`, `qemu-system-gui`, `qemu-utils`). Or unpack the `.tar.gz` and run `reims-gui` from it. Needs an x86_64 CPU with VT-x/AMD-V and KVM.
+| Distribution | Install |
+|---|---|
+| Ubuntu 24.04, 26.04, Debian 13 | `sudo apt install ./kvm-gui_X.Y.Z_amd64.deb` |
+| Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm` (WebKitGTK 6 comes from EPEL) |
+| AppImage or binary, Ubuntu/Debian | `sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf pkexec`, then `chmod +x` and run the file |
+| AppImage or binary, Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf polkit`, then `chmod +x` and run the file |
 
-1. Open **Reims GUI** and, in the **Host** tab, click **Set up host** (one password prompt), then **Install Reims vGPU**: it downloads Reims vGPU's QEMU once for the host (it is not downloaded on its own when a VM starts). macOS Tahoe's `ReimsVgpu.kext` is the only part fetched automatically, at the first start. [More](docs/reims-vgpu.md#in-short-is-it-automatic).
-2. Click **New**: the wizard creates the VM's folder and disk and downloads the macOS recovery from Apple.
-3. Click **Start**: macOS shows in the **Screen** tab. Inside the VM, erase the disk as APFS in Disk Utility and run **Reinstall macOS**; the **Install** tab walks you through it.
+The packages replace `macos-kvm-gui` and keep `macos-kvm-gui` as a command name. Each install command above runs in a clean container of its distribution on every CI run (`scripts/check-dist.sh`).
 
-Guide, limits and troubleshooting: [docs/reims-gui.md](docs/reims-gui.md).
+**Upgrading from `macos-kvm-gui`.** The first start copies the old settings and VM list from `~/.config/macos-kvm-gui` to `~/.config/kvm-gui` and `~/.local/share/kvm-gui`, and leaves the old folder untouched; VMs stay in their folders. To be safe, back it up first: `tar czf ~/macos-kvm-gui-backup.tgz -C ~/.config macos-kvm-gui`. To roll back, reinstall the old package (`sudo apt install ./macos-kvm-gui_0.13.0_amd64.deb`): it reads its own untouched folder, so VMs created or changed after the upgrade are not in its list.
 
-**Debian 13 and Rocky Linux 10.** **Install Reims vGPU** downloads the right Reims vGPU package on Ubuntu 24.04/26.04, Debian 13 and Rocky Linux 10 (RHEL 10 family). Debian's own QEMU has what VMware SVGA VMs need; Rocky's `qemu-kvm` has no `isa-applesmc` or `vmware-svga`, so on Rocky macOS VMs run on Reims vGPU only. Checked in clean containers: the packages install, the window opens, and `reims install` fetches and activates the platform's package.
+## Reims vGPU
 
-## Highlights
-
-- **Metal without a spare GPU.** [Reims vGPU](docs/reims-vgpu.md), a paravirtual GPU, renders macOS's Metal through the host's own Vulkan driver (NVIDIA, AMD or Intel), and the app shows it inside its window; one click in the Host tab installs it.
-- **One binary.** GUI, [command line](docs/cli.md) and [MCP server](docs/mcp.md) in one file; OpenCore, Lilu, VirtualSMC, WhateverGreen and OVMF are embedded, with no `git`, `python3` or OSX-KVM clone.
-- **Verified downloads.** The recovery comes from Apple, checked against Apple's signature and every chunk's SHA-256.
-- **A manager like VirtualBox's.** Menus, toolbar, a VM list, Details with a live Preview, a Settings window and a New VM wizard, in light and dark themes.
-- **Several VMs.** One folder per VM in the Workspace, move, export/import.
-- **Guided install.** A step-by-step Install tab, and Host checks with one-click setup.
-- **Offline install.** Download Apple's full installer once (Big Sur and later) and install every VM of that version from a local disc.
-- **Networking.** Up to four adapters per VM, NAT or bridged, with the adapter type and MAC address of your choice.
-- **GPU passthrough** for supported AMD and NVIDIA Kepler cards, with root-patch mode for Kepler.
-
-Sonoma 14 is validated end to end; Sequoia 15 runs on Reims vGPU with Metal; Sequoia 15 and Big Sur 11 have installed from the offline installer; the other versions, High Sierra through Tahoe, are experimental. More in the [overview](docs/overview.md).
-
-<p align="center">
-  <img src="docs/screenshots/reims-gui-details.png" width="860" alt="reims-gui: Details of a Reims vGPU VM">
-</p>
-
-More in the [screenshots](docs/screenshots/README.md).
-
-## macos-kvm-gui (Go, previous app)
-
-The Go app is still in this repository, with [its own releases](https://github.com/jniltinho/macos-kvm-gui/releases?q=macos-kvm-gui&expanded=true) (`.deb` for Ubuntu 24.04+ and Debian 13+, `.rpm` for Fedora 39+, `.tar.gz`). Since v0.11.0 it also shows Reims vGPU's window inside its Screen tab. Its guide: [getting started](docs/getting-started.md).
-
-## Documentation
-
-[Overview](docs/overview.md) · [Getting started](docs/getting-started.md) · [Command line](docs/cli.md) · [MCP server](docs/mcp.md) · [Architecture](docs/architecture.md) · [GPU passthrough](docs/gpu-passthrough.md) · [Reims vGPU](docs/reims-vgpu.md) · [reims-gui (Rust)](docs/reims-gui.md) · [Troubleshooting](docs/troubleshooting.md) · [Development](docs/development.md) · [Screenshots](docs/screenshots/README.md) · [References](docs/references.md)
+[steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu) is the base of kvm-gui's Reims support: the paravirtual GPU, its QEMU build and `reims-ctl`. Its README and `docs/qemu.md` are the source of truth for the GPU and the guest's setup. This repository packages upstream's QEMU (with `reims-ctl` and `reims-util`) for Ubuntu 24.04, Ubuntu 26.04, Debian 13 and Rocky Linux 10 from [`reims/`](reims/README.md), on `reims-<commit>` releases. More in [docs/reims-vgpu.md](docs/reims-vgpu.md).
 
 ## Build
 
+Everything builds and runs in one Docker image; the host needs only Docker and make.
+
 ```sh
-make build     # dist/reims-gui (Rust, built in Docker) and dist/macos-kvm-gui (Go 1.27+, Fyne build deps)
-make package  # both apps' packages in dist/
-make test     # the Go app's tests; reims-gui's run in Docker (reims-gui/README.md)
+make image      # the build image (build/linux.Dockerfile)
+make test       # gofmt, go vet, go test -race, every needed tool required
+make openspec   # openspec validate --all --strict
+make self-test  # the GUI opens and loads the VM list, under Xvfb
+make dist       # dist/: the AppImage, the binary, the .deb, the .rpm and SHA256SUMS
+scripts/check-dist.sh ubuntu24.04 all   # the artifacts on a clean distribution (also ubuntu26.04, debian13, rocky10)
 ```
 
-The Go app's CI and release workflows (`go-ci.yml`, `go-release.yml`) run by hand; reims-gui's run on push and on `reims-gui-v*` tags.
+## Documentation
+
+[Overview](docs/overview.md) · [Getting started](docs/getting-started.md) · [Command line](docs/cli.md) · [MCP server](docs/mcp.md) · [Architecture](docs/architecture.md) · [GPU passthrough](docs/gpu-passthrough.md) · [Reims vGPU](docs/reims-vgpu.md) · [Troubleshooting](docs/troubleshooting.md) · [Development](docs/development.md) · [References](docs/references.md)
 
 ## License
 
-BSD-3-Clause ([LICENSE](LICENSE)); reims-gui's source is GPL-2.0-or-later OR LGPL-3.0-or-later and its binaries GPL-3.0-or-later ([reims-gui/README.md](reims-gui/README.md#license)). The embedded boot files keep their own licenses, and Reims vGPU's separately published QEMU packages theirs ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). Built on the work of [OSX-KVM](https://github.com/kholia/OSX-KVM), [acidanthera](https://github.com/acidanthera), [TianoCore](https://github.com/tianocore/edk2), [Dortania](https://dortania.github.io/) and [Fyne](https://fyne.io); see [references](docs/references.md).
+BSD-3-Clause ([LICENSE](LICENSE)). The embedded boot files keep their own licenses, and Reims vGPU's separately published packages theirs ([THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)). Built on the work of [OSX-KVM](https://github.com/kholia/OSX-KVM), [acidanthera](https://github.com/acidanthera), [TianoCore](https://github.com/tianocore/edk2), [Dortania](https://dortania.github.io/) and [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu); see [references](docs/references.md).

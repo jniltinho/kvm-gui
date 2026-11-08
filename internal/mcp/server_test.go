@@ -9,11 +9,11 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 func session(t *testing.T) *mcp.ClientSession {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	if err := core.SetWorkspaceRoot(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
@@ -56,14 +56,15 @@ func TestTools(t *testing.T) {
 	}
 	for _, n := range []string{"vm_list", "vm_status", "vm_start", "vm_shutdown", "vm_force_stop", "screen_capture", "send_keys",
 		"type_text", "pointer", "installer_list", "installer_download", "installer_remove", "install_offline", "host_check",
-		"vm_config_get", "vm_config_set", "vm_create", "vm_ssh"} {
+		"vm_config_get", "vm_config_set", "vm_create", "vm_ssh", "snapshot_list", "snapshot_take", "snapshot_restore",
+		"snapshot_delete", "vm_clone"} {
 		if got[n] == nil {
 			t.Errorf("missing tool %s", n)
 		} else if got[n].InputSchema == nil {
 			t.Errorf("%s has no input schema", n)
 		}
 	}
-	for _, n := range []string{"vm_force_stop", "installer_remove", "install_offline", "vm_ssh"} {
+	for _, n := range []string{"vm_force_stop", "installer_remove", "install_offline", "vm_ssh", "snapshot_restore", "snapshot_delete"} {
 		if a := got[n].Annotations; a == nil || a.DestructiveHint == nil || !*a.DestructiveHint {
 			t.Errorf("%s must be marked destructive", n)
 		}
@@ -132,7 +133,7 @@ func TestVMStartDownloadsKextsFirst(t *testing.T) {
 	if !isErr || !strings.Contains(msg, "127.0.0.1:1") {
 		t.Fatalf("vm_start: %q (error %v)", msg, isErr)
 	}
-	if _, err := os.Stat(filepath.Join(c.Workspace, "macos-kvm-gui", "mcp-start.log")); err == nil {
+	if _, err := os.Stat(filepath.Join(core.StateDir(), "logs", e.ID, "mcp-start.log")); err == nil {
 		t.Fatal("no VM process is spawned when a kext cannot be downloaded")
 	}
 }

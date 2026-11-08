@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 var gpuCmd = &cobra.Command{Use: "gpu", Short: "GPU passthrough (experimental, untested on real hardware)"}

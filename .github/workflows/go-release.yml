@@ -1,51 +1,73 @@
-name: macos-kvm-gui (Go) release
+name: kvm-gui release
 
-# Manual only: run it on a v* tag (gh workflow run go-release.yml --ref vX.Y.Z). reims-gui (Rust),
-# the recommended app, releases on reims-gui-v* tags and stays the latest release.
+# Manual: gh workflow run go-release.yml --ref vX.Y.Z publishes the release; with -f publish=false
+# (on any ref) it builds and uploads the five files as workflow artifacts and publishes nothing.
+# The release job needs ci.yml green on this exact commit: it runs it first, then publishes the
+# very files CI built and checked (its dist artifact), never a rebuild.
 on:
   workflow_dispatch:
+    inputs:
+      publish:
+        description: Publish the GitHub release (false keeps the files as workflow artifacts)
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
 
 jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    needs: ci
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-
     steps:
-      - name: Set timezone to America/Sao_Paulo
-        run: sudo timedatectl set-timezone America/Sao_Paulo
-
-      - name: Checkout Repository
-        uses: actions/checkout@v4
-
-      - name: Setup Go
-        uses: actions/setup-go@v5
-        with:
-          go-version-file: go.mod
-
-      - name: Install System Dependencies
+      - name: Refuse to publish from anything but a v* tag
+        if: inputs.publish
         run: |
-          sudo apt-get update
-          sudo apt-get install -y gcc pkg-config libgl1-mesa-dev xorg-dev libwayland-dev libxkbcommon-dev wayland-protocols qemu-utils rpm
+          case "$GITHUB_REF" in refs/tags/v*) ;; *) echo "publish needs a v* tag (got $GITHUB_REF); use publish=false to try a build"; exit 1;; esac
 
-      - name: Test
-        run: make test
+      # The files CI built and checked on the four distributions, byte for byte: no rebuild.
+      - name: The artifacts CI checked
+        uses: actions/download-artifact@v4
+        with:
+          name: dist
+          path: dist
 
-      # Builds the binary with the tag as its version, then the .tar.gz, the .deb, the .rpm and their SHA-256 files.
-      - name: Build and Package
-        run: make package-go VERSION=${GITHUB_REF_NAME}
+      - name: Verify them
+        run: |
+          cd dist && sha256sum -c SHA256SUMS
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ls kvm-gui-"$GITHUB_REF_NAME"-linux-amd64 || { echo "CI built another version than $GITHUB_REF_NAME"; exit 1; }
+          fi
+
+      - name: Keep the files (publish=false)
+        if: ${{ !inputs.publish }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: kvm-gui-release
+          path: |
+            dist/kvm-gui-*-x86_64.AppImage
+            dist/kvm-gui-v*-linux-amd64
+            dist/kvm-gui_*.deb
+            dist/kvm-gui-*.rpm
+            dist/SHA256SUMS
 
       - name: Create Release
+        if: inputs.publish
         uses: softprops/action-gh-release@v2
         with:
-          name: macos-kvm-gui (Go) ${{ github.ref_name }}
-          make_latest: false # reims-gui (Rust) is the recommended app
+          name: kvm-gui ${{ github.ref_name }}
+          make_latest: true
           generate_release_notes: true
           files: |
-            dist/*.tar.gz
-            dist/*.deb
-            dist/*.rpm
-            dist/*.sha256
+            dist/kvm-gui-*-x86_64.AppImage
+            dist/kvm-gui-v*-linux-amd64
+            dist/kvm-gui_*.deb
+            dist/kvm-gui-*.rpm
+            dist/SHA256SUMS
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

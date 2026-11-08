@@ -10,12 +10,16 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 var (
 	createVersion, createWorkspace string
 	createSSHPort                  int
+	createGuest, createProfile     string
+	createISO, createFirmware      string
+	createDisk                     int
+	createSecureBoot, createTPM    bool
 	deletePurge, deleteYes         bool
 )
 
@@ -36,7 +40,7 @@ var vmListCmd = &cobra.Command{
 				mark = "*"
 			}
 			c := e.Config
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d MiB\t%d\t%s\n", mark, e.DisplayName(), statusOf(c), c.Version, c.RAMMiB, c.VCPUs, c.Workspace)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d MiB\t%d\t%s\n", mark, e.DisplayName(), statusOf(e), c.Version, c.RAMMiB, c.VCPUs, c.Workspace)
 		}
 		return tw.Flush()
 	},
@@ -45,10 +49,30 @@ var vmListCmd = &cobra.Command{
 var vmCreateCmd = &cobra.Command{
 	Use:     "create <name>",
 	Short:   "Create a VM with CPU and RAM recommended for this host, select it and prepare its folder",
-	Example: "  macos-kvm-gui vm create \"Tahoe lab\" --version tahoe --folder ~/macOS-VMs/tahoe",
+	Example: "  kvm-gui vm create \"Tahoe lab\" --version tahoe\n  kvm-gui vm create Ubuntu --guest linux --profile ubuntu --iso ubuntu-24.04.iso --disk 40\n  kvm-gui vm create \"Windows 11\" --guest windows --profile windows11 --iso Win11.iso",
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		e, err := core.CreateVMWithDefaults(cmd.Context(), args[0], createVersion, createWorkspace, createSSHPort)
+		var e core.VMEntry
+		var err error
+		if createGuest == "" || createGuest == core.GuestMacOS {
+			e, err = core.CreateVMWithDefaults(cmd.Context(), args[0], createVersion, createWorkspace, createSSHPort)
+		} else {
+			o := core.GuestOptions{Profile: createProfile, ISO: createISO, Folder: createWorkspace, Firmware: createFirmware,
+				DiskGiB: createDisk, SSHPort: createSSHPort}
+			if o.Profile == "" {
+				o.Profile = map[string]string{core.GuestLinux: "linux", core.GuestWindows: "windows11", core.GuestOther: "other"}[createGuest]
+			}
+			if p, ok := core.ProfileByID(o.Profile); ok && p.Guest != createGuest {
+				return fmt.Errorf("profile %s is a %s profile, not %s", o.Profile, p.Guest, createGuest)
+			}
+			if cmd.Flags().Changed("secure-boot") {
+				o.SecureBoot = &createSecureBoot
+			}
+			if cmd.Flags().Changed("tpm") {
+				o.TPM = &createTPM
+			}
+			e, err = core.CreateGuest(cmd.Context(), args[0], o)
+		}
 		if e.Notice != "" {
 			fmt.Fprintln(cmd.OutOrStdout(), "note:", e.Notice)
 		}
@@ -57,6 +81,40 @@ var vmCreateCmd = &cobra.Command{
 		}
 		dir, _ := e.Config.WorkspaceDir()
 		fmt.Fprintf(cmd.OutOrStdout(), "created and selected %s (%s), folder %s, SSH port %d\n", e.DisplayName(), e.ID, dir, e.Config.SSHPort)
+		return nil
+	},
+}
+
+var addReimsCtl, addReimsCtlConfig string
+
+var vmAddCmd = &cobra.Command{
+	Use:     "add",
+	Short:   "Add a VM that reims-ctl already has (kvm-gui's reims-ctl folders or your own); without --reims-ctl, list them",
+	Example: "  kvm-gui vm add\n  kvm-gui vm add --reims-ctl mac --reims-ctl-config ~/.config/reims-ctl",
+	Args:    cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		out := cmd.OutOrStdout()
+		if addReimsCtl == "" {
+			cands, err := core.ReimsCtlCandidates(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if len(cands) == 0 {
+				fmt.Fprintln(out, "no reims-ctl VM to add")
+			}
+			for _, c := range cands {
+				fmt.Fprintf(out, "%s\t%s\t%s (--reims-ctl-config %s)\n", c.Name, c.State, c.Dir, c.ConfigDir)
+			}
+			return nil
+		}
+		e, err := core.AddReimsCtlVM(cmd.Context(), addReimsCtl, addReimsCtlConfig)
+		if err != nil {
+			return err
+		}
+		if e.Notice != "" {
+			fmt.Fprintln(out, "note:", e.Notice)
+		}
+		fmt.Fprintf(out, "added %s (%s) from reims-ctl, folder %s, SSH port %d\n", e.DisplayName(), e.ID, e.Config.Workspace, e.Config.SSHPort)
 		return nil
 	},
 }
@@ -111,7 +169,7 @@ var exportFull bool
 var vmExportCmd = &cobra.Command{
 	Use:     "export <name> [file]",
 	Short:   "Write a VM's settings as JSON, or with --full a .tar bundle with everything it needs",
-	Example: "  macos-kvm-gui vm export \"macOS Sonoma\" sonoma.json\n  macos-kvm-gui vm export \"macOS Sonoma\" sonoma.tar --full",
+	Example: "  kvm-gui vm export \"macOS Sonoma\" sonoma.json\n  kvm-gui vm export \"macOS Sonoma\" sonoma.tar --full",
 	Args:    cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vms, err := core.ListVMs()
@@ -126,9 +184,11 @@ var vmExportCmd = &cobra.Command{
 			if len(args) != 2 {
 				return errors.New("--full needs a destination file")
 			}
-			return core.ExportBundle(cmd.Context(), e, args[1], func(done, total int64) {
+			err := core.ExportBundle(cmd.Context(), e, args[1], func(done, total int64) {
 				fmt.Fprintf(cmd.ErrOrStderr(), "\rexporting: %.0f%%", float64(done)*100/float64(max(total, 1)))
 			})
+			fmt.Fprintln(cmd.ErrOrStderr())
+			return err
 		}
 		b, err := core.ExportVM(e)
 		if err != nil {
@@ -204,10 +264,13 @@ var vmImportCmd = &cobra.Command{
 }
 
 // statusOf is "running (pid N, up 1h2m)" or "stopped"; VMs started outside the app say so.
-func statusOf(c core.Config) string {
-	r, ok := core.FindRunning(c)
+func statusOf(e core.VMEntry) string {
+	r, ok := core.FindRun(e)
 	if !ok {
 		return "stopped"
+	}
+	if r.OtherVM != "" {
+		return fmt.Sprintf("busy: its disk is open in VM %s's run (pid %d)", r.OtherVM, r.PID)
 	}
 	s := fmt.Sprintf("running (pid %d, up %s)", r.PID, r.Uptime())
 	if !r.ByApp {
@@ -237,7 +300,7 @@ var vmStatusCmd = &cobra.Command{
 		out := cmd.OutOrStdout()
 		c := e.Config
 		fmt.Fprintf(out, "name:      %s (%s)\n", e.DisplayName(), e.ID)
-		fmt.Fprintf(out, "status:    %s\n", statusOf(c))
+		fmt.Fprintf(out, "status:    %s\n", statusOf(e))
 		fmt.Fprintf(out, "macOS:     %s, %d MiB, %d vCPUs\n", c.Version, c.RAMMiB, c.VCPUs)
 		fmt.Fprintf(out, "folder: %s\n", c.Workspace)
 		if c.SSHForwarded() {
@@ -248,7 +311,7 @@ var vmStatusCmd = &cobra.Command{
 		} else {
 			fmt.Fprintln(out, "ssh:       no 127.0.0.1 forward (no NAT adapter): use the VM's address on its network")
 		}
-		if r, ok := core.FindRunning(c); ok && r.VNCSocket != "" {
+		if r, ok := core.FindRun(e); ok && r.VNCSocket != "" {
 			fmt.Fprintf(out, "screen:    VNC socket %s\n", r.VNCSocket)
 		}
 		return nil
@@ -260,8 +323,17 @@ func init() {
 	vmImportCmd.Flags().StringVar(&importWorkspace, "folder", "", "VM folder for a .tar bundle (default <Workspace>/<name>)")
 	vmCreateCmd.Flags().StringVar(&createVersion, "version", "sonoma", "macOS version (high-sierra ... tahoe)")
 	vmCreateCmd.Flags().StringVar(&createWorkspace, "folder", "", "VM folder (default <Workspace>/<name>)")
+	vmCreateCmd.Flags().StringVar(&createGuest, "guest", "macos", "guest type: macos, linux, windows or other")
+	vmCreateCmd.Flags().StringVar(&createProfile, "profile", "", "OS profile of a linux, windows or other VM: "+strings.Join(core.ProfileIDs(), ", "))
+	vmCreateCmd.Flags().StringVar(&createISO, "iso", "", "installer ISO attached to the first optical drive")
+	vmCreateCmd.Flags().IntVar(&createDisk, "disk", 0, "size of the new disk in GiB (default: the profile's)")
+	vmCreateCmd.Flags().StringVar(&createFirmware, "firmware", "", "uefi or bios (default: the profile's)")
+	vmCreateCmd.Flags().BoolVar(&createSecureBoot, "secure-boot", false, "UEFI Secure Boot with Microsoft keys (default: the profile's)")
+	vmCreateCmd.Flags().BoolVar(&createTPM, "tpm", false, "a TPM 2.0 through swtpm (default: the profile's)")
 	vmCreateCmd.Flags().IntVar(&createSSHPort, "ssh-port", 0, "SSH port on 127.0.0.1 (default: the lowest free port from 2222; another VM's port is replaced by a free one)")
 	vmDeleteCmd.Flags().BoolVar(&deletePurge, "purge", false, "also delete the disk, install media and boot files the app created in the VM folder")
 	vmDeleteCmd.Flags().BoolVar(&deleteYes, "yes", false, "confirm")
-	vmCmd.AddCommand(vmListCmd, vmStatusCmd, vmCreateCmd, vmSelectCmd, vmDeleteCmd, vmExportCmd, vmImportCmd, vmMoveCmd)
+	vmAddCmd.Flags().StringVar(&addReimsCtl, "reims-ctl", "", "the reims-ctl VM's name")
+	vmAddCmd.Flags().StringVar(&addReimsCtlConfig, "reims-ctl-config", "", "its reims-ctl configuration folder (default kvm-gui's)")
+	vmCmd.AddCommand(vmAddCmd, vmListCmd, vmStatusCmd, vmCreateCmd, vmSelectCmd, vmDeleteCmd, vmExportCmd, vmImportCmd, vmMoveCmd)
 }

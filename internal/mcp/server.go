@@ -12,30 +12,30 @@ import (
 	"image"
 	"image/png"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 // Serve runs the server on stdin and stdout until the client disconnects. Nothing else may
 // write to stdout.
 func Serve(ctx context.Context, version string) error {
+	core.RecoverSnapshots() // an operation interrupted earlier is finished or undone before any tool runs
 	return newServer(version).Run(ctx, &mcp.StdioTransport{})
 }
 
 func newServer(version string) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "macos-kvm-gui", Version: version}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "kvm-gui", Version: version}, nil)
 	yes, no := true, false
 	destructive := &mcp.ToolAnnotations{DestructiveHint: &yes}
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
 
+	addSnapshotTools(s, readOnly, destructive)
 	mcp.AddTool(s, &mcp.Tool{Name: "vm_list", Annotations: readOnly,
 		Description: "List the VMs and whether each is running."}, vmList)
 	mcp.AddTool(s, &mcp.Tool{Name: "vm_status", Annotations: readOnly,
@@ -110,7 +110,7 @@ func vmList(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToo
 	}
 	out := vmListOut{VMs: []vmInfo{}}
 	for _, e := range vms {
-		_, running := core.FindRunning(e.Config)
+		_, running := core.FindRun(e)
 		out.VMs = append(out.VMs, vmInfo{e.ID, e.DisplayName(), e.Config.Version, running})
 	}
 	return nil, out, nil
@@ -139,9 +139,12 @@ func running(key string) (core.VMEntry, core.RunInfo, error) {
 	if err != nil {
 		return e, core.RunInfo{}, err
 	}
-	r, ok := core.FindRunning(e.Config)
+	r, ok := core.FindRun(e)
 	if !ok {
 		return e, r, fmt.Errorf("%s is not running (vm_start starts it)", e.DisplayName())
+	}
+	if r.OtherVM != "" {
+		return e, core.RunInfo{}, fmt.Errorf("%s's disk is open in VM %s's run (pid %d): that run is not this VM's to control", e.DisplayName(), r.OtherVM, r.PID)
 	}
 	return e, r, nil
 }
@@ -176,7 +179,7 @@ func vmStatus(_ context.Context, _ *mcp.CallToolRequest, in vmArg) (*mcp.CallToo
 	out := vmStatusOut{vmInfo: vmInfo{e.ID, e.DisplayName(), e.Config.Version, false}, QEMUState: "stopped",
 		GuestPhase: "unknown", Layout: core.RecoveryKeyboard(), SSHPort: e.Config.SSHPort,
 		Warning: core.SSHPortWarning(e.Config.SSHPort, e.ID)}
-	r, ok := core.FindRunning(e.Config)
+	r, ok := core.FindRun(e)
 	if !ok {
 		return nil, out, nil
 	}
@@ -201,73 +204,46 @@ type vmStartIn struct {
 	VerboseBoot bool   `json:"verbose_boot,omitempty" jsonschema:"show macOS's boot log instead of the Apple logo, for this start only"`
 }
 
-// vmStart runs "macos-kvm-gui vm start" in its own session: that process owns QEMU, so the VM
+// vmStart runs "kvm-gui vm start" in its own session: that process owns QEMU, so the VM
 // outlives this server and the agent.
 func vmStart(ctx context.Context, _ *mcp.CallToolRequest, in vmStartIn) (*mcp.CallToolResult, any, error) {
 	e, err := findVM(in.VM)
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, ok := core.FindRunning(e.Config); ok {
+	if _, ok := core.FindRun(e); ok {
 		return text(e.DisplayName() + " is already running"), nil, nil
 	}
-	dir, err := e.Config.WorkspaceDir()
+	self, err := core.SelfPath() // the AppImage when the server runs from one
 	if err != nil {
 		return nil, nil, err
 	}
-	self, err := os.Executable()
-	if err != nil {
-		return nil, nil, err
-	}
-	// Downloads happen here, under the client's request, so the wait below covers only QEMU.
-	ks, err := core.LoadExtraKexts()
-	if err != nil {
-		return nil, nil, err
-	}
-	if err := core.DownloadExtraKexts(ctx, ks); err != nil {
-		return nil, nil, err
-	}
-	if e.Config.ReimsKext() {
-		if err := core.DownloadReimsKext(ctx); err != nil {
+	o := core.StartOptions{Starter: core.StarterMCP, VerboseBoot: in.VerboseBoot, Display: core.DisplayApp} // the agent sees the screen through VNC
+	if e.Config.Backend != core.BackendReimsCtl {                                                           // reims-ctl VMs boot reims-ctl's OpenCore: no kexts of the app
+		// Downloads happen here, under the client's request, so the wait below covers only QEMU.
+		ks, err := core.LoadExtraKexts()
+		if err != nil {
 			return nil, nil, err
 		}
+		if err := core.DownloadExtraKexts(ctx, ks); err != nil {
+			return nil, nil, err
+		}
+		if e.Config.ReimsKext() {
+			if err := core.DownloadReimsKext(ctx); err != nil {
+				return nil, nil, err
+			}
+		}
+		snapshot, err := json.Marshal(ks)
+		if err != nil {
+			return nil, nil, err
+		}
+		o.KextsSnapshot = string(snapshot)
 	}
-	snapshot, err := json.Marshal(ks)
+	r, err := core.StartDetached(ctx, self, e, o)
 	if err != nil {
 		return nil, nil, err
 	}
-	logPath := filepath.Join(dir, "macos-kvm-gui", "mcp-start.log")
-	log, err := os.Create(logPath)
-	if err != nil {
-		return nil, nil, err
-	}
-	defer log.Close()
-	args := []string{"vm", "start", "--vm", e.ID, "--display", core.DisplayApp, "--kexts-snapshot", string(snapshot)}
-	if in.VerboseBoot {
-		args = append(args, "--verbose-boot")
-	}
-	cmd := exec.Command(self, args...)
-	cmd.Stdout, cmd.Stderr = log, log
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		return nil, nil, err
-	}
-	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
-		select {
-		case <-exited:
-			b, _ := os.ReadFile(logPath)
-			return nil, nil, fmt.Errorf("the VM did not start: %s", strings.TrimSpace(string(b)))
-		case <-ctx.Done():
-			return nil, nil, ctx.Err()
-		case <-time.After(500 * time.Millisecond):
-		}
-		if r, ok := core.FindRunning(e.Config); ok && r.VNCSocket != "" {
-			return text(fmt.Sprintf("%s started (QEMU pid %d). It boots for a minute or two: check screen_capture before sending keys.", e.DisplayName(), r.PID)), nil, nil
-		}
-	}
-	return nil, nil, errors.New("the VM did not show up within 30 s; see " + logPath)
+	return text(fmt.Sprintf("%s started (QEMU pid %d). It boots for a minute or two: check screen_capture before sending keys.", e.DisplayName(), r.PID)), nil, nil
 }
 
 func vmShutdown(_ context.Context, _ *mcp.CallToolRequest, in vmArg) (*mcp.CallToolResult, any, error) {
@@ -723,18 +699,25 @@ func vmConfigGet(_ context.Context, _ *mcp.CallToolRequest, in vmArg) (*mcp.Call
 }
 
 type configSetIn struct {
-	VM         string  `json:"vm,omitempty" jsonschema:"VM name or id; default: the VM selected in the app"`
-	SSHPort    *int    `json:"ssh-port,omitempty" jsonschema:"SSH port on 127.0.0.1 (1024-65535)"`
-	RAM        *int    `json:"ram,omitempty" jsonschema:"RAM in MiB (at least 4096)"`
-	Cores      *int    `json:"cores,omitempty" jsonschema:"CPU cores: 1, 2, 4, 8 or 16"`
-	VCPUs      *int    `json:"vcpus,omitempty" jsonschema:"vCPUs, a multiple of cores"`
-	Graphics   *string `json:"graphics,omitempty" jsonschema:"vmware-svga or reims-vgpu"`
-	Resolution *string `json:"resolution,omitempty" jsonschema:"Reims vGPU display size, such as 1920x1080"`
-	Display    *string `json:"display,omitempty" jsonschema:"app or window"`
-	GPU        *string `json:"gpu,omitempty" jsonschema:"PCI address of a passed-through GPU, or empty for none"`
-	Version    *string `json:"version,omitempty" jsonschema:"macOS version: high-sierra ... tahoe"`
-	RootPatch  *bool   `json:"root-patch,omitempty" jsonschema:"refused: use the app or config set"`
-	Workspace  *string `json:"workspace,omitempty" jsonschema:"refused: use the app or config set"`
+	VM          string  `json:"vm,omitempty" jsonschema:"VM name or id; default: the VM selected in the app"`
+	SSHPort     *int    `json:"ssh-port,omitempty" jsonschema:"SSH port on 127.0.0.1 (1024-65535)"`
+	RAM         *int    `json:"ram,omitempty" jsonschema:"RAM in MiB (at least 4096)"`
+	Cores       *int    `json:"cores,omitempty" jsonschema:"CPU cores: 1, 2, 4, 8 or 16"`
+	VCPUs       *int    `json:"vcpus,omitempty" jsonschema:"vCPUs, a multiple of cores"`
+	Graphics    *string `json:"graphics,omitempty" jsonschema:"vmware-svga or reims-vgpu"`
+	Resolution  *string `json:"resolution,omitempty" jsonschema:"Reims vGPU display size, such as 1920x1080"`
+	Display     *string `json:"display,omitempty" jsonschema:"app or window"`
+	GPU         *string `json:"gpu,omitempty" jsonschema:"PCI address of a passed-through GPU, or empty for none"`
+	Version     *string `json:"version,omitempty" jsonschema:"macOS version: high-sierra ... tahoe"`
+	Firmware    *string `json:"firmware,omitempty" jsonschema:"linux, windows and other VMs: uefi or bios"`
+	SecureBoot  *bool   `json:"secure-boot,omitempty" jsonschema:"linux, windows and other VMs: UEFI Secure Boot; after a change, reset the UEFI variables (kvm-gui config reset-nvram)"`
+	TPM         *bool   `json:"tpm,omitempty" jsonschema:"linux, windows and other VMs: a TPM 2.0 through swtpm"`
+	BootOrder   *string `json:"boot-order,omitempty" jsonschema:"linux, windows and other VMs: cdrom, disk, or empty (CD first while a medium is in)"`
+	Serial      *string `json:"serial,omitempty" jsonschema:"linux, windows and other VMs: file, socket, or empty for none"`
+	Description *string `json:"description,omitempty" jsonschema:"a note shown in Details"`
+	ISO         *string `json:"iso,omitempty" jsonschema:"linux, windows and other VMs: absolute path of the ISO in the first optical drive; empty ejects it"`
+	RootPatch   *bool   `json:"root-patch,omitempty" jsonschema:"refused: use the app or config set"`
+	Workspace   *string `json:"workspace,omitempty" jsonschema:"refused: use the app or config set"`
 }
 
 func vmConfigSet(_ context.Context, _ *mcp.CallToolRequest, in configSetIn) (*mcp.CallToolResult, vmConfigOut, error) {
@@ -750,10 +733,19 @@ func vmConfigSet(_ context.Context, _ *mcp.CallToolRequest, in configSetIn) (*mc
 			values[k] = fmt.Sprint(*v)
 		}
 	}
-	for k, v := range map[string]*string{"graphics": in.Graphics, "resolution": in.Resolution, "display": in.Display, "gpu": in.GPU, "version": in.Version} {
+	for k, v := range map[string]*string{"graphics": in.Graphics, "resolution": in.Resolution, "display": in.Display, "gpu": in.GPU, "version": in.Version,
+		"firmware": in.Firmware, "boot-order": in.BootOrder, "serial": in.Serial, "description": in.Description, "iso": in.ISO} {
 		if v != nil {
 			values[k] = *v
 		}
+	}
+	for k, v := range map[string]*bool{"secure-boot": in.SecureBoot, "tpm": in.TPM} {
+		if v != nil {
+			values[k] = fmt.Sprint(*v)
+		}
+	}
+	if in.ISO != nil && *in.ISO != "" && !filepath.IsAbs(*in.ISO) {
+		return nil, vmConfigOut{}, errors.New("iso must be an absolute path")
 	}
 	e, err := findVM(in.VM)
 	if err != nil {
@@ -767,13 +759,56 @@ func vmConfigSet(_ context.Context, _ *mcp.CallToolRequest, in configSetIn) (*mc
 }
 
 type createIn struct {
-	Name    string `json:"name" jsonschema:"the VM's name"`
-	Version string `json:"version,omitempty" jsonschema:"macOS version: high-sierra ... tahoe; default sonoma"`
-	Folder  string `json:"folder,omitempty" jsonschema:"VM folder; default <Workspace>/<name>"`
-	SSHPort int    `json:"ssh_port,omitempty" jsonschema:"SSH port on 127.0.0.1; default the lowest free one from 2222; another VM's port is replaced by a free one"`
+	Name       string `json:"name" jsonschema:"the VM's name"`
+	Guest      string `json:"guest,omitempty" jsonschema:"guest type: macos (default), linux, windows or other"`
+	Profile    string `json:"profile,omitempty" jsonschema:"OS profile of a linux, windows or other VM: ubuntu, debian, fedora, rocky, arch, opensuse, linux, windows10, windows11, other"`
+	ISO        string `json:"iso,omitempty" jsonschema:"absolute path of an installer ISO for the first optical drive"`
+	DiskGiB    int    `json:"disk_gib,omitempty" jsonschema:"size of the new disk in GiB; default the profile's"`
+	Firmware   string `json:"firmware,omitempty" jsonschema:"uefi or bios; default the profile's"`
+	SecureBoot *bool  `json:"secure_boot,omitempty" jsonschema:"UEFI Secure Boot with Microsoft keys; default the profile's"`
+	TPM        *bool  `json:"tpm,omitempty" jsonschema:"a TPM 2.0 through swtpm; default the profile's"`
+	Version    string `json:"version,omitempty" jsonschema:"macOS version: high-sierra ... tahoe; default sonoma"`
+	Folder     string `json:"folder,omitempty" jsonschema:"VM folder; default <Workspace>/<name>"`
+	SSHPort    int    `json:"ssh_port,omitempty" jsonschema:"SSH port on 127.0.0.1; default the lowest free one from 2222; another VM's port is replaced by a free one"`
+	Backend    string `json:"backend,omitempty" jsonschema:"reims-ctl: a macOS VM on Reims vGPU that upstream's reims-ctl creates (downloads macOS from Apple); default the app's own"`
+	Offline    bool   `json:"offline,omitempty" jsonschema:"with backend reims-ctl: an offline installer (13 to 20 GB) instead of the recovery image"`
 }
 
 func vmCreate(ctx context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, vmConfigOut, error) {
+	switch in.Backend {
+	case core.BackendReimsCtl:
+		if in.Guest != "" && in.Guest != core.GuestMacOS {
+			return nil, vmConfigOut{}, errors.New("backend reims-ctl creates macOS VMs only")
+		}
+		if in.Version == "" {
+			in.Version = "tahoe"
+		}
+		e, err := core.CreateReimsCtlVM(ctx, core.ReimsCreate{Name: in.Name, Dir: in.Folder, MacOS: in.Version, Offline: in.Offline}, nil)
+		if err != nil {
+			return nil, vmConfigOut{}, err
+		}
+		return nil, vmConfigOut{ID: e.ID, Config: e.Config, Notice: e.Notice}, nil
+	case "":
+	default:
+		return nil, vmConfigOut{}, fmt.Errorf("unknown backend %q: use reims-ctl or leave it out", in.Backend)
+	}
+	if in.Guest != "" && in.Guest != core.GuestMacOS {
+		if in.Profile == "" {
+			in.Profile = map[string]string{core.GuestLinux: "linux", core.GuestWindows: "windows11", core.GuestOther: "other"}[in.Guest]
+		}
+		if p, ok := core.ProfileByID(in.Profile); ok && p.Guest != in.Guest {
+			return nil, vmConfigOut{}, fmt.Errorf("profile %s is a %s profile, not %s", in.Profile, p.Guest, in.Guest)
+		}
+		if in.ISO != "" && !filepath.IsAbs(in.ISO) {
+			return nil, vmConfigOut{}, errors.New("iso must be an absolute path")
+		}
+		e, err := core.CreateGuest(ctx, in.Name, core.GuestOptions{Profile: in.Profile, ISO: in.ISO, Folder: in.Folder,
+			Firmware: in.Firmware, DiskGiB: in.DiskGiB, SSHPort: in.SSHPort, SecureBoot: in.SecureBoot, TPM: in.TPM})
+		if err != nil {
+			return nil, vmConfigOut{}, err
+		}
+		return nil, vmConfigOut{ID: e.ID, Config: e.Config, Notice: e.Notice}, nil
+	}
 	if in.Version == "" {
 		in.Version = core.Defaults().Version
 	}

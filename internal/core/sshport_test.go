@@ -40,7 +40,7 @@ func TestNextSSHPort(t *testing.T) {
 		{"probe refuses 2223", []int{2222}, func(p int) bool { return p != 2223 }, 2224},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+			isolateXDG(t, t.TempDir())
 			hostPorts(t, all)
 			for i, p := range tc.taken {
 				newVM(t, string(rune('a'+i)), p)
@@ -50,7 +50,7 @@ func TestNextSSHPort(t *testing.T) {
 			}
 		})
 	}
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	if _, err := NextSSHPort("", func(int) bool { return false }); err == nil || !strings.Contains(err.Error(), "no free SSH port from 2222 to 65535") {
 		t.Fatalf("no free port must be an error: %v", err)
 	}
@@ -63,7 +63,7 @@ func TestNextSSHPort(t *testing.T) {
 }
 
 func TestSSHPortUsers(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	hostPorts(t, func(int) bool { return true })
 	n := newVM(t, "Nilton", 2222)
 	s := newVM(t, "sonoma-test", 2300)
@@ -82,7 +82,7 @@ func TestSSHPortUsers(t *testing.T) {
 }
 
 func TestCreateAllocatesSSHPort(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	hostPorts(t, func(int) bool { return true })
 
@@ -148,7 +148,7 @@ func TestCreateAllocatesSSHPort(t *testing.T) {
 
 // Concurrent creates (the app and the CLI, or both apps) never pick the same port.
 func TestConcurrentCreatesGetDistinctPorts(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	hostPorts(t, func(int) bool { return true })
 	const n = 8
 	ports := make(chan int, n)
@@ -177,7 +177,7 @@ func TestConcurrentCreatesGetDistinctPorts(t *testing.T) {
 
 // An import that finds no free port removes the folder it unpacked.
 func TestImportBundleNoFreePort(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	hostPorts(t, func(int) bool { return true })
 	c := Defaults()

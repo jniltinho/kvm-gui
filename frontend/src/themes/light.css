@@ -1,0 +1,39 @@
+/* Light skin — Windows 10 classic. The default
+   (also before Settings load), so it sits on :root. */
+:root,
+:root[data-theme="light"] {
+  color-scheme: light;
+  --surface: #ffffff;
+  --panel: #f0f0f0;
+  --toolbar: #ffffff;
+  --input: #ffffff;
+  --text: #000000;
+  --text-muted: #5a5a5a;
+  --text-disabled: #a0a0a0;
+  --accent: #0078d4;
+  --border: #adadad;
+  --border-subtle: #dadada;
+  --selection: #0078d4;
+  --selection-text: #ffffff;
+  --hover: #e5f1fb;
+  --pressed: #cce4f7;
+  --focus: #0078d4;
+  --danger: #c42b1c;
+  --warning: #9d5d00;
+  --success: #107c10;
+  --tab-active: #ffffff;
+  --tab-inactive: #f0f0f0;
+  --outline: #0078d4;
+  --font-ui: "Noto Sans", sans-serif;
+  --title-bg: transparent;
+  --title-fg: var(--text);
+  --title-weight: 400;
+  --tile-on: var(--pressed);
+  --ctl-radius: 0;
+  --win-radius: 0;
+  --tile-line: var(--accent);
+  --link: #005a9e;
+  --ctl-border: #767676;
+  --primary: #0067c0;
+  --primary-text: #ffffff;
+}

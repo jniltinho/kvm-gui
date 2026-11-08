@@ -39,7 +39,8 @@ These links distinguish bundled components from background references and unsupp
 
 ## Application, development and licensing
 
-- [Fyne](https://fyne.io/) — Go desktop GUI toolkit used for all tabs/widgets and the custom theme.
+- [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu) — the base of the Reims vGPU support: the paravirtual GPU, its QEMU and `reims-ctl`.
+- [Wails](https://wails.io/) — Go desktop framework of the GUI being built (with Vue 3, Vite Plus and Tailwind).
 - [Go](https://go.dev/) — Application language, compiler and test toolchain; the repository pins its required version in `go.mod`.
 - [wgpu](https://github.com/gfx-rs/wgpu) — Graphics library cited when discussing Metal-dependent guest apps; not an app dependency or an emulated GPU driver.
 - [Fission-AI/OpenSpec](https://github.com/Fission-AI/OpenSpec) — Spec-driven change workflow used in `openspec/` and validated in CI.

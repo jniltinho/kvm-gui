@@ -15,6 +15,12 @@ var FS embed.FS
 //go:embed logo/logo.svg
 var Logo []byte
 
+// LogoPNG is the logo at 256 px (rsvg-convert -w 256 -h 256 logo.svg), for systems that cannot
+// draw SVG icons.
+//
+//go:embed logo/logo-256.png
+var LogoPNG []byte
+
 // VersionIcons has one original icon per macOS version, named <short name>.svg.
 //
 //go:embed logo/versions/*.svg

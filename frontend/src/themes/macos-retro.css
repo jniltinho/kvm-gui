@@ -1,0 +1,38 @@
+/* Mac OS Retro skin (Platinum, Mac OS 8/9): #dddddd face, black text, lavender highlight, pinstriped
+   title bars, Charcoal/Chicago when installed (Geneva, then Noto Sans), square corners. */
+:root[data-theme="macos-retro"] {
+  color-scheme: light;
+  --surface: #ffffff;
+  --panel: #dddddd;
+  --toolbar: #e6e6e6;
+  --input: #ffffff;
+  --text: #000000;
+  --text-muted: #4a4a4a;
+  --text-disabled: #8c8c8c;
+  --accent: #3333cc;
+  --border: #7a7a7a;
+  --border-subtle: #bbbbbb;
+  --selection: #ccccff;
+  --selection-text: #000000;
+  --hover: #ccccff;
+  --pressed: #9999cc;
+  --focus: #3333cc;
+  --danger: #b00000;
+  --warning: #5c4300;
+  --success: #006400;
+  --tab-active: #eeeeee;
+  --tab-inactive: #cccccc;
+  --outline: #000000;
+  --font-ui: Charcoal, Chicago, ChicagoFLF, Geneva, "Noto Sans", sans-serif;
+  --title-bg: repeating-linear-gradient(180deg, #f2f2f2 0 1px, #c4c4c4 1px 2px);
+  --title-fg: #000000;
+  --title-weight: 700;
+  --ctl-radius: 0;
+  --win-radius: 0;
+  --tile-on: #ccccff;
+  --tile-line: #000000;
+  --link: #2a2aa8;
+  --ctl-border: #6a6a6a;
+  --primary: #3333cc;
+  --primary-text: #ffffff;
+}

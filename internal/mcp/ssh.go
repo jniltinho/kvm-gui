@@ -17,7 +17,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 // vm_ssh runs one command in a running VM's macOS with the system's ssh, over the VM's
@@ -33,8 +33,8 @@ const (
 	outputCap  = 1 << 20 // per stream
 )
 
-// findRunning is core.FindRunning; tests replace it.
-var findRunning = core.FindRunning
+// findRun is core.FindRun; tests replace it.
+var findRun = core.FindRun
 
 type sshIn struct {
 	VM           string `json:"vm,omitempty" jsonschema:"VM name or id; default: the VM selected in the app"`
@@ -56,8 +56,7 @@ type sshOut struct {
 // knownHosts is the app's own known_hosts, so a guest reinstalled on the same port does not
 // break the user's ~/.ssh/known_hosts.
 func knownHosts() (string, error) {
-	db, err := core.DBPath()
-	return filepath.Join(filepath.Dir(db), "known_hosts"), err
+	return filepath.Join(core.ConfigDir(), "known_hosts"), nil
 }
 
 // sshArgs is ssh's command line; the password is never part of it.
@@ -94,7 +93,7 @@ func vmSSH(ctx context.Context, _ *mcp.CallToolRequest, in sshIn) (*mcp.CallTool
 	if err != nil {
 		return nil, sshOut{}, err
 	}
-	r, ok := findRunning(e.Config)
+	r, ok := findRun(e)
 	if !ok {
 		return nil, sshOut{}, fmt.Errorf("%s is not running (vm_start starts it)", e.DisplayName())
 	}

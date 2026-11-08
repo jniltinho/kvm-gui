@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/mcp"
+	"github.com/jniltinho/kvm-gui/internal/mcp"
 )
 
 var mcpCmd = &cobra.Command{

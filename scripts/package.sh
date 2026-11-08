@@ -1,97 +1,85 @@
 #!/usr/bin/env bash
-# Packages a built binary into dist/: a .tar.gz, a .deb and an .rpm (with menu entry and icon) and SHA-256 files.
-# Usage: scripts/package.sh <version, e.g. v0.1.1> <path to binary>
+# Packages a built binary into dist/: kvm-gui's .deb (Ubuntu 24.04, 26.04, Debian 13) and .rpm
+# (Rocky Linux 10). Both replace an installed macos-kvm-gui and keep that name as a command link.
+# Runs in the build image (make package). Usage: scripts/package.sh <version, e.g. v1.0.0> <binary>
 set -euo pipefail
-
 VERSION="${1:?version}"
 BIN="${2:?binary}"
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 DIST="$ROOT/dist"
-NAME="macos-kvm-gui-$VERSION-linux-amd64"
 DEBVER="${VERSION#v}"
 mkdir -p "$DIST"
-# Remove earlier packages only: the binary may live in dist/ too.
-rm -rf "$DIST"/*.tar.gz "$DIST"/*.deb "$DIST"/*.rpm "$DIST"/*.sha256 "$DIST/$NAME" "$DIST/deb" "$DIST/rpm"
+# Remove earlier packages only: the binary lives in dist/ too.
+rm -rf "$DIST"/*.deb "$DIST"/*.rpm "$DIST/deb" "$DIST/rpm"
 
-# Tarball: binary plus README and licenses.
-mkdir -p "$DIST/$NAME"
-install -m 0755 "$BIN" "$DIST/$NAME/macos-kvm-gui"
-cp "$ROOT/README.md" "$ROOT/LICENSE" "$ROOT/THIRD_PARTY_NOTICES.md" "$DIST/$NAME/"
-tar -C "$DIST" -czf "$DIST/$NAME.tar.gz" "$NAME"
-rm -rf "$DIST/$NAME"
-
-# Debian package.
 PKG="$DIST/deb"
-install -D -m 0755 "$BIN" "$PKG/usr/bin/macos-kvm-gui"
-install -D -m 0644 "$ROOT/internal/assets/logo/logo.svg" "$PKG/usr/share/icons/hicolor/scalable/apps/macos-kvm-gui.svg"
-install -D -m 0644 "$ROOT/LICENSE" "$PKG/usr/share/doc/macos-kvm-gui/copyright"
-install -D -m 0644 "$ROOT/THIRD_PARTY_NOTICES.md" "$PKG/usr/share/doc/macos-kvm-gui/THIRD_PARTY_NOTICES.md"
-install -D -m 0644 /dev/stdin "$PKG/usr/share/applications/macos-kvm-gui.desktop" <<EOF
-[Desktop Entry]
-Type=Application
-Name=macOS KVM
-Comment=Install and run macOS on KVM (home lab use)
-Exec=macos-kvm-gui
-Icon=macos-kvm-gui
-StartupWMClass=io.github.jniltinho.macos-kvm-gui
-Terminal=false
-Categories=System;Emulator;
-EOF
+install -D -m 0755 "$BIN" "$PKG/usr/bin/kvm-gui"
+ln -s kvm-gui "$PKG/usr/bin/macos-kvm-gui"
+install -D -m 0644 "$ROOT/internal/assets/logo/logo.svg" "$PKG/usr/share/icons/hicolor/scalable/apps/kvm-gui.svg"
+install -D -m 0644 "$ROOT/build/linux/kvm-gui.desktop" "$PKG/usr/share/applications/kvm-gui.desktop"
+install -D -m 0644 "$ROOT/LICENSE" "$PKG/usr/share/doc/kvm-gui/copyright"
+install -D -m 0644 "$ROOT/THIRD_PARTY_NOTICES.md" "$PKG/usr/share/doc/kvm-gui/THIRD_PARTY_NOTICES.md"
+install -D -m 0644 "$ROOT/THIRD_PARTY_LICENSES.txt" "$PKG/usr/share/doc/kvm-gui/THIRD_PARTY_LICENSES.txt"
+
 mkdir -p "$PKG/DEBIAN"
 cat >"$PKG/DEBIAN/control" <<EOF
-Package: macos-kvm-gui
+Package: kvm-gui
 Version: $DEBVER
 Section: utils
 Priority: optional
 Architecture: amd64
-Depends: libc6 (>= 2.38), libgl1, libx11-6, libwayland-client0, qemu-system-x86, qemu-utils, pkexec
+Depends: libgtk-4-1, libwebkitgtk-6.0-4, qemu-system-x86, qemu-system-gui, qemu-utils, ovmf, pkexec
+Recommends: swtpm
+Replaces: macos-kvm-gui
+Breaks: macos-kvm-gui
+Provides: macos-kvm-gui
 Maintainer: Nilton OS <jniltinho@gmail.com>
-Homepage: https://github.com/jniltinho/macos-kvm-gui
-Description: Desktop app to install and run macOS on KVM (home lab use)
- Single binary with built-in OpenCore and OVMF: checks the host, downloads
- and verifies the macOS recovery from Apple, creates the disk and controls
- the VM. macOS's license only allows it on Apple-branded hardware.
+Homepage: https://github.com/jniltinho/kvm-gui
+Description: Create and run macOS and other VMs on Linux KVM (home lab use)
+ One binary with built-in OpenCore and OVMF: a desktop GUI, a command line
+ and an MCP server that check the host, download and verify macOS from
+ Apple, create disks and control the VMs. macOS's license only allows it
+ on Apple-branded hardware.
 EOF
-dpkg-deb --build --root-owner-group "$PKG" "$DIST/macos-kvm-gui_${DEBVER}_amd64.deb" >/dev/null
+dpkg-deb --build --root-owner-group "$PKG" "$DIST/kvm-gui_${DEBVER}_amd64.deb" >/dev/null
 rm -rf "$PKG/DEBIAN"
 
-# RPM package from the same tree. Fedora 39+: the binary needs glibc 2.38, and RHEL-like
-# systems ship qemu-kvm instead of qemu-system-x86_64.
+# RPM from the same tree. Rocky Linux 10 ships QEMU as qemu-kvm (/usr/libexec/qemu-kvm).
 RPMVER="${DEBVER/-/\~}"
 RPMVER="${RPMVER//-/.}"
 TOP="$DIST/rpm"
 mkdir -p "$TOP/SPECS"
-cat >"$TOP/SPECS/macos-kvm-gui.spec" <<EOF
-Name:           macos-kvm-gui
+cat >"$TOP/SPECS/kvm-gui.spec" <<EOF
+Name:           kvm-gui
 Version:        $RPMVER
 Release:        1
-Summary:        Desktop app to install and run macOS on KVM (home lab use)
+Summary:        Create and run macOS and other VMs on Linux KVM (home lab use)
 License:        BSD-3-Clause
-URL:            https://github.com/jniltinho/macos-kvm-gui
+URL:            https://github.com/jniltinho/kvm-gui
 BuildArch:      x86_64
-Requires:       glibc >= 2.38, mesa-libGL, libX11, libwayland-client, qemu-system-x86, qemu-img, polkit
+Requires:       gtk4, webkitgtk6.0, qemu-kvm, qemu-img, edk2-ovmf, polkit
+Recommends:     swtpm
+Obsoletes:      macos-kvm-gui < 1.0.0
+Provides:       macos-kvm-gui = %{version}
 AutoReqProv:    no
-
 %description
-Single binary with built-in OpenCore and OVMF: checks the host, downloads
-and verifies the macOS recovery from Apple, creates the disk and controls
-the VM. macOS's license only allows it on Apple-branded hardware.
-
+One binary with built-in OpenCore and OVMF: checks the host, downloads and
+verifies macOS from Apple, creates disks and controls the VMs, from the
+command line and an MCP server. macOS's license only allows it on
+Apple-branded hardware.
 %install
 cp -a "$PKG"/. %{buildroot}/
-
 %files
-%license /usr/share/doc/macos-kvm-gui/copyright
+%license /usr/share/doc/kvm-gui/copyright
+/usr/bin/kvm-gui
 /usr/bin/macos-kvm-gui
-/usr/share/applications/macos-kvm-gui.desktop
-/usr/share/icons/hicolor/scalable/apps/macos-kvm-gui.svg
-/usr/share/doc/macos-kvm-gui/THIRD_PARTY_NOTICES.md
+/usr/share/icons/hicolor/scalable/apps/kvm-gui.svg
+/usr/share/applications/kvm-gui.desktop
+/usr/share/doc/kvm-gui/THIRD_PARTY_NOTICES.md
+%license /usr/share/doc/kvm-gui/THIRD_PARTY_LICENSES.txt
 EOF
 rpmbuild --quiet -bb --define "_topdir $TOP" --define "_build_id_links none" --define "__strip /bin/true" \
-  "$TOP/SPECS/macos-kvm-gui.spec" >/dev/null
+  "$TOP/SPECS/kvm-gui.spec" >/dev/null
 mv "$TOP"/RPMS/x86_64/*.rpm "$DIST/"
 rm -rf "$PKG" "$TOP"
-
-cd "$DIST"
-for f in *.tar.gz *.deb *.rpm; do sha256sum "$f" >"$f.sha256"; done
-ls -lh "$DIST"
+ls -lh "$DIST"/*.deb "$DIST"/*.rpm

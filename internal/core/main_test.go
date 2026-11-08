@@ -2,16 +2,31 @@ package core
 
 import (
 	"os"
+	"path/filepath"
 	"testing"
 )
 
 // TestMain keeps every test away from the developer's real settings.yaml and .env.
 func TestMain(m *testing.M) {
+	if filepath.Base(os.Args[0]) == "qemu-system-x86_64" { // the test binary run as QEMU (reims-ctl tests)
+		fakeQEMUMain()
+	}
+	if os.Getenv("FAKE_SWTPM") != "" { // the test binary run as swtpm (TestStartTPM)
+		fakeSwtpm()
+	}
+	if len(os.Args) > 2 && os.Args[1] == "vm" && os.Getenv("FAKE_QEMU") != "" { // a detached vm start
+		fakeVMStart()
+	}
+	if os.Getenv("FAKE_GUI") != "" { // the GUI starting VMs (TestGUIRunsSurviveTheGUI)
+		fakeGUI()
+	}
 	dir, err := os.MkdirTemp("", "macos-kvm-gui-test-")
 	if err != nil {
 		panic(err)
 	}
-	os.Setenv("XDG_CONFIG_HOME", dir)
+	for _, v := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"} {
+		os.Setenv(v, filepath.Join(dir, v))
+	}
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
@@ -23,4 +38,24 @@ func testDefaults() Config {
 	c := Defaults()
 	c.SSHPort = FirstSSHPort
 	return c
+}
+
+// needTool skips a test whose tool is missing, or fails it under MKG_REQUIRE_TOOLS=1 (CI and make test),
+// so a check never passes silently because the image lacks a tool.
+func needTool(t *testing.T, why string) {
+	t.Helper()
+	if os.Getenv("MKG_REQUIRE_TOOLS") == "1" {
+		t.Fatal("required tool missing: ", why)
+	}
+	t.Skip(why)
+}
+
+// isolateXDG points every XDG base directory at dir, so a test has its own settings, database,
+// caches and logs.
+func isolateXDG(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, ".data"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(dir, ".cache"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, ".state"))
 }

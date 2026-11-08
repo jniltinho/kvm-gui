@@ -4,6 +4,8 @@
 
 ## Features
 
+> **Moving to Go + Wails.** The desktop GUI described below (menus, tabs, Preview, Screen) was the Fyne app, which is gone; the Wails GUI that replaces it is being built (OpenSpec change `migrate-gui-to-go-wails`). Today the binary is the command line and the MCP server; the GUI items here describe the previous app and the plan.
+
 Running macOS under KVM usually means cloning repositories, running Python downloaders, converting images, editing shell scripts and fixing OpenCore by hand. macOS KVM turns all of that into a guided desktop app:
 
 - **One binary, no setup.** OpenCore 1.0.8, Lilu, VirtualSMC, WhateverGreen and OVMF are embedded, built from their official BSD-licensed releases. You don't need `git`, `python3` or an OSX-KVM clone.
@@ -17,7 +19,7 @@ Running macOS under KVM usually means cloning repositories, running Python downl
 - **Networking.** Up to four adapters per VM, like VirtualBox's Adapter 1–4: NAT or bridged to a host bridge, an adapter type macOS has a driver for (`virtio-net-pci`, `vmxnet3`, Intel 82545EM) and a MAC address of your choice. Existing VMs keep their adapter and MAC.
 - **Light, dark or system theme**, chosen in File › Preferences and applied right away. The light theme uses VirtualBox's colors.
 - **Scriptable.** The same binary is a command line tool (`check`, `setup`, `download`, `download --full`, `installer`, `disk create`, `vm start`...), so installs can be automated. See [docs/cli.md](cli.md).
-- **For AI agents.** `macos-kvm-gui mcp` is an MCP server (stdio only): Claude Code, Codex or another agent can see a VM's screen, type and click in it, start and stop it and install macOS offline, while the app shows the same VM. See [docs/mcp.md](mcp.md).
+- **For AI agents.** `kvm-gui mcp` is an MCP server (stdio only): Claude Code, Codex or another agent can see a VM's screen, type and click in it, start and stop it and install macOS offline, while the app shows the same VM. See [docs/mcp.md](mcp.md).
 - **Boots like a Mac.** It generates OpenCore's configuration for you at 1920x1080 and, once macOS is installed, boots without a menu. Each VM gets its own Mac identity.
 - **Explains what's wrong.** The Host tab checks KVM, QEMU, `ignore_msrs` (one-click fix) and conflicting VirtualBox/VMware VMs. QEMU errors become plain messages.
 - **Careful with your data.** It never overwrites a disk, the NVRAM or existing media. A lock keeps two operations or two app instances from touching the same VM folder, it refuses to start a disk another QEMU already uses, and the SSH forward is only reachable from `127.0.0.1`.

@@ -169,7 +169,7 @@ func TestReserveAndRelease(t *testing.T) {
 	conf := filepath.Join(h.EtcRoot, vfioModprobe)
 
 	h.Run = func(name string, args ...string) error {
-		if name != "pkexec" || args[2] != reserveScript || args[3] != "sh" || args[4] != "1002:73ff,1002:ab28" {
+		if name != "pkexec" || args[2] != reserveScript || args[3] != "sh" || args[4] != "1002:73ff,1002:ab28" || args[5] != "update-initramfs" {
 			t.Fatalf("unexpected command: %s %q", name, args)
 		}
 		write(t, conf, "options vfio-pci ids="+args[4]+" disable_vga=1\n")
@@ -294,7 +294,7 @@ func TestKeplerGPU(t *testing.T) {
 }
 
 func TestPatchKextGPU(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	host := slices.Clone(referenceHost)
 	host[2].device = "73df" // RX 6700 XT
 	reason := func() (bool, string) {
@@ -319,5 +319,156 @@ func TestPatchKextGPU(t *testing.T) {
 	c.Extras = &ExtraKexts{} // the start's snapshot, taken before settings.yaml was edited
 	if _, err := fakeSysfs(t, host).GPUReady(c, 1<<40); err == nil || !strings.Contains(err.Error(), "settings.yaml") {
 		t.Fatalf("a start without kexts refuses the GPU: %v", err)
+	}
+}
+
+// Rocky Linux rebuilds every kernel's initramfs with dracut; another distribution changes nothing
+// (task 4.4).
+func TestReserveInitramfsPerDistribution(t *testing.T) {
+	h := fakeSysfs(t, referenceHost)
+	rx := gpuByAddr(h.GPUs(), "0000:03:00.0")
+	conf := filepath.Join(h.EtcRoot, vfioModprobe)
+	write(t, filepath.Join(h.EtcRoot, "os-release"), "ID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\nVERSION_ID=\"10.0\"\n")
+	var tools []string
+	h.Run = func(name string, args ...string) error {
+		tools = append(tools, args[len(args)-1])
+		if args[2] == reserveScript {
+			write(t, conf, "options vfio-pci ids="+args[4]+" disable_vga=1\n")
+		} else {
+			os.Remove(conf)
+		}
+		return nil
+	}
+	if err := h.ReserveGPU(rx); err != nil {
+		t.Fatal(err)
+	}
+	if err := h.ReleaseGPU(); err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(tools, " ") != "dracut dracut" {
+		t.Fatalf("initramfs tools: %v", tools)
+	}
+	for _, sc := range []string{reserveScript, releaseScript} {
+		if !strings.Contains(sc, "dracut) rebuild() { dracut --regenerate-all --force; }") || !strings.Contains(sc, `echo "invalid initramfs tool" >&2; exit 2`) {
+			t.Fatal("the scripts must rebuild with dracut on Rocky and refuse another tool")
+		}
+	}
+	write(t, filepath.Join(h.EtcRoot, "os-release"), "ID=arch\n")
+	h.Run = func(string, ...string) error { t.Fatal("must not elevate on an unsupported distribution"); return nil }
+	if err := h.ReserveGPU(rx); err == nil || !strings.Contains(err.Error(), "nothing was changed") {
+		t.Fatalf("unsupported distribution: %v", err)
+	}
+}
+
+// While a VM with the GPU runs, another VM with that GPU and Release are refused, naming it; a VM
+// without passthrough starts as usual (task 4.4).
+func TestGPUSingleUse(t *testing.T) {
+	isolateXDG(t, t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	mk := func(name, gpu string) VMEntry {
+		c := testDefaults()
+		c.Name, c.GPU = name, gpu
+		c.Workspace = filepath.Join(t.TempDir(), name)
+		c.SSHPort = 0
+		write(t, filepath.Join(c.Workspace, DiskFile), "")
+		e, err := CreateVM(c)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return e
+	}
+	a, b, _ := mk("GPU-A", "0000:03:00.0"), mk("GPU-B", "0000:03:00.0"), mk("Plain", "")
+	running := map[string]bool{a.ID: true}
+	old := findRunFn
+	findRunFn = func(e VMEntry) (RunInfo, bool) { return RunInfo{PID: 1}, running[e.ID] }
+	t.Cleanup(func() { findRunFn = old })
+	if err := (&VM{ID: b.ID}).Start(b.Config); err == nil || !strings.Contains(err.Error(), "GPU-A, which is running") {
+		t.Fatalf("second VM with the GPU: %v", err)
+	}
+	if name, ok := gpuRunner("0000:03:00.0", a.ID); ok {
+		t.Fatalf("a VM is not its own GPU's other user: %s", name)
+	}
+	h := fakeSysfs(t, referenceHost)
+	h.Run = func(string, ...string) error { t.Fatal("must not elevate while the GPU is in use"); return nil }
+	if err := h.ReleaseGPU(); err == nil || !strings.Contains(err.Error(), "GPU-A is running") {
+		t.Fatalf("release while in use: %v", err)
+	}
+	running = map[string]bool{}
+	if _, ok := gpuRunner("", ""); ok {
+		t.Fatal("no VM runs")
+	}
+}
+
+// The reservation scripts for real, as root in a throwaway container (MKG_ROOT_SCRIPTS=1, never
+// on a host): dracut rebuilds on success, and a failed rebuild removes the files and rebuilds again.
+func TestReserveScriptsAsRoot(t *testing.T) {
+	if os.Getenv("MKG_ROOT_SCRIPTS") != "1" || os.Getuid() != 0 {
+		t.Skip("only as root in a throwaway container")
+	}
+	bin := t.TempDir()
+	calls := filepath.Join(bin, "calls")
+	write(t, filepath.Join(bin, "dracut"), "#!/bin/sh\necho \"dracut $*\" >> "+calls+"\n[ ! -e "+bin+"/fail ] || { rm "+bin+"/fail; exit 1; }\n")
+	os.Chmod(filepath.Join(bin, "dracut"), 0o755)
+	os.MkdirAll("/run/lock", 0o755)
+	os.MkdirAll("/etc/modprobe.d", 0o755)
+	os.MkdirAll("/etc/udev/rules.d", 0o755)
+	sh := func(script string, args ...string) error {
+		c := exec.Command("/bin/sh", append([]string{"-c", script, "sh"}, args...)...)
+		c.Env = append(os.Environ(), "PATH="+bin+":/usr/bin:/bin")
+		out, err := c.CombinedOutput()
+		t.Logf("%s", out)
+		return err
+	}
+	conf := "/etc/modprobe.d/macos-kvm-gui-vfio.conf"
+	if err := sh(reserveScript, "1002:73ff,1002:ab28", "dracut"); err != nil || !exists(conf) {
+		t.Fatalf("reserve: %v", err)
+	}
+	if err := sh(releaseScript, "dracut"); err != nil || exists(conf) {
+		t.Fatalf("release: %v", err)
+	}
+	write(t, filepath.Join(bin, "fail"), "")
+	if err := sh(reserveScript, "1002:73ff", "dracut"); err == nil || exists(conf) || exists("/etc/udev/rules.d/99-macos-kvm-gui-vfio.rules") {
+		t.Fatalf("a failed rebuild must roll back: %v", err)
+	}
+	if got := readFile(t, calls); strings.Count(got, "dracut --regenerate-all --force") != 4 {
+		t.Fatalf("dracut calls:\n%s", got)
+	}
+	if err := sh(reserveScript, "1002:73ff", "rm -rf /"); err == nil {
+		t.Fatal("another initramfs tool was accepted")
+	}
+}
+
+// While one GPU start or release holds the GPU lock, another is refused (Codex group 4 review).
+func TestGPULock(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	unlock, err := gpuLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := fakeSysfs(t, referenceHost)
+	h.Run = func(string, ...string) error { t.Fatal("must not elevate while a GPU start runs"); return nil }
+	if err := h.ReleaseGPU(); !errors.Is(err, ErrBusy) {
+		t.Fatalf("release during a start: %v", err)
+	}
+	unlock()
+	if u, err := gpuLock(); err != nil {
+		t.Fatal(err)
+	} else {
+		u()
+	}
+}
+
+// A QEMU passing the GPU through is found even when no VM in the list started it (--config).
+func TestGPUProcess(t *testing.T) {
+	proc := t.TempDir()
+	fakeProc(t, proc, "900", "qemu-system-x86", "", "qemu-system-x86_64", "-device", "vfio-pci,host=0000:03:00.0,multifunction=on")
+	if pid, ok := gpuProcess(proc, "0000:03:00.0"); !ok || pid != 900 {
+		t.Fatalf("by address: %d %v", pid, ok)
+	}
+	if _, ok := gpuProcess(proc, ""); !ok {
+		t.Fatal("any GPU")
+	}
+	if _, ok := gpuProcess(proc, "0000:04:00.0"); ok {
+		t.Fatal("another address")
 	}
 }

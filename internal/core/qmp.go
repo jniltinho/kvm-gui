@@ -1,6 +1,7 @@
 package core
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -145,3 +146,25 @@ func (q *QMP) Query(cmd string) (json.RawMessage, error) {
 }
 
 func (q *QMP) Close() error { return q.conn.Close() }
+
+// KeepQMP keeps one client on a monitor until ctx ends: after a drop it dials again, so the GUI
+// and an agent each reconnect on their own. onConn gets every new connection; KeepQMP returns
+// when the monitor is gone for good (QEMU exited) or ctx ends.
+func KeepQMP(ctx context.Context, path string, onEvent func(QMPEvent), onConn func(*QMP)) error {
+	for {
+		lost := make(chan struct{})
+		q, err := DialQMP(path, onEvent, func() { close(lost) })
+		if err != nil {
+			return err
+		}
+		if onConn != nil {
+			onConn(q)
+		}
+		select {
+		case <-ctx.Done():
+			q.Close()
+			return ctx.Err()
+		case <-lost:
+		}
+	}
+}

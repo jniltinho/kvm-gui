@@ -98,6 +98,8 @@ func TestRootPatchConfig(t *testing.T) {
 				t.Errorf("%s: ocvalidate: %v\n%s", name, err, out)
 			}
 		}
+	} else {
+		needTool(t, "testdata/ocvalidate missing (make internal/core/testdata/ocvalidate)")
 	}
 }
 
@@ -114,7 +116,7 @@ func kextZip(t *testing.T, name string, extra ...string) []byte {
 }
 
 func TestRootPatchKextsAndTransitions(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	root := t.TempDir()
 	if err := SetWorkspaceRoot(root); err != nil {
 		t.Fatal(err)

@@ -4,11 +4,12 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 func run(t *testing.T, args ...string) (string, error) {
@@ -69,7 +70,7 @@ func TestConfigCommands(t *testing.T) {
 }
 
 func TestVMCommands(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	cfgFile, vmName = "", ""
 	ws := filepath.Join(t.TempDir(), "tahoe")
@@ -110,7 +111,7 @@ func TestVMCommands(t *testing.T) {
 }
 
 func TestSSHPortCommands(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	cfgFile, vmName = "", ""
 	t.Cleanup(func() { createSSHPort = 0; vmName = "" })
@@ -169,7 +170,7 @@ func TestSSHPortCommands(t *testing.T) {
 
 func TestSettingsAndKextsBeforeStart(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	isolateXDG(t, cfg)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	cfgFile, vmName = "", ""
 	if _, err := run(t, "settings", "reset"); err == nil || !strings.Contains(err.Error(), "--yes") {
@@ -183,7 +184,7 @@ func TestSettingsAndKextsBeforeStart(t *testing.T) {
 		t.Fatal(err)
 	}
 	// An entry that cannot be downloaded stops vm start before anything else: no VM runs.
-	os.WriteFile(filepath.Join(cfg, "macos-kvm-gui", "settings.yaml"), []byte("kexts:\n  - url: https://127.0.0.1:1/x.zip\n"), 0o644)
+	os.WriteFile(filepath.Join(cfg, "kvm-gui", "settings.yaml"), []byte("kexts:\n  - url: https://127.0.0.1:1/x.zip\n"), 0o644)
 	if out, err := run(t, "settings", "show"); err != nil || !strings.Contains(out, "kext: https://127.0.0.1:1/x.zip") || !strings.Contains(out, "kexts downloaded: false") {
 		t.Fatalf("show: %v %s", err, out)
 	}
@@ -194,7 +195,7 @@ func TestSettingsAndKextsBeforeStart(t *testing.T) {
 }
 
 func TestReimsCommands(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	t.Setenv("XDG_DATA_HOME", t.TempDir())
 	t.Setenv("HOME", t.TempDir()) // the default Workspace, ~/macOS-VMs, may hold a real install
 	t.Setenv("MKG_REIMS_QEMU", "")
@@ -213,4 +214,63 @@ func TestReimsCommands(t *testing.T) {
 	if err != nil || !strings.Contains(out, "commit: c099dd5a") || !strings.Contains(out, "apple-gfx-pci: yes") {
 		t.Fatalf("status: %v\n%s", err, out)
 	}
+}
+
+// vm create for a Linux VM from an ISO, config set for its guest keys (task 3.10).
+func TestVMCreateLinux(t *testing.T) {
+	if _, err := exec.LookPath("qemu-img"); err != nil {
+		needTool(t, "qemu-img unavailable")
+	}
+	isolateXDG(t, t.TempDir())
+	t.Cleanup(func() {
+		createGuest, createProfile, createISO, createDisk, vmName, cfgFile = "macos", "", "", 0, "", ""
+	})
+	iso := filepath.Join(t.TempDir(), "ubuntu.iso")
+	os.WriteFile(iso, nil, 0o644)
+	folder := filepath.Join(t.TempDir(), "ubuntu")
+	if out, err := run(t, "vm", "create", "Ubuntu", "--guest", "linux", "--profile", "ubuntu", "--iso", iso, "--disk", "1", "--folder", folder); err != nil {
+		t.Fatalf("create: %v %s", err, out)
+	}
+	vms, _ := core.ListVMs()
+	e, ok := core.FindVM(vms, "Ubuntu")
+	if !ok || e.Config.Guest != core.GuestLinux || e.Config.Optical[0] != iso || e.Config.Disks[0].Bus != core.BusVirtio {
+		t.Fatalf("created: %+v", e.Config)
+	}
+	if _, err := os.Stat(filepath.Join(folder, "disk0.qcow2")); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := run(t, "--vm", "Ubuntu", "config", "set", "serial=file", "boot-order=disk", "description=lab"); err != nil {
+		t.Fatalf("config set: %v %s", err, out)
+	}
+	vms, _ = core.ListVMs()
+	e, _ = core.FindVM(vms, "Ubuntu")
+	if e.Config.Serial != "file" || e.Config.BootOrder != "disk" || e.Config.Description != "lab" {
+		t.Fatalf("after config set: %+v", e.Config)
+	}
+	if _, err := run(t, "--vm", "Ubuntu", "config", "set", "nic1.model=vmxnet3"); err == nil {
+		t.Fatal("vmxnet3 accepted on a Linux VM")
+	}
+	if _, err := run(t, "vm", "create", "Bad", "--guest", "linux", "--profile", "windows11"); err == nil {
+		t.Fatal("a Windows profile accepted for a Linux VM")
+	}
+}
+
+// The hidden start flags: --embed-x11 only with --gui-run, which is never combined with --starter.
+func TestStartFlags(t *testing.T) {
+	t.Cleanup(func() { vmGUIRun, vmEmbedX11, vmStarter = false, false, core.StarterCLI })
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"vm", "start", "--embed-x11"}, "--embed-x11 needs --gui-run"},
+		{[]string{"vm", "start", "--gui-run", "--starter", "mcp"}, "cannot be used together"},
+		{[]string{"vm", "start", "--starter", "gui"}, `unknown starter "gui"`},
+	} {
+		vmGUIRun, vmEmbedX11, vmStarter = false, false, core.StarterCLI
+		vmStartCmd.Flags().Lookup("starter").Changed = false
+		if _, err := run(t, c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v", c.args, err)
+		}
+	}
+	vmStartCmd.Flags().Lookup("starter").Changed = false
 }

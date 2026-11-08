@@ -114,12 +114,13 @@ func TestIntegrityAndResume(t *testing.T) {
 
 func TestInstallerDiscAndCache(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	isolateXDG(t, cfg)
 	root := t.TempDir()
 	if err := SetWorkspaceRoot(root); err != nil {
 		t.Fatal(err)
 	}
-	dir := filepath.Join(root, ".installers", "24H32")
+	base, _ := InstallersDir()
+	dir := filepath.Join(base, "24H32")
 	os.MkdirAll(dir, 0o755)
 	payload := bytes.Repeat([]byte("0123456789abcdef"), 700) // 11200 bytes: pieces of 4096, 4096, 3008
 	pkg := filepath.Join(dir, installerFile)
@@ -200,13 +201,13 @@ func TestInstallerDiscAndCache(t *testing.T) {
 	}
 	outside := t.TempDir()
 	os.WriteFile(filepath.Join(outside, "keep"), nil, 0o644)
-	os.Symlink(outside, filepath.Join(root, ".installers", "24H33"))
+	os.Symlink(outside, filepath.Join(base, "24H33"))
 	for _, b := range []string{"..", ".", "a/../..", "../x", outside, "24H33", ""} {
 		if err := RemoveInstaller(b); err == nil {
 			t.Errorf("RemoveInstaller(%q) must fail", b)
 		}
 	}
-	if !exists(filepath.Join(outside, "keep")) || !exists(filepath.Join(root, ".installers")) {
+	if !exists(filepath.Join(outside, "keep")) || !exists(base) {
 		t.Fatal("a rejected build deleted something")
 	}
 	if !buildRe.MatchString("25A5279m") || buildRe.MatchString("24H32/..") {
