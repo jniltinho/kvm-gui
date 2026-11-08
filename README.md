@@ -27,6 +27,10 @@ One binary: a desktop GUI in Go + [Wails](https://wails.io) (Vue 3, Vite Plus, T
 - **Snapshots** (offline, journaled), **full clones**, and **bundles** to move a VM between hosts.
 - VMs started from the GUI or by an agent keep running when the app closes.
 
+![kvm-gui: the Manager with a Sequoia VM on Reims vGPU](docs/screenshots/manager.png)
+
+More screens in [docs/screenshots](docs/screenshots/README.md).
+
 The work is planned in the OpenSpec change [`migrate-gui-to-go-wails`](openspec/changes/migrate-gui-to-go-wails/proposal.md); the Rust app `reims-gui` is archived, read-only, in [`archive/rust/reims-gui`](archive/rust/reims-gui/ARCHIVED.md), and its old builds in the [`archive`](https://github.com/jniltinho/kvm-gui/releases/tag/archive) release.
 
 ## Install

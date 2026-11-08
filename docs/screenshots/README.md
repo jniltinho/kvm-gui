@@ -1,8 +1,53 @@
 # Screenshots
 
-Screens of reims-gui (Rust, recommended) first, then of macOS KVM (Go) with the light theme, and a few with the dark one at the end. They were captured on the reference host (Ubuntu 24.04, Ryzen 9 9900X, QEMU 8.2.2). Back to the [documentation](../README.md).
+Screens of kvm-gui, the Go + Wails desktop GUI, first, then of `reims-gui`, the archived Rust app, for history. Back to the [documentation](../README.md).
 
-## reims-gui (Rust)
+The kvm-gui screens were captured from the app itself (built from `main` right before v0.14.0) in the build image, under Xvfb with openbox at 1280x800, with four example VMs in an empty home folder; the host details (memory, threads) are the reference host's (Ryzen 9 9900X).
+
+## kvm-gui
+
+![The Manager with Details](manager.png)
+
+The Manager, modelled on VirtualBox's: the File / Machine / Help menus, the toolbar (New, Add | Settings, Remove | Start with its options, Show, Shut down), the VM list with each VM's guest, state, memory, CPUs and graphics, and the Details, Screen, Snapshots and Logs tabs. Details shows General, System, Display, Storage, Audio, Network and Serial Ports, with the Preview beside them. Here a Sequoia VM on Reims vGPU, whose screen is shown inside the app (the Screen tab) when started.
+
+![The Manager, dark skin](manager-dark.png)
+
+![New VM wizard](new-vm.png)
+
+The New VM wizard, guided (Name and operating system, Hardware, Hard disk, Summary) or in expert mode: macOS with its version, or Linux, Windows and Other with an installer ISO and an OS profile; macOS VMs can also be created through upstream's `reims-ctl`.
+
+![Settings › System](settings.png)
+
+A VM's Settings: General, System, Display, Storage, Audio, Network, Serial Ports, USB and Shared Folders. System sets the memory (within what the host has) and the processors (macOS needs a power-of-two core count).
+
+![Settings › Display with Reims vGPU](reims-settings.png)
+
+Display with **Reims vGPU (Metal)** as the graphics controller: the resolution, whether Reims vGPU is installed on this host, and the screen inside the app. GPU passthrough is not available with Reims vGPU.
+
+![Settings › Display, dark skin](settings-dark.png)
+
+![File › Preferences › Interface](preferences.png)
+
+File › Preferences: the Workspace (where new VMs get their folder), input, display (the interface scale) and the skin: System, Light, Dark and three more; `KVM_GUI_THEME` overrides it at start.
+
+![File › Media manager](media-manager.png)
+
+File › Media manager: the hard disks and optical discs the VMs use, with their size on disk and the VM each is attached to.
+
+### Updating these screenshots
+
+Run the app in the build image, never on your own desktop session: Xvfb, openbox, a throwaway home (a tmpfs, so no personal path or VM shows) and VMs made with the command line, then `import -window <id>` of the app's window (`xdotool search --name kvm-gui`). `KVM_GUI_THEME=dark` for the dark ones. For example:
+
+```sh
+docker run -d --name shots --init --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+  --security-opt systempaths=unconfined --user "$(id -u):$(id -g)" -v /etc/passwd:/etc/passwd:ro \
+  --tmpfs /home/user:uid="$(id -u)",gid="$(id -g)" -e HOME=/home/user -v "$PWD:/src:ro" kvm-gui-build:24.04 \
+  sh -c 'K=$(ls /src/dist/kvm-gui-v*-linux-amd64); $K vm create Sequoia --version sequoia; $K config set graphics=reims-vgpu;
+         Xvfb :57 -screen 0 1600x1000x24 & sleep 1; DISPLAY=:57 openbox & sleep 1; DISPLAY=:57 dbus-run-session $K'
+docker exec shots sh -c 'export DISPLAY=:57; import -window "$(xdotool search --name "^kvm-gui$" | head -1)" /tmp/manager.png'
+```
+
+## reims-gui (Rust, archived)
 
 ![reims-gui: macOS on Reims vGPU inside the Screen tab](reims-gui-screen-desktop.png)
 
@@ -47,92 +92,3 @@ The GPU tab on a host with an RTX 4070 and an RX 6700 XT: neither is eligible fo
 ![reims-gui: Log](reims-gui-log.png)
 
 The Log tab: QEMU's command line and output, here Reims vGPU's metal2vulkan notes.
-
-
-## Details
-
-![Details tab](details.png)
-
-The manager, modelled on VirtualBox's: the File / Machine / Help menus, the toolbar (New, Import | Settings, Remove | Start, Shut down, Force stop | Window, Full screen), the VM list with each VM's state and the Details tab: General, System, Display, Storage, Audio, Network, USB and GPU passthrough sections, with the Preview of the screen beside General and System. The light theme uses VirtualBox's colors.
-
-## New VM wizard
-
-![New VM wizard](new-vm.png)
-
-Like VirtualBox's wizard in expert mode: four folding sections for the name, folder and macOS version; the hardware (memory and CPU sliders, recommended for this host); the network (adapter 1: NAT or bridged, adapter type, MAC address); and the hard disk (size and whether to download the recovery now). Finish makes the folder and the disk and downloads the recovery.
-
-## Install
-
-![Install tab](install.png)
-
-The guided install as a stepper: the header shows how many of the five steps are done, and each step is a card with a badge (its number, a green check once done), its state (Done, Next, Waiting) and its action. The next step gets a blue stripe and the highlighted button; finished steps hide their controls. The download progress shows inside its step, and the steps to follow inside macOS fold away. Step 2 also downloads the full installer (here macOS 15.8.1 is cached), and step 4 says the **Install mode**: Offline, from the disc OFFLINE, or Online.
-
-## Offline installers
-
-![File › Offline installers](offline-installers.png)
-
-File › Offline installers lists every cached full installer with its size and the VMs that use it, and deletes them.
-
-## Settings
-
-![Settings window](settings.png)
-
-The VM's Settings window, here on Storage (the disk, the install media with **Remove…**, and OpenCore): General, System (Motherboard, Processor and Acceleration tabs), Display, Storage, Audio, Network (Adapter 1–4 tabs: NAT or bridged, adapter type, MAC address) and USB. Nothing is saved until OK. The Workspace and the theme are in File › Preferences.
-
-## Host
-
-![Host tab](host.png)
-
-The host checks in the same style: a summary and the **Check again** and **Set up host** actions at the top, then one card per check with a green, amber or red badge. **Set up host** fixes the basics with one password prompt: missing QEMU packages, the KVM module, the kvm group and ignore_msrs. The home lab notice sits below.
-
-## GPU
-
-![GPU tab](gpu.png)
-
-The GPU for the VM and the VFIO reservation at the top, then one card per display adapter with its macOS compatibility, driver, IOMMU group and why it can or cannot be passed to the VM. On this host none is eligible: the RTX 4070 and the Tesla V100 are not Kepler, and the Ryzen iGPU has no macOS driver. Below them, **Root-patch mode** for an NVIDIA Kepler card on Monterey to Sequoia, with the steps inside macOS. See [GPU passthrough](../gpu-passthrough.md).
-
-## Log
-
-![Log tab](log.png)
-
-The QEMU command line and output, together with the app's own messages (last 1000 lines).
-
-## Dark theme
-
-![Details, dark theme](details-dark.png)
-
-![Install, dark theme](install-dark.png)
-
-![GPU, dark theme](gpu-dark.png)
-
-File › Preferences › Theme switches between Light, Dark and System right away.
-
-## Updating these screenshots
-
-Build with `make build`, run `./dist/macos-kvm-gui`, resize the window to 1280x820 and capture each tab (`MKG_THEME=light`). On X11, for example:
-
-```sh
-WID=$(xdotool search --name '^macOS KVM' | head -1)
-xdotool windowsize --sync "$WID" 1280 820
-import -window "$WID" docs/screenshots/<tab>.png      # MKG_THEME=dark for the -dark ones
-```
-
-Keep personal paths and data out of the captures: run a separate instance with `XDG_CONFIG_HOME` pointing to an empty folder and a short Workspace such as `~/VMs` (`macos-kvm-gui workspace set ~/VMs`), so the captures show no personal VM.
-
-## Reims vGPU
-
-![Reims vGPU inside the Screen tab](reims-embedded.png)
-
-The Go app with a Sequoia VM on Reims vGPU embedded in the Screen tab (RTX 4070, KDE Plasma on X11), through reims-gui's rg-x11.
-
-![Settings › Display with Reims vGPU](reims-settings.png)
-
-Settings › Display with **Reims vGPU (experimental)** as the graphics controller: the resolution, the notes on what was validated, and the one-time `METAL_ERROR_MODE` commands with Copy buttons. Modals have rounded corners and a stronger shadow.
-
-![Host tab, Reims vGPU section](reims-host.png)
-
-The Host tab's Reims vGPU section: whether this host is ready, the build in use (from `<Workspace>/.reims`), **Install Reims vGPU** (the prebuilt package for Ubuntu 24.04 or 26.04) and **Build from source (Docker)**, then the Reims checks.
-
-![Details of a running Reims VM](reims-details.png)
-
-A Sequoia VM running on Reims vGPU: Details shows the graphics controller and the Preview follows the guest, which draws in its own Reims vGPU window on the host's GPU (RTX 4070 here).

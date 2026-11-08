@@ -46,30 +46,30 @@ The previews link to the self-contained SVG sources. PNG previews are generated 
 
 Captions for each screen are in [screenshots/README.md](screenshots/README.md).
 
-### Details
+### Manager
 
-![Details tab](screenshots/details.png)
+![The Manager with Details](screenshots/manager.png)
 
 ### New VM wizard
 
 ![New VM wizard](screenshots/new-vm.png)
 
-### Install
-
-![Install tab](screenshots/install.png)
-
 ### Settings
 
-![Settings window](screenshots/settings.png)
+![Settings › System](screenshots/settings.png)
 
-### Host
+### Reims vGPU
 
-![Host tab](screenshots/host.png)
+![Settings › Display with Reims vGPU](screenshots/reims-settings.png)
 
-### GPU
+### Preferences
 
-![GPU tab](screenshots/gpu.png)
+![File › Preferences › Interface](screenshots/preferences.png)
 
-### Log
+### Media manager
 
-![Log tab](screenshots/log.png)
+![File › Media manager](screenshots/media-manager.png)
+
+### Dark skin
+
+![The Manager, dark skin](screenshots/manager-dark.png)
