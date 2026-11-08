@@ -26,7 +26,7 @@ An import SHALL map the appliance's name, operating system, memory, processors, 
 
 #### Scenario: Name already in use
 - **WHEN** the appliance's VM name is already used by another VM
-- **THEN** the imported VM gets a free name derived from it (for example "Ubuntu (2)") and the existing VM is unchanged
+- **THEN** the imported VM gets a free name derived from it ("Ubuntu (imported)", as bundle imports do) and the existing VM is unchanged
 
 ### Requirement: Unmapped settings are reported
 What an appliance describes and kvm-gui cannot represent (more processors or memory than the host has, an unknown OS, a controller kvm-gui lacks, floppy drives, extra monitors, USB filters, shared folders, snapshots, TPM or NVRAM state) SHALL be listed before the import, with what kvm-gui uses instead. An unknown OS SHALL become an Other VM, or Linux or Windows when the descriptor's OS family says so, never a guessed profile.
@@ -64,11 +64,15 @@ An appliance SHALL be treated as untrusted input and refused, before any file of
 - **THEN** the import is refused naming that member, and nothing is written
 
 ### Requirement: Disk images are self-contained
-Each disk image SHALL be inspected with only its declared format, never probed, before it is converted, and refused when it refers to anything outside itself: a backing file, an external data file, or a VMDK whose extents are in other files (only single-file VMDK subtypes are accepted). A disk whose real virtual size differs from the size the descriptor declares, or exceeds 16 TiB, SHALL be refused.
+Each disk image SHALL be opened only with its declared format, never probed, and its header SHALL be checked before any tool opens it, refusing an image that refers to anything outside itself: a backing file, an external data file, or a VMDK whose extents are in other files (only single-file VMDK subtypes are accepted). A disk whose real virtual size differs from the size the descriptor declares, or exceeds 16 TiB, SHALL be refused.
 
 #### Scenario: Backing file pointing into the host
 - **WHEN** an appliance's qcow2 disk has a backing file `/etc/shadow`
 - **THEN** the import is refused naming the disk, before any conversion runs
+
+#### Scenario: Raw disk with another format's header
+- **WHEN** a disk declared raw holds a qcow2 header pointing at a backing file
+- **THEN** the disk is read as raw data, never as qcow2, so no other file is opened
 
 #### Scenario: Flat VMDK with an external extent
 - **WHEN** an appliance's VMDK is a descriptor whose extent is `../../home/user/disk.img`
@@ -108,7 +112,7 @@ The system SHALL export a powered-off Linux, Windows or Other VM, with each disk
 - **THEN** the export is refused, saying which VM has the disk open
 
 ### Requirement: What the exported descriptor says
-The descriptor SHALL carry the VM's name and description, its operating system as both the standard OS identifier and VirtualBox's OS type, its memory, processors and firmware in a form VirtualBox 7.2 applies on import, its disk controllers and disks, an empty optical drive for each of the VM's optical drives, and its network adapters with their attachment and adapter type.
+The descriptor SHALL carry the VM's name and description, its operating system as both the standard OS identifier and VirtualBox's OS type, its memory, processors, firmware and Secure Boot in a form VirtualBox 7.2 applies on import (a setting VirtualBox cannot take is noted before the export), its disk controllers and disks, an empty optical drive for each of the VM's optical drives, and its network adapters with their attachment and adapter type.
 
 #### Scenario: Windows 11 VM
 - **WHEN** a Windows 11 VM with UEFI is exported and imported by VirtualBox 7.2
@@ -126,7 +130,7 @@ An export SHALL write each disk's current state only, not the VM's snapshots, it
 - **THEN** the export is refused, explaining the BitLocker recovery key
 
 ### Requirement: Existing files are kept
-An export SHALL NOT replace an existing destination file, even one created while it ran, unless the user confirms it in the GUI, passes `--force` on the command line, or passes `overwrite: true` to the MCP tool, which is then annotated as destructive. The destination SHALL never be one of the VM's own files, and a failed or cancelled export SHALL leave no partial file at the destination.
+An export SHALL NOT replace an existing destination file, even one created while it ran, unless the user confirms it in the GUI, passes `--force` on the command line, or passes `overwrite: true` to the MCP tool, which is then annotated as destructive. The destination SHALL never be a file the VM uses (its disks, wherever they are, or its ISOs), and a failed or cancelled export SHALL leave no partial file at the destination.
 
 #### Scenario: Export over an existing file
 - **WHEN** the CLI export's destination exists and `--force` is not given

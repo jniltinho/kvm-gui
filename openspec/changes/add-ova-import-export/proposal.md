@@ -27,5 +27,5 @@ Users move VMs between kvm-gui and VirtualBox (the reference host has VirtualBox
 - `internal/core`: a new OVF reader and writer (Go's `encoding/xml`, `archive/tar`, `crypto/sha256`), reusing the bundle code's untrusted-archive checks, `createImported`, `CreateGuestVM` and `qemu-img convert` (`vmdk` in, `qcow2` out; `qcow2` in, streamOptimized `vmdk` out). No new Go module.
 - `cmd/` (two `vm` subcommands), `internal/mcp` (two tools), `internal/gui` and `frontend/` (two dialogs and File menu items).
 - Docs: `docs/cli.md`, `docs/mcp.md`, `docs/guests.md`, `docs/parity-virtualbox.md` (the two rows closed), README.
-- Tests use small generated appliances and hostile images; the VirtualBox checks run on the reference host in a throwaway VirtualBox configuration (`VBOX_USER_HOME`), so the user's VirtualBox registry and VMs are never touched; the real import-and-boot round trip runs with the user's OK.
+- Tests use small generated appliances and hostile images; the VirtualBox checks run on the reference host in an isolated VirtualBox (a throwaway `VBOX_USER_HOME`, its own `VBOX_IPC_SOCKETID` and machine folder, checked empty first), so the user's VirtualBox registry and VMs are never touched; the real import-and-boot round trip runs with the user's OK.
 - kvm-gui bundles stay a separate operation with their own dialogs (`migrate-gui-to-go-wails`, task 7.7).
