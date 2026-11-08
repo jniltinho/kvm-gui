@@ -44,6 +44,12 @@ func Run(o Options) error {
 		slog.Warn("interrupted snapshot operations", "error", err)
 	}
 	svc := &App{version: o.Version}
+	if s, err := newScreenServer(); err != nil {
+		slog.Warn("the VM screen server did not start", "error", err)
+	} else {
+		svc.screen = s
+		defer s.Close()
+	}
 	opts := application.Options{
 		Name:        "kvm-gui",
 		Description: "Create and run macOS and other VMs on Linux KVM",

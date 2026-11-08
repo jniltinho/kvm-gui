@@ -25,6 +25,8 @@ type RunInfo struct {
 	// VMID and Starter come from the run's run.json (an app run); OtherVM is set by FindRun when
 	// the QEMU that has one of the VM's disks open is another VM's run.
 	VMID, Starter, OtherVM string
+	// Generation identifies this run (run.json): a viewer bound to it never reaches a later run.
+	Generation string
 }
 
 // CheckRunDir accepts a socket only inside a private run directory this user owns (0700), as
@@ -169,7 +171,7 @@ func processInfo(proc string, pid int) (RunInfo, bool) {
 	}
 	if runDir != "" && filepath.Base(filepath.Dir(runDir)) == appDirName {
 		if rec, ok := readRunRecordAt(proc, runDir); ok && rec.PID == pid {
-			info.VMID, info.Starter = rec.VMID, rec.Starter
+			info.VMID, info.Starter, info.Generation = rec.VMID, rec.Starter, rec.Generation
 		}
 	}
 	return info, true

@@ -45,7 +45,8 @@ RUN_GUI := $(subst --rm,--rm --init --security-opt seccomp=unconfined --security
 # The Manager opens, loads the VM list and exits 0.
 self-test: build
 	$(RUN_GUI) sh -c 'export XDG_RUNTIME_DIR=$$(mktemp -d); Xvfb :57 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; \
-	  DISPLAY=:57 dbus-run-session timeout 120 ./$(BIN) --self-test >/tmp/self-test.log 2>&1 || { tail -40 /tmp/self-test.log; exit 1; }'
+	  DISPLAY=:57 dbus-run-session timeout 120 ./$(BIN) --self-test >/tmp/self-test.log 2>&1 || { rc=$$?; echo "self-test exit $$rc"; \
+	  grep -m20 -nE "^(SIG|fatal error|panic|goroutine [0-9]+ \[running)|Gtk-|Gdk-|WebKit|EGL|MESA|bwrap|error" /tmp/self-test.log; head -30 /tmp/self-test.log; exit 1; }'
 
 # OpenCore's validator for the config.plist tests; downloaded once, never committed.
 internal/core/testdata/ocvalidate: | image

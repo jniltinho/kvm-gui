@@ -174,7 +174,7 @@ func findRunIn(proc string, e VMEntry) (RunInfo, bool) {
 		if !found {
 			return RunInfo{}, false
 		}
-		info.VMID, info.Starter = rec.VMID, rec.Starter
+		info.VMID, info.Starter, info.Generation = rec.VMID, rec.Starter, rec.Generation
 		return info, true
 	}
 	if !ok {
