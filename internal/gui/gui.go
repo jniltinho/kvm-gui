@@ -12,6 +12,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jniltinho/kvm-gui/internal/core"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
 )
@@ -75,6 +76,16 @@ func Run(o Options) error {
 		}
 	}
 	app := application.New(opts)
+	svc.pick = func(title string, folder bool, filters [][2]string) (string, error) {
+		d := app.Dialog.OpenFile().SetTitle(title).CanChooseFiles(!folder).CanChooseDirectories(folder).CanCreateDirectories(folder)
+		for _, f := range filters {
+			d.AddFilter(f[0], f[1])
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			d.SetDirectory(home)
+		}
+		return d.PromptForSingleSelection()
+	}
 	// --self-test: readiness and the timeout race for one result; the first one wins and quits.
 	result := make(chan error, 1)
 	if o.SelfTest {
@@ -96,7 +107,9 @@ func Run(o Options) error {
 	}
 	// The app's page loads only once the navigation guard is on.
 	winOpts.URL, winOpts.HTML = guardedStart()
+	winOpts.Zoom = zoomOf(core.Preference("ui_scale")) // File › Preferences › Display, from the first paint
 	win = app.Window.NewWithOptions(winOpts)
+	svc.zoom = func(f float64) { win.SetZoom(f) }
 	var once sync.Once
 	win.OnWindowEvent(events.Common.WindowShow, func(*application.WindowEvent) {
 		once.Do(func() {
