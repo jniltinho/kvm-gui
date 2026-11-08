@@ -172,6 +172,10 @@ type VM struct {
 	// EmbedX11 (set by the GUI before Start, never by the CLI or MCP): a Reims vGPU VM opens
 	// its window on X11 (SDL_VIDEO_DRIVER=x11) so the app can embed it in the Screen tab.
 	EmbedX11 bool
+	// ID and Starter (the VM's id, and StarterGUI, StarterCLI or StarterMCP): the run uses the
+	// VM's run directory and writes run.json there, so every other process finds it as this VM's
+	// run (design D4). Without an ID the run gets a temporary directory and no record.
+	ID, Starter string
 
 	mu      sync.Mutex
 	proc    *os.Process
@@ -223,7 +227,7 @@ func (v *VM) Start(c Config) error {
 	if !w.HasDisk() {
 		return fmt.Errorf("%s does not exist: create the disk in the Install tab", DiskFile)
 	}
-	if r, ok := FindRunning(c); ok {
+	if r, ok := v.findRun(c); ok {
 		who := "this app"
 		if !r.ByApp {
 			who = "another program (for example OSX-KVM's OpenCore-Boot.sh)"
@@ -261,7 +265,7 @@ func (v *VM) Start(c Config) error {
 		}
 		qemu = bin
 	}
-	unlock, err := w.Lock()
+	unlock, err := v.lockRun(w, c)
 	if err != nil {
 		return err
 	}
@@ -269,11 +273,7 @@ func (v *VM) Start(c Config) error {
 	if err := w.PrepareBoot(c, w.HasMedia()); err != nil {
 		return fail(fmt.Errorf("could not prepare the boot files: %w", err))
 	}
-	base := os.Getenv("XDG_RUNTIME_DIR")
-	if base == "" {
-		base = os.TempDir()
-	}
-	qmpDir, err := os.MkdirTemp(base, "macos-kvm-gui-") // 0700
+	qmpDir, err := v.newRunDir()
 	if err != nil {
 		return fail(err)
 	}
@@ -315,6 +315,23 @@ func (v *VM) Start(c Config) error {
 	})
 }
 
+// findRun is the run that keeps c from starting: through its disks, and through its run record.
+func (v *VM) findRun(c Config) (RunInfo, bool) {
+	if v.ID == "" {
+		return FindRunning(c)
+	}
+	return FindRun(VMEntry{ID: v.ID, Config: c})
+}
+
+// newRunDir is the run's private directory (0700), created under the VM's lock: the VM's own run
+// directory when ID is set, else a temporary one.
+func (v *VM) newRunDir() (string, error) {
+	if v.ID != "" {
+		return makeRunDir(v.ID)
+	}
+	return os.MkdirTemp(runBase(), "macos-kvm-gui-")
+}
+
 // launchSpec is one QEMU run: its command, its private run directory, and what to undo after it.
 type launchSpec struct {
 	qemu      string
@@ -347,6 +364,11 @@ func (v *VM) launch(l launchSpec) error {
 		if err := cmd.Start(); err != nil {
 			started <- err
 			return
+		}
+		if v.ID != "" {
+			if err := writeRunRecord(l.qmpDir, v.ID, v.Starter, cmd.Process.Pid); err != nil {
+				v.log("warning: could not write run.json: " + err.Error())
+			}
 		}
 		v.mu.Lock()
 		v.proc, v.ioError, v.vncSock, v.disc = cmd.Process, "", "", l.disc

@@ -36,9 +36,9 @@ func TestVMSSHGuards(t *testing.T) {
 	mustFail(t, cs, "vm_ssh", map[string]any{"vm": "Nilton", "user": "-oProxyCommand=x", "command": "id", "confirm": true}, "user:")
 	mustFail(t, cs, "vm_ssh", map[string]any{"vm": "Nilton", "user": "nilton", "command": "id", "confirm": true, "timeout_sec": 601}, "timeout_sec")
 	// A running VM without a forward.
-	old := findRunning
-	findRunning = func(core.Config) (core.RunInfo, bool) { return core.RunInfo{PID: 1}, true }
-	t.Cleanup(func() { findRunning = old })
+	old := findRun
+	findRun = func(core.VMEntry) (core.RunInfo, bool) { return core.RunInfo{PID: 1}, true }
+	t.Cleanup(func() { findRun = old })
 	mustFail(t, cs, "vm_ssh", map[string]any{"vm": e.ID, "user": "nilton", "command": "id", "confirm": true}, "no SSH forward")
 }
 
@@ -132,9 +132,9 @@ func TestVMSSHAgainstSSHD(t *testing.T) {
 	t.Setenv("SSH_AUTH_SOCK", "") // only the password logs in
 	t.Setenv("HOME", t.TempDir()) // no user keys or ssh config
 	e := createVM(t, "Nilton", 0)
-	old := findRunning
-	findRunning = func(core.Config) (core.RunInfo, bool) { return core.RunInfo{PID: 1, SSHPort: port}, true }
-	t.Cleanup(func() { findRunning = old })
+	old := findRun
+	findRun = func(core.VMEntry) (core.RunInfo, bool) { return core.RunInfo{PID: 1, SSHPort: port}, true }
+	t.Cleanup(func() { findRun = old })
 
 	args := map[string]any{"vm": e.ID, "user": "tester", "command": "echo hello; echo oops >&2; exit 3", "password": pw, "confirm": true}
 	var got map[string]any

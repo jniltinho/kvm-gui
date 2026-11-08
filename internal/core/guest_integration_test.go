@@ -32,9 +32,17 @@ type guestRun struct {
 func startGuest(t *testing.T, c Config) *guestRun {
 	t.Helper()
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
-	v := &VM{OnLog: func(s string) { t.Log(s) }}
+	v := &VM{ID: t.Name(), Starter: StarterCLI, OnLog: func(s string) { t.Log(s) }}
 	if err := v.Start(c); err != nil {
 		t.Fatal(err)
+	}
+	if r, ok := FindRun(VMEntry{ID: v.ID, Config: c}); !ok || r.VMID != v.ID || r.Starter != StarterCLI || r.Control == "" {
+		v.Kill()
+		t.Fatalf("the run's record: %+v %v", r, ok)
+	}
+	if r, ok := FindRun(VMEntry{ID: "other", Config: c}); len(c.Disks) > 0 && (!ok || r.OtherVM != v.ID) {
+		v.Kill()
+		t.Fatalf("another VM on the same disk: %+v %v", r, ok)
 	}
 	var vnc *VNC
 	var err error

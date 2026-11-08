@@ -110,7 +110,7 @@ func vmList(_ context.Context, _ *mcp.CallToolRequest, _ struct{}) (*mcp.CallToo
 	}
 	out := vmListOut{VMs: []vmInfo{}}
 	for _, e := range vms {
-		_, running := core.FindRunning(e.Config)
+		_, running := core.FindRun(e)
 		out.VMs = append(out.VMs, vmInfo{e.ID, e.DisplayName(), e.Config.Version, running})
 	}
 	return nil, out, nil
@@ -139,9 +139,12 @@ func running(key string) (core.VMEntry, core.RunInfo, error) {
 	if err != nil {
 		return e, core.RunInfo{}, err
 	}
-	r, ok := core.FindRunning(e.Config)
+	r, ok := core.FindRun(e)
 	if !ok {
 		return e, r, fmt.Errorf("%s is not running (vm_start starts it)", e.DisplayName())
+	}
+	if r.OtherVM != "" {
+		return e, core.RunInfo{}, fmt.Errorf("%s's disk is open in VM %s's run (pid %d): that run is not this VM's to control", e.DisplayName(), r.OtherVM, r.PID)
 	}
 	return e, r, nil
 }
@@ -176,7 +179,7 @@ func vmStatus(_ context.Context, _ *mcp.CallToolRequest, in vmArg) (*mcp.CallToo
 	out := vmStatusOut{vmInfo: vmInfo{e.ID, e.DisplayName(), e.Config.Version, false}, QEMUState: "stopped",
 		GuestPhase: "unknown", Layout: core.RecoveryKeyboard(), SSHPort: e.Config.SSHPort,
 		Warning: core.SSHPortWarning(e.Config.SSHPort, e.ID)}
-	r, ok := core.FindRunning(e.Config)
+	r, ok := core.FindRun(e)
 	if !ok {
 		return nil, out, nil
 	}
@@ -208,7 +211,7 @@ func vmStart(ctx context.Context, _ *mcp.CallToolRequest, in vmStartIn) (*mcp.Ca
 	if err != nil {
 		return nil, nil, err
 	}
-	if _, ok := core.FindRunning(e.Config); ok {
+	if _, ok := core.FindRun(e); ok {
 		return text(e.DisplayName() + " is already running"), nil, nil
 	}
 	self, err := os.Executable()
@@ -242,7 +245,7 @@ func vmStart(ctx context.Context, _ *mcp.CallToolRequest, in vmStartIn) (*mcp.Ca
 		return nil, nil, err
 	}
 	defer log.Close()
-	args := []string{"vm", "start", "--vm", e.ID, "--display", core.DisplayApp, "--kexts-snapshot", string(snapshot)}
+	args := []string{"vm", "start", "--vm", e.ID, "--display", core.DisplayApp, "--kexts-snapshot", string(snapshot), "--starter", core.StarterMCP}
 	if in.VerboseBoot {
 		args = append(args, "--verbose-boot")
 	}
@@ -263,7 +266,7 @@ func vmStart(ctx context.Context, _ *mcp.CallToolRequest, in vmStartIn) (*mcp.Ca
 			return nil, nil, ctx.Err()
 		case <-time.After(500 * time.Millisecond):
 		}
-		if r, ok := core.FindRunning(e.Config); ok && r.VNCSocket != "" {
+		if r, ok := core.FindRun(e); ok && r.VNCSocket != "" {
 			return text(fmt.Sprintf("%s started (QEMU pid %d). It boots for a minute or two: check screen_capture before sending keys.", e.DisplayName(), r.PID)), nil, nil
 		}
 	}

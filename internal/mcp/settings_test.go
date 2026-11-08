@@ -60,6 +60,10 @@ func fakeQEMU(t *testing.T, e core.VMEntry) {
 		t.Fatal(err)
 	}
 	dir, _ := e.Config.WorkspaceDir()
+	if _, err := os.Stat(filepath.Join(dir, core.DiskFile)); err != nil { // runs are found by the disk's identity
+		os.MkdirAll(dir, 0o755)
+		os.WriteFile(filepath.Join(dir, core.DiskFile), nil, 0o600)
+	}
 	cmd := exec.Command(bin, "-c", "sleep 30; :", "file="+filepath.Join(dir, core.DiskFile))
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)

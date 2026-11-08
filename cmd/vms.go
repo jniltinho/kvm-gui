@@ -40,7 +40,7 @@ var vmListCmd = &cobra.Command{
 				mark = "*"
 			}
 			c := e.Config
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d MiB\t%d\t%s\n", mark, e.DisplayName(), statusOf(c), c.Version, c.RAMMiB, c.VCPUs, c.Workspace)
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%d MiB\t%d\t%s\n", mark, e.DisplayName(), statusOf(e), c.Version, c.RAMMiB, c.VCPUs, c.Workspace)
 		}
 		return tw.Flush()
 	},
@@ -228,10 +228,13 @@ var vmImportCmd = &cobra.Command{
 }
 
 // statusOf is "running (pid N, up 1h2m)" or "stopped"; VMs started outside the app say so.
-func statusOf(c core.Config) string {
-	r, ok := core.FindRunning(c)
+func statusOf(e core.VMEntry) string {
+	r, ok := core.FindRun(e)
 	if !ok {
 		return "stopped"
+	}
+	if r.OtherVM != "" {
+		return fmt.Sprintf("busy: its disk is open in VM %s's run (pid %d)", r.OtherVM, r.PID)
 	}
 	s := fmt.Sprintf("running (pid %d, up %s)", r.PID, r.Uptime())
 	if !r.ByApp {
@@ -261,7 +264,7 @@ var vmStatusCmd = &cobra.Command{
 		out := cmd.OutOrStdout()
 		c := e.Config
 		fmt.Fprintf(out, "name:      %s (%s)\n", e.DisplayName(), e.ID)
-		fmt.Fprintf(out, "status:    %s\n", statusOf(c))
+		fmt.Fprintf(out, "status:    %s\n", statusOf(e))
 		fmt.Fprintf(out, "macOS:     %s, %d MiB, %d vCPUs\n", c.Version, c.RAMMiB, c.VCPUs)
 		fmt.Fprintf(out, "folder: %s\n", c.Workspace)
 		if c.SSHForwarded() {
@@ -272,7 +275,7 @@ var vmStatusCmd = &cobra.Command{
 		} else {
 			fmt.Fprintln(out, "ssh:       no 127.0.0.1 forward (no NAT adapter): use the VM's address on its network")
 		}
-		if r, ok := core.FindRunning(c); ok && r.VNCSocket != "" {
+		if r, ok := core.FindRun(e); ok && r.VNCSocket != "" {
 			fmt.Fprintf(out, "screen:    VNC socket %s\n", r.VNCSocket)
 		}
 		return nil

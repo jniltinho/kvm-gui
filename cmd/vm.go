@@ -19,6 +19,8 @@ var (
 	vmBootLog bool
 	// vmKextsSnapshot is the MCP server's kexts snapshot (JSON), so its start uses what it downloaded.
 	vmKextsSnapshot string
+	// vmStarter is who started the run, recorded in run.json: cli, or mcp from the MCP server.
+	vmStarter string
 )
 
 var vmCmd = &cobra.Command{Use: "vm", Short: "Run the macOS VM"}
@@ -30,9 +32,13 @@ var vmStartCmd = &cobra.Command{
 Ctrl+C asks macOS to shut down (ACPI); a second Ctrl+C forces the stop.
 With display=app there is no window: the screen is on the printed private VNC socket.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
-		c, _, err := loadConfig()
+		e, err := currentVM()
 		if err != nil {
 			return err
+		}
+		c := e.Config
+		if vmStarter != core.StarterCLI && vmStarter != core.StarterMCP {
+			return fmt.Errorf("unknown starter %q", vmStarter)
 		}
 		if vmDisplay != "" {
 			c.Display = vmDisplay
@@ -63,6 +69,7 @@ With display=app there is no window: the screen is on the printed private VNC so
 		c.Extras = &ks
 		stopped := make(chan string, 1)
 		vm := &core.VM{
+			ID: e.ID, Starter: vmStarter,
 			OnState: func(s core.VMState, msg string) {
 				if msg != "" {
 					fmt.Fprintln(out, "vm:", msg)
@@ -116,6 +123,8 @@ func init() {
 	vmStartCmd.Flags().BoolVarP(&vmVerbose, "verbose", "v", false, "print the QEMU command line and output")
 	vmStartCmd.Flags().StringVar(&vmKextsSnapshot, "kexts-snapshot", "", "")
 	vmStartCmd.Flags().MarkHidden("kexts-snapshot")
+	vmStartCmd.Flags().StringVar(&vmStarter, "starter", core.StarterCLI, "")
+	vmStartCmd.Flags().MarkHidden("starter")
 	vmStartCmd.Flags().BoolVar(&vmBootLog, "verbose-boot", false, "show macOS's boot log on screen instead of the logo, for this start only (boot-args -v debug=0x100)")
 	vmCmd.AddCommand(vmStartCmd)
 	rootCmd.AddCommand(vmCmd)

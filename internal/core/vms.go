@@ -583,13 +583,29 @@ func ExportVM(e VMEntry) ([]byte, error) { return json.MarshalIndent(e.Config, "
 // else there is ever deleted.
 var workspaceFiles = []string{DiskFile, MediaFile, mediaMarker, stagingDir, BootDir}
 
+// ownedFiles are the files and folders the app created in c's folder: the macOS set, or for a
+// Linux, Windows or Other VM its disks inside the folder, UEFI variables, TPM state and serial log.
+// Disks elsewhere and ISO files are only used, never moved or deleted.
+func ownedFiles(c Config) []string {
+	if c.MacOS() {
+		return workspaceFiles
+	}
+	files := []string{GuestVarsFile, GuestVarsKind, GuestTPMDir, GuestSerialLog}
+	for _, d := range c.Disks {
+		if !filepath.IsAbs(d.Path) {
+			files = append(files, filepath.Clean(d.Path))
+		}
+	}
+	return files
+}
+
 // DeleteVM removes the VM. With purge it also deletes, under the workspace lock, the files the
 // app created in the workspace, and the workspace folder if it ends up empty. It returns what
 // was deleted.
 func DeleteVM(e VMEntry, purge bool) ([]string, error) {
 	var removed []string
 	if purge {
-		if _, ok := FindRunning(e.Config); ok {
+		if _, ok := FindRun(e); ok {
 			return nil, errors.New("shut down the VM before deleting its files")
 		}
 		dir, err := e.Config.WorkspaceDir()
@@ -598,7 +614,7 @@ func DeleteVM(e VMEntry, purge bool) ([]string, error) {
 		}
 		w := NewWorkspace(dir)
 		err = w.withLock(func() error {
-			for _, f := range workspaceFiles {
+			for _, f := range ownedFiles(e.Config) {
 				p := w.Path(f)
 				if !exists(p) {
 					continue
@@ -747,7 +763,7 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 		}
 		e = cur
 	}
-	if _, ok := FindRunning(e.Config); ok {
+	if _, ok := FindRun(e); ok {
 		return e, errors.New("shut down the VM before moving it")
 	}
 	c := e.Config
@@ -788,7 +804,7 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 					os.Remove(to)
 				}
 			}
-			for _, f := range workspaceFiles {
+			for _, f := range ownedFiles(e.Config) {
 				if _, err := os.Lstat(src.Path(f)); errors.Is(err, os.ErrNotExist) {
 					continue
 				} else if err != nil {

@@ -336,3 +336,49 @@ func readFile(t *testing.T, path string) string {
 	}
 	return string(b)
 }
+
+// A guest VM's own files: private, deleted with --purge, moved with the VM; images elsewhere stay.
+func TestGuestOwnedFiles(t *testing.T) {
+	if _, err := exec.LookPath("qemu-img"); err != nil {
+		needTool(t, "qemu-img missing")
+	}
+	isolateXDG(t, t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	ext := filepath.Join(t.TempDir(), "shared.qcow2")
+	write(t, ext, "")
+	c, _ := NewGuest("ubuntu", "Lab", "")
+	c.Workspace = filepath.Join(t.TempDir(), "lab")
+	c.DiskGiB = 1
+	c.Disks = append(c.Disks, Disk{Path: ext, Format: "qcow2", Bus: BusVirtio})
+	e, err := CreateGuestVM(t.Context(), c)
+	if err != nil {
+		t.Fatal(err)
+	}
+	disk := filepath.Join(c.Workspace, "disk0.qcow2")
+	if st, _ := os.Stat(disk); st.Mode().Perm() != 0o600 {
+		t.Fatalf("disk mode %v", st.Mode())
+	}
+	if st, _ := os.Stat(c.Workspace); st.Mode().Perm() != 0o700 {
+		t.Fatalf("folder mode %v", st.Mode())
+	}
+	write(t, filepath.Join(c.Workspace, GuestVarsFile), "vars")
+	moved := filepath.Join(t.TempDir(), "moved")
+	if e, err = MoveVM(e, moved); err != nil {
+		t.Fatal(err)
+	}
+	if !exists(filepath.Join(moved, "disk0.qcow2")) || !exists(filepath.Join(moved, GuestVarsFile)) || !exists(ext) {
+		t.Fatal("move: the VM's files must move and the shared image stay")
+	}
+	if _, err := DeleteVM(e, true); err != nil {
+		t.Fatal(err)
+	}
+	if exists(filepath.Join(moved, "disk0.qcow2")) || !exists(ext) {
+		t.Fatal("purge: the VM's disk goes, the shared image stays")
+	}
+	// A relative path leaving the folder is refused.
+	bad := testGuest(t, "ubuntu")
+	bad.Disks = []Disk{{Path: "../other.qcow2", Format: "qcow2", Bus: BusVirtio}}
+	if err := bad.Validate(); err == nil {
+		t.Fatal("../ accepted")
+	}
+}

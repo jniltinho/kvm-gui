@@ -75,15 +75,16 @@ func ensureVars(dir string, fw Firmware) error {
 		return nil
 	}
 	// The marker first: variables without one are refused, never taken for the other kind.
-	if err := writeFileAtomic(kindFile, []byte(varsKind(fw.Secure)+"\n"), 0o644); err != nil {
+	if err := writeFileAtomic(kindFile, []byte(varsKind(fw.Secure)+"\n"), 0o600); err != nil {
 		return err
 	}
-	return copyFileAtomic(fw.Vars, vars, 0o644)
+	return copyFileAtomic(fw.Vars, vars, 0o600)
 }
 
 // ResetVars replaces a powered-off VM's UEFI variables with a fresh copy of the template that
 // matches its Secure Boot setting. Boot entries stored in the old ones are lost.
-func ResetVars(c Config) error {
+func ResetVars(e VMEntry) error {
+	c := e.Config
 	if c.MacOS() || c.Firmware != FirmwareUEFI {
 		return errors.New("only UEFI Linux, Windows and Other VMs have resettable variables")
 	}
@@ -100,12 +101,15 @@ func ResetVars(c Config) error {
 		return err
 	}
 	defer unlock()
-	if _, running := FindRunning(c); running {
+	if _, running := FindRun(e); running {
 		return errors.New("power the VM off first")
 	}
-	os.Remove(filepath.Join(dir, GuestVarsKind))
-	os.Remove(filepath.Join(dir, GuestVarsFile))
-	return ensureVars(dir, fw)
+	// Replaced in place (write and rename), so a failure leaves the old variables: the marker
+	// first, which refuses a start until both match.
+	if err := writeFileAtomic(filepath.Join(dir, GuestVarsKind), []byte(varsKind(fw.Secure)+"\n"), 0o600); err != nil {
+		return err
+	}
+	return copyFileAtomic(fw.Vars, filepath.Join(dir, GuestVarsFile), 0o600)
 }
 
 func copyFileAtomic(src, dst string, perm os.FileMode) error {

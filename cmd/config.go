@@ -58,7 +58,7 @@ var configResetNVRAMCmd = &cobra.Command{
 		if err != nil {
 			return err
 		}
-		if err := core.ResetVars(e.Config); err != nil {
+		if err := core.ResetVars(e); err != nil {
 			return err
 		}
 		fmt.Fprintln(cmd.OutOrStdout(), "UEFI variables reset for", e.DisplayName())

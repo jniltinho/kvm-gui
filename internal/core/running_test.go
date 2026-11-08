@@ -19,13 +19,17 @@ func fakeProc(t *testing.T, proc string, pid, comm, cwd string, args ...string) 
 
 func TestRunningDetection(t *testing.T) {
 	proc := t.TempDir()
+	// Runs are found by the disk's identity (device and inode), so the disks exist.
+	root := t.TempDir()
 	c := testDefaults()
-	c.Workspace = "/vm/a,b"
-	fakeProc(t, proc, "100", "bash", "", "bash", "-c", "file=/vm/a,,b/mac_hdd_ng.img")
+	c.Workspace = filepath.Join(root, "a,b")
+	write(t, filepath.Join(c.Workspace, DiskFile), "")
+	esc := strings.ReplaceAll(c.Workspace, ",", ",,")
+	fakeProc(t, proc, "100", "bash", "", "bash", "-c", "file="+esc+"/mac_hdd_ng.img")
 	if _, ok := runningIn(proc, c); ok {
 		t.Fatal("only qemu processes count")
 	}
-	fakeProc(t, proc, "200", "qemu-system-x86", "", "qemu-system-x86_64", "-drive", "id=MacHDD,if=none,format=qcow2,file=/vm/a,,b/mac_hdd_ng.img",
+	fakeProc(t, proc, "200", "qemu-system-x86", "", "qemu-system-x86_64", "-drive", "id=MacHDD,if=none,format=qcow2,file="+esc+"/mac_hdd_ng.img",
 		"-vnc", "unix:/run/user/1000/macos-kvm-gui-1/vnc.sock,lock-key-sync=off", "-qmp", "unix:/run/user/1000/macos-kvm-gui-1/qmp.sock,server=on,wait=off",
 		"-qmp", "unix:/run/user/1000/macos-kvm-gui-1/qmp-control.sock,server=on,wait=off",
 		"-netdev", "user,id=net0,hostfwd=tcp:127.0.0.1:2301-:22",
@@ -37,7 +41,7 @@ func TestRunningDetection(t *testing.T) {
 	}
 	// The running process tells whether it is on Reims vGPU, not the config.
 	os.RemoveAll(filepath.Join(proc, "200"))
-	fakeProc(t, proc, "201", "qemu-system-x86", "", "qemu-system-x86_64", "-drive", "file=/vm/a,,b/mac_hdd_ng.img",
+	fakeProc(t, proc, "201", "qemu-system-x86", "", "qemu-system-x86_64", "-drive", "file="+esc+"/mac_hdd_ng.img",
 		"-device", "apple-gfx-pci,id=gfx,displays=1,resolution=1920x1080")
 	if r, ok := runningIn(proc, c); !ok || !r.Reims {
 		t.Fatalf("Reims VM: %+v %v", r, ok)
@@ -46,15 +50,25 @@ func TestRunningDetection(t *testing.T) {
 	// OSX-KVM's OpenCore-Boot.sh: relative, quoted path under its working directory.
 	proc2 := t.TempDir()
 	o := testDefaults()
-	o.Workspace = "/home/me/OSX-KVM"
-	fakeProc(t, proc2, "300", "qemu-system-x86", "/home/me/OSX-KVM", "qemu-system-x86_64", "-drive", `id=MacHDD,if=none,file="./mac_hdd_ng.img",format=qcow2`)
+	o.Workspace = filepath.Join(root, "OSX-KVM")
+	write(t, filepath.Join(o.Workspace, DiskFile), "")
+	fakeProc(t, proc2, "300", "qemu-system-x86", o.Workspace, "qemu-system-x86_64", "-drive", `id=MacHDD,if=none,file="./mac_hdd_ng.img",format=qcow2`)
 	if r, ok := runningIn(proc2, o); !ok || r.ByApp {
 		t.Fatalf("a VM started outside the app must be found and marked as such: %+v %v", r, ok)
 	}
 	other := testDefaults()
-	other.Workspace = "/elsewhere"
+	other.Workspace = filepath.Join(root, "elsewhere")
+	write(t, filepath.Join(other.Workspace, DiskFile), "")
 	if _, ok := runningIn(proc2, other); ok {
 		t.Fatal("another workspace must not match")
+	}
+	// A link to the disk is the same disk.
+	link := filepath.Join(root, "link.img")
+	os.Symlink(filepath.Join(o.Workspace, DiskFile), link)
+	fakeProc(t, proc2, "301", "qemu-kvm", "", "qemu-kvm", "-drive", "file="+link)
+	os.RemoveAll(filepath.Join(proc2, "300"))
+	if r, ok := runningIn(proc2, o); !ok || r.PID != 301 {
+		t.Fatalf("a link to the disk (qemu-kvm): %+v %v", r, ok)
 	}
 }
 

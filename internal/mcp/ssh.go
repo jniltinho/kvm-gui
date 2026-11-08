@@ -33,8 +33,8 @@ const (
 	outputCap  = 1 << 20 // per stream
 )
 
-// findRunning is core.FindRunning; tests replace it.
-var findRunning = core.FindRunning
+// findRun is core.FindRun; tests replace it.
+var findRun = core.FindRun
 
 type sshIn struct {
 	VM           string `json:"vm,omitempty" jsonschema:"VM name or id; default: the VM selected in the app"`
@@ -93,7 +93,7 @@ func vmSSH(ctx context.Context, _ *mcp.CallToolRequest, in sshIn) (*mcp.CallTool
 	if err != nil {
 		return nil, sshOut{}, err
 	}
-	r, ok := findRunning(e.Config)
+	r, ok := findRun(e)
 	if !ok {
 		return nil, sshOut{}, fmt.Errorf("%s is not running (vm_start starts it)", e.DisplayName())
 	}

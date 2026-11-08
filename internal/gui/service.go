@@ -49,7 +49,7 @@ func (a *App) VMs() ([]VM, error) {
 	out := make([]VM, 0, len(entries))
 	for _, e := range entries {
 		state := "Powered Off"
-		if _, running := core.FindRunning(e.Config); running {
+		if _, running := core.FindRun(e); running {
 			state = "Running"
 		}
 		out = append(out, VM{ID: e.ID, Name: e.Config.Name, Version: e.Config.Version, State: state,

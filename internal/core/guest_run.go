@@ -115,7 +115,7 @@ func CreateGuestVM(ctx context.Context, c Config) (VMEntry, error) {
 			os.RemoveAll(dir)
 		}
 	}
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+	if err := os.MkdirAll(dir, 0o700); err != nil { // the guest's disk and TPM state are private
 		undo()
 		return e, err
 	}
@@ -131,6 +131,10 @@ func CreateGuestVM(ctx context.Context, c Config) (VMEntry, error) {
 		if err := runStream(ctx, "", nil, "qemu-img", "create", "-f", d.Format, path, strconv.Itoa(size)+"G"); err != nil {
 			undo()
 			return e, fmt.Errorf("creating %s: %w", d.Path, err)
+		}
+		if err := os.Chmod(path, 0o600); err != nil {
+			undo()
+			return e, err
 		}
 	}
 	if err := SelectVM(e.ID); err != nil {
@@ -159,7 +163,7 @@ func (v *VM) startGuest(c Config) error {
 			return fmt.Errorf("the ISO %s does not exist: eject it or choose another one in Settings › Storage", iso)
 		}
 	}
-	if r, ok := FindRunning(c); ok {
+	if r, ok := v.findRun(c); ok {
 		return fmt.Errorf("this VM's disk is already in use by QEMU (pid %d): shut that VM down first", r.PID)
 	}
 	if err := checkBridges(c, "/sys/class/net", "/etc/qemu/bridge.conf", BridgeHelper()); err != nil {
@@ -179,7 +183,7 @@ func (v *VM) startGuest(c Config) error {
 		}
 	}
 	w := NewWorkspace(dir)
-	unlock, err := w.Lock()
+	unlock, err := v.lockRun(w, c)
 	if err != nil {
 		return err
 	}
@@ -189,11 +193,7 @@ func (v *VM) startGuest(c Config) error {
 			return err
 		}
 	}
-	base := os.Getenv("XDG_RUNTIME_DIR")
-	if base == "" {
-		base = os.TempDir()
-	}
-	qmpDir, err := os.MkdirTemp(base, "macos-kvm-gui-") // 0700
+	qmpDir, err := v.newRunDir()
 	if err != nil {
 		unlock()
 		return err

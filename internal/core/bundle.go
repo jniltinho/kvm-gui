@@ -36,7 +36,7 @@ func ExportBundle(ctx context.Context, e VMEntry, dst string, progress func(done
 	if err != nil {
 		return err
 	}
-	if _, ok := FindRunning(e.Config); ok {
+	if _, ok := FindRun(e); ok {
 		return fmt.Errorf("shut down %s before exporting it", e.DisplayName())
 	}
 	w := NewWorkspace(dir)

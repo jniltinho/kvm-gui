@@ -160,7 +160,7 @@ func SetVMConfig(e VMEntry, values map[string]string) (VMEntry, []string, error)
 		return e, nil, err
 	}
 	defer unlock()
-	if _, ok := FindRunning(e.Config); ok {
+	if _, ok := FindRun(e); ok {
 		return e, nil, errors.New("the VM is running: shut the VM down first")
 	}
 	db, err := openDB()
