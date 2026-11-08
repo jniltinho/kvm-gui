@@ -27,7 +27,9 @@ func CloneVM(ctx context.Context, e VMEntry, name string, o CloneOptions, progre
 	if progress == nil {
 		progress = func(string) {}
 	}
-	recoverSnapshotOps(e)
+	if err := recoverSnapshotOps(e); err != nil {
+		return VMEntry{}, err
+	}
 	e, err := reload(e)
 	if err != nil {
 		return VMEntry{}, err
@@ -57,10 +59,14 @@ func CloneVM(ctx context.Context, e VMEntry, name string, o CloneOptions, progre
 	if err != nil {
 		return VMEntry{}, err
 	}
-	if exists(dst) {
-		return VMEntry{}, &FieldError{"folder", dst + " already exists: choose another folder"}
+	if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
+		return VMEntry{}, err
 	}
-	if err := os.MkdirAll(dst, 0o700); err != nil {
+	// Claimed by an exclusive create: a clone only ever removes the folder it made.
+	if err := os.Mkdir(dst, 0o700); err != nil {
+		if errors.Is(err, os.ErrExist) {
+			return VMEntry{}, &FieldError{"folder", dst + " already exists: choose another folder"}
+		}
 		return VMEntry{}, err
 	}
 	fail := func(err error) (VMEntry, error) {

@@ -16,14 +16,19 @@ pkgs() { # install distribution packages quietly
 }
 epel() { $apt || dnf install -y -q epel-release >/dev/null; }
 
-# self_test runs a command's --self-test as an ordinary user under Xvfb with a session bus.
+# self_test runs a command's --self-test as an ordinary user with a session bus: under Xvfb, or on
+# Rocky Linux 10 (no Xorg server in RHEL 10) under a headless Weston, on Wayland.
 self_test() {
 	id tester >/dev/null 2>&1 || useradd -m tester
-	su tester -s /bin/bash -c "export XDG_RUNTIME_DIR=\$(mktemp -d) APPIMAGE_EXTRACT_AND_RUN=1; Xvfb :57 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; DISPLAY=:57 dbus-run-session -- timeout 120 $1 --self-test" \
+	local display="Xvfb :57 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; export DISPLAY=:57"
+	$apt || display="weston --backend=headless --socket=wl-57 --idle-time=0 >/dev/null 2>&1 & sleep 2; export WAYLAND_DISPLAY=wl-57 GDK_BACKEND=wayland"
+	su tester -s /bin/bash -c "export XDG_RUNTIME_DIR=\$(mktemp -d) APPIMAGE_EXTRACT_AND_RUN=1; $display; dbus-run-session -- timeout 120 $1 --self-test" \
 		|| { echo "FAIL: $1 --self-test" >&2; exit 1; }
 	echo "ok: $1 --self-test"
 }
-x11() { if $apt; then pkgs xvfb dbus-daemon 2>/dev/null || pkgs xvfb dbus; else pkgs xorg-x11-server-Xvfb dbus-daemon dbus-tools 2>/dev/null || pkgs xorg-x11-server-Xvfb dbus; fi; }
+x11() { if $apt; then pkgs xvfb dbus-daemon 2>/dev/null || pkgs xvfb dbus; else # the test display only: EPEL's weston needs CRB's libturbojpeg (kvm-gui itself does not)
+	pkgs dnf-plugins-core && dnf config-manager --set-enabled crb && { pkgs weston dbus-daemon 2>/dev/null || pkgs weston dbus; }
+fi; }
 
 case $mode in
 package)
@@ -66,10 +71,21 @@ norecommends)
 	;;
 upgrade)
 	epel
-	if $apt; then pkgs /old/macos-kvm-gui_0.13.0_amd64.deb; else pkgs /old/macos-kvm-gui-0.13.0-1.x86_64.rpm; fi
+	withvms=true
+	if $apt; then
+		pkgs /old/macos-kvm-gui_0.13.0_amd64.deb
+	else
+		# The v0.13.0 .rpm requires qemu-system-x86, which Rocky Linux 10 does not have, so it never
+		# installed there: forced in with --nodeps to check Obsoletes; the VM list part needs Ubuntu.
+		pkgs qemu-kvm qemu-img
+		rpm -i --nodeps /old/macos-kvm-gui-0.13.0-1.x86_64.rpm
+		withvms=false
+	fi
 	id tester >/dev/null 2>&1 || useradd -m tester
-	su tester -s /bin/bash -c 'macos-kvm-gui vm create "Upgrade test" --version sonoma --folder /home/tester/vms/upgrade >/dev/null 2>&1 || macos-kvm-gui vm list' >/dev/null
-	su tester -s /bin/bash -c 'macos-kvm-gui vm list' | grep -q "Upgrade test" || { echo "FAIL: the old app has no VM" >&2; exit 1; }
+	if $withvms; then
+		su tester -s /bin/bash -c 'macos-kvm-gui vm create "Upgrade test" --version sonoma --folder /home/tester/vms/upgrade >/dev/null 2>&1 || macos-kvm-gui vm list' >/dev/null
+		su tester -s /bin/bash -c 'macos-kvm-gui vm list' | grep -q "Upgrade test" || { echo "FAIL: the old app has no VM" >&2; exit 1; }
+	fi
 	if $apt; then
 		pkgs /dist/kvm-gui_*_amd64.deb
 		! dpkg -s macos-kvm-gui 2>/dev/null | grep -q "^Status: install ok installed" || { echo "FAIL: macos-kvm-gui still installed" >&2; exit 1; }
@@ -80,6 +96,7 @@ upgrade)
 		[[ $(rpm -qf /usr/bin/macos-kvm-gui --qf '%{NAME}') == kvm-gui ]] || { echo "FAIL: the link is not kvm-gui's" >&2; exit 1; }
 	fi
 	echo "ok: macos-kvm-gui replaced, its link belongs to kvm-gui"
+	$withvms || exit 0
 	su tester -s /bin/bash -c 'kvm-gui vm list' | grep -q "Upgrade test" || { echo "FAIL: the VM list did not survive" >&2; exit 1; }
 	su tester -s /bin/bash -c 'macos-kvm-gui vm list' | grep -q "Upgrade test"
 	echo "ok: the VM list survives the upgrade (kvm-gui and the macos-kvm-gui link)"

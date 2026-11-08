@@ -88,6 +88,14 @@ func (s ReimsSettings) apply(c *Config) {
 		c.RAMMiB = s.MemoryMiB
 	}
 	c.Resolution, c.SSHPort = s.Resolution, s.SSHPort
+	if s.MAC != "" {
+		if len(c.Networks) == 0 {
+			c.Networks = []NIC{{Enabled: true, Mode: NetNAT, Model: "virtio-net-pci", MAC: s.MAC}}
+		} else {
+			c.Networks = append([]NIC(nil), c.Networks...)
+			c.Networks[0].MAC = s.MAC
+		}
+	}
 }
 
 // RefreshReimsCtlVM re-reads a reims-ctl VM's folder, disks and settings from reims-ctl and
@@ -120,7 +128,7 @@ func storeReimsFields(id string, c Config) (VMEntry, error) {
 		}
 		n := cur.Config
 		n.Workspace, n.Disks, n.RAMMiB, n.VCPUs, n.Cores = c.Workspace, c.Disks, c.RAMMiB, c.VCPUs, c.Cores
-		n.Resolution, n.SSHPort, n.Graphics, n.Display = c.Resolution, c.SSHPort, c.Graphics, c.Display
+		n.Resolution, n.SSHPort, n.Graphics, n.Display, n.Networks = c.Resolution, c.SSHPort, c.Graphics, c.Display, c.Networks
 		if err := updateVM(tx, id, n); err != nil {
 			return err
 		}

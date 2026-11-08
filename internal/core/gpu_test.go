@@ -457,3 +457,18 @@ func TestGPULock(t *testing.T) {
 		u()
 	}
 }
+
+// A QEMU passing the GPU through is found even when no VM in the list started it (--config).
+func TestGPUProcess(t *testing.T) {
+	proc := t.TempDir()
+	fakeProc(t, proc, "900", "qemu-system-x86", "", "qemu-system-x86_64", "-device", "vfio-pci,host=0000:03:00.0,multifunction=on")
+	if pid, ok := gpuProcess(proc, "0000:03:00.0"); !ok || pid != 900 {
+		t.Fatalf("by address: %d %v", pid, ok)
+	}
+	if _, ok := gpuProcess(proc, ""); !ok {
+		t.Fatal("any GPU")
+	}
+	if _, ok := gpuProcess(proc, "0000:04:00.0"); ok {
+		t.Fatal("another address")
+	}
+}

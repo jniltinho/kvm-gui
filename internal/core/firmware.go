@@ -127,13 +127,20 @@ func copyFileAtomic(src, dst string, perm os.FileMode) error {
 		tmp.Close()
 		return err
 	}
+	if err := tmp.Sync(); err != nil { // on disk before it replaces anything
+		tmp.Close()
+		return err
+	}
 	if err := tmp.Close(); err != nil {
 		return err
 	}
 	if err := os.Chmod(tmp.Name(), perm); err != nil {
 		return err
 	}
-	return os.Rename(tmp.Name(), dst)
+	if err := os.Rename(tmp.Name(), dst); err != nil {
+		return err
+	}
+	return syncDir(filepath.Dir(dst))
 }
 
 // swtpm timing: QEMU starts only once the socket answers; after QEMU exits, swtpm gets a moment

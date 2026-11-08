@@ -440,7 +440,7 @@ func (c ReimsCommand) check(vmDir string) error {
 				return errors.New("reims-ctl's command has a -pidfile other than the VM's own qemu.pid: remove it from the VM's extra_args with reims-ctl set")
 			}
 		}
-		for _, p := range argPaths(a) {
+		for _, p := range argPaths(a, vmDir) {
 			if r := resolvePath(p); within(r, runs) || within(r, runsReal) {
 				return fmt.Errorf("reims-ctl's command uses a path in the app's run folder (%s)", runs)
 			}
@@ -449,36 +449,58 @@ func (c ReimsCommand) check(vmDir string) error {
 	return nil
 }
 
-// argPaths are the absolute paths in a QEMU argument: the argument itself, or a=/path and
-// unix:/path parts of an option string.
-func argPaths(a string) []string {
+// argPaths are the file paths in a QEMU argument, as QEMU would open them from the VM folder:
+// the argument itself when it names a path, and key=path, unix:path and file:path parts of an
+// option string; relative ones are joined to vmDir (QEMU's working folder).
+func argPaths(a, vmDir string) []string {
 	var out []string
+	add := func(p string) {
+		if p == "" {
+			return
+		}
+		if !filepath.IsAbs(p) {
+			p = vmDir + string(filepath.Separator) + p // not Join: ".." must meet links first
+		}
+		out = append(out, p)
+	}
+	if !strings.Contains(a, "=") && !strings.Contains(a, ",") && strings.Contains(a, "/") {
+		add(a)
+	}
 	for _, part := range strings.Split(strings.ReplaceAll(a, ",,", "\x01"), ",") {
 		part = strings.ReplaceAll(part, "\x01", ",")
-		if _, v, ok := strings.Cut(part, "="); ok {
+		k, v, ok := strings.Cut(part, "=")
+		switch {
+		case ok && (k == "file" || k == "path" || k == "filename" || k == "logfile" || k == "dir"):
 			part = v
+		case ok:
+			continue
 		}
-		part = strings.TrimPrefix(part, "unix:")
-		part = strings.TrimPrefix(part, "file:")
-		if strings.HasPrefix(part, "/") {
-			out = append(out, part)
+		for _, pre := range []string{"unix:", "file:", "pipe:"} {
+			if p, ok := strings.CutPrefix(part, pre); ok {
+				add(p)
+				part = ""
+			}
+		}
+		if ok || strings.HasPrefix(part, "/") {
+			add(part)
 		}
 	}
 	return out
 }
 
-// resolvePath cleans p and resolves the links of its longest existing prefix.
+// resolvePath resolves p as the kernel would: the links of its longest existing prefix first, so
+// a ".." after a link goes to the link target's parent; the missing rest is joined after it.
 func resolvePath(p string) string {
-	p = filepath.Clean(p)
-	for d := p; ; d = filepath.Dir(d) {
-		if r, err := filepath.EvalSymlinks(d); err == nil {
-			rest, _ := filepath.Rel(d, p)
-			return filepath.Join(r, rest)
-		}
-		if d == filepath.Dir(d) {
-			return p
+	if !filepath.IsAbs(p) {
+		return filepath.Clean(p)
+	}
+	parts := strings.Split(p, "/")
+	for i := len(parts); i > 1; i-- {
+		if r, err := filepath.EvalSymlinks(strings.Join(parts[:i], "/")); err == nil {
+			return filepath.Join(append([]string{r}, parts[i:]...)...)
 		}
 	}
+	return filepath.Clean(p)
 }
 
 func within(p, dir string) bool {

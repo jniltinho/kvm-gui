@@ -229,6 +229,26 @@ func lockImages(c Config) (func(), error) {
 // lockRun takes the VM's folder lock and its image locks, then checks again under them that no
 // QEMU has the VM's disks open; unlock releases them all.
 func (v *VM) lockRun(w Workspace, c Config) (func(), error) {
+	unlock, err := lockRunRaw(v, w, c)
+	if err != nil || v.ID == "" {
+		return unlock, err
+	}
+	// An interrupted snapshot operation is finished or undone under these same locks, so nothing
+	// can use a half-restored VM in between; the caller's settings may be stale then: it retries.
+	did, err := recoverLocked(VMEntry{ID: v.ID, Config: c}, w.Dir)
+	if err != nil {
+		unlock()
+		return nil, fmt.Errorf("an interrupted snapshot operation could not be completed: %w", err)
+	}
+	if did {
+		unlock()
+		return nil, errors.New("an interrupted snapshot operation of this VM was just completed: try again")
+	}
+	return unlock, nil
+}
+
+// lockRunRaw takes the locks of lockRun without the snapshot recovery.
+func lockRunRaw(v *VM, w Workspace, c Config) (func(), error) {
 	unlockDir, err := w.Lock()
 	if err != nil {
 		return nil, err

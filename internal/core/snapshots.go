@@ -174,7 +174,9 @@ func mapValues[K comparable, V any](m map[K]V) []V {
 
 // ListSnapshots is e's snapshot tree in creation order (parents before children).
 func ListSnapshots(e VMEntry) ([]Snapshot, error) {
-	recoverSnapshotOps(e)
+	if err := recoverSnapshotOps(e); err != nil {
+		return nil, err
+	}
 	return listSnapshots(e.ID, false)
 }
 
@@ -214,7 +216,8 @@ type journal struct {
 	VMID  string   `json:"vm_id"`
 	Snap  string   `json:"snap"`
 	Disks []string `json:"disks,omitempty"` // take: tagged; restore: given the pre-restore tag
-	Files bool     `json:"files,omitempty"` // restore: the current state files were saved
+	Files bool     `json:"files,omitempty"` // restore: the checkpoint of the state files is complete
+	Rels  []string `json:"rels,omitempty"`  // restore: the state files it saves and replaces
 	path  string
 }
 
@@ -321,20 +324,40 @@ func copyState(from, to string, rels []string) ([]string, error) {
 			if err := copyTree(src, dst); err != nil {
 				return copied, err
 			}
-			filepath.WalkDir(dst, func(p string, d os.DirEntry, _ error) error {
-				if d != nil && d.IsDir() {
-					os.Chmod(p, 0o700)
-				} else {
-					os.Chmod(p, 0o600)
-				}
-				return nil
-			})
+			if err := syncTree(dst); err != nil { // private and on disk before anything relies on it
+				return copied, err
+			}
 		} else if err := copyFileAtomic(src, dst, 0o600); err != nil {
+			return copied, err
+		}
+		if err := syncDir(filepath.Dir(dst)); err != nil {
 			return copied, err
 		}
 		copied = append(copied, rel)
 	}
 	return copied, nil
+}
+
+// syncTree makes a copied folder private (0700/0600) and flushes its files and folders to disk.
+func syncTree(root string) error {
+	return filepath.WalkDir(root, func(p string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		mode := os.FileMode(0o600)
+		if d.IsDir() {
+			mode = 0o700
+		}
+		if err := os.Chmod(p, mode); err != nil {
+			return err
+		}
+		f, err := os.Open(p)
+		if err != nil {
+			return err
+		}
+		defer f.Close()
+		return f.Sync()
+	})
 }
 
 // replaceState makes the VM folder's state files those of from (rels it holds), removing the
@@ -346,6 +369,9 @@ func replaceState(dir, from string, rels, have []string) error {
 			if err := os.RemoveAll(dst); err != nil {
 				return err
 			}
+			if err := syncDir(filepath.Dir(dst)); err != nil {
+				return err
+			}
 			continue
 		}
 		if _, err := copyState(from, dir, []string{rel}); err != nil {
@@ -355,23 +381,74 @@ func replaceState(dir, from string, rels, have []string) error {
 	return nil
 }
 
-// lockForSnapshot takes the VM's locks and refuses a running VM.
-func lockForSnapshot(e VMEntry) (string, func(), error) {
+// lockForSnapshot takes the VM's locks, and those of extra disks (a snapshot's disks detached
+// since), refuses a running VM, and refuses extra disks another VM now uses.
+func lockForSnapshot(e VMEntry, extra []string) (string, func(), error) {
 	dir, err := e.Config.WorkspaceDir()
 	if err != nil {
 		return "", nil, err
 	}
-	if _, ok := FindRun(e); ok {
+	c := e.Config
+	if !c.MacOS() {
+		c.Disks = append([]Disk(nil), c.Disks...)
+		for _, d := range extra {
+			if !slices.ContainsFunc(c.Disks, func(x Disk) bool { return diskAbs(dir, x.Path) == diskAbs(dir, d) }) {
+				c.Disks = append(c.Disks, Disk{Path: d, Format: "qcow2", Bus: BusVirtio})
+			}
+		}
+	}
+	if _, ok := FindRun(VMEntry{ID: e.ID, Config: c}); ok {
 		return "", nil, errors.New("power the VM off first: snapshots are taken, restored and deleted with the VM powered off")
 	}
-	unlock, err := (&VM{ID: e.ID}).lockRun(NewWorkspace(dir), e.Config)
+	unlock, err := (&VM{ID: e.ID}).lockRun(NewWorkspace(dir), c)
 	if err != nil {
 		if errors.Is(err, ErrBusy) {
-			return "", nil, errors.New("the VM is starting or busy: power it off and try again")
+			return "", nil, errors.New("the VM or one of its disks is busy (a start or another operation): try again when it is done")
 		}
 		return "", nil, fmt.Errorf("power the VM off first: %w", err)
 	}
+	if err := checkDisksFree(e, dir, extra); err != nil {
+		unlock()
+		return "", nil, err
+	}
 	return dir, unlock, nil
+}
+
+// checkDisksFree refuses disks another VM uses now (attached to it since this VM detached them).
+func checkDisksFree(e VMEntry, dir string, disks []string) error {
+	if len(disks) == 0 {
+		return nil
+	}
+	vms, err := ListVMs()
+	if err != nil {
+		return err
+	}
+	for _, d := range disks {
+		st, err := os.Stat(diskAbs(dir, d))
+		if err != nil {
+			continue
+		}
+		for _, o := range vms {
+			if o.ID == e.ID {
+				continue
+			}
+			if slices.ContainsFunc(diskFiles(o.Config), func(x os.FileInfo) bool { return os.SameFile(x, st) }) {
+				return fmt.Errorf("disk %s is used by %s now: detach it there first", d, o.DisplayName())
+			}
+		}
+	}
+	return nil
+}
+
+// detachedSince are the snapshot's disks the VM no longer has attached.
+func detachedSince(dir string, c Config, s Snapshot) []string {
+	var out []string
+	for _, d := range s.Manifest.Disks {
+		if !slices.ContainsFunc(snapshotDisks(c), func(u string) bool { return diskAbs(dir, u) == diskAbs(dir, d) }) {
+			out = append(out, d)
+		}
+	}
+	return out
 }
 
 // reload is e's stored entry, for operations that must not act on a stale copy.
@@ -399,7 +476,9 @@ func TakeSnapshot(ctx context.Context, e VMEntry, name, description string) (Sna
 	if strings.TrimSpace(name) == "" {
 		return Snapshot{}, &FieldError{"name", "give the snapshot a name"}
 	}
-	recoverSnapshotOps(e)
+	if err := recoverSnapshotOps(e); err != nil {
+		return Snapshot{}, err
+	}
 	e, err := reload(e)
 	if err != nil {
 		return Snapshot{}, err
@@ -407,7 +486,7 @@ func TakeSnapshot(ctx context.Context, e VMEntry, name, description string) (Sna
 	if err := checkSnapshotEligible(e); err != nil {
 		return Snapshot{}, err
 	}
-	dir, unlock, err := lockForSnapshot(e)
+	dir, unlock, err := lockForSnapshot(e, nil)
 	if err != nil {
 		return Snapshot{}, err
 	}
@@ -508,15 +587,19 @@ func setCurrentSnapshot(tx *sql.Tx, vmID, snap string, c *Config) error {
 	return updateVM(tx, vmID, cfg)
 }
 
-func opDone(op string) bool {
+// opDone reports whether op committed; an unreadable database is an error, never "no": recovery
+// must not roll a committed operation back.
+func opDone(op string) (bool, error) {
 	db, err := openDB()
 	if err != nil {
-		return false
+		return false, err
 	}
 	defer db.Close()
 	var n int
-	db.QueryRow(`SELECT count(*) FROM snapshot_ops WHERE id = ?`, op).Scan(&n)
-	return n > 0
+	if err := db.QueryRow(`SELECT count(*) FROM snapshot_ops WHERE id = ?`, op).Scan(&n); err != nil {
+		return false, err
+	}
+	return n > 0, nil
 }
 
 func rollbackTake(ctx context.Context, dir string, j *journal) error {
@@ -535,7 +618,9 @@ func rollbackTake(ctx context.Context, dir string, j *journal) error {
 // RestoreSnapshot returns a powered-off VM to snapshot id: disks, UEFI variables, TPM state and
 // settings. Disks attached since are detached, never deleted.
 func RestoreSnapshot(ctx context.Context, e VMEntry, id string) error {
-	recoverSnapshotOps(e)
+	if err := recoverSnapshotOps(e); err != nil {
+		return err
+	}
 	e, err := reload(e)
 	if err != nil {
 		return err
@@ -547,7 +632,11 @@ func RestoreSnapshot(ctx context.Context, e VMEntry, id string) error {
 	if err != nil {
 		return err
 	}
-	dir, unlock, err := lockForSnapshot(e)
+	dir, err := e.Config.WorkspaceDir()
+	if err != nil {
+		return err
+	}
+	dir, unlock, err := lockForSnapshot(e, detachedSince(dir, e.Config, s))
 	if err != nil {
 		return err
 	}
@@ -572,10 +661,14 @@ func RestoreSnapshot(ctx context.Context, e VMEntry, id string) error {
 	if err := checkFreeSpace(dir, rels); err != nil {
 		return err
 	}
+	if err := checkDiskPaths(s.Manifest.Config); err != nil {
+		return fmt.Errorf("the snapshot's settings: %w", err)
+	}
 	j, err := newJournal(dir, "restore", e.ID, s.ID)
 	if err != nil {
 		return err
 	}
+	j.Rels = rels
 	fail := func(err error) error {
 		if !errors.Is(err, errKilled) {
 			if rerr := rollbackRestore(context.WithoutCancel(ctx), dir, j, rels); rerr != nil {
@@ -602,11 +695,21 @@ func RestoreSnapshot(ctx context.Context, e VMEntry, id string) error {
 	if err := step(j, "save files"); err != nil {
 		return fail(err)
 	}
-	j.Files = true
-	if err := j.save(); err != nil {
+	// The checkpoint is copied aside and published by a rename once complete and on disk, and only
+	// then marked usable: a partial copy never replaces the VM's state in a rollback.
+	pre := filepath.Join(dir, snapDir, ".pre-"+j.Op)
+	if _, err := copyState(dir, pre+".tmp", rels); err != nil {
 		return fail(err)
 	}
-	if _, err := copyState(dir, filepath.Join(dir, snapDir, ".pre-"+j.Op), rels); err != nil {
+	os.MkdirAll(pre+".tmp", 0o700)
+	if err := os.Rename(pre+".tmp", pre); err != nil {
+		return fail(err)
+	}
+	if err := syncDir(filepath.Dir(pre)); err != nil {
+		return fail(err)
+	}
+	j.Files = true
+	if err := j.save(); err != nil {
 		return fail(err)
 	}
 	for _, d := range s.Manifest.Disks {
@@ -672,8 +775,10 @@ func finishRestore(ctx context.Context, dir string, j *journal) error {
 			return err
 		}
 	}
-	if err := os.RemoveAll(filepath.Join(dir, snapDir, ".pre-"+j.Op)); err != nil {
-		return err
+	for _, p := range []string{".pre-" + j.Op, ".pre-" + j.Op + ".tmp"} {
+		if err := os.RemoveAll(filepath.Join(dir, snapDir, p)); err != nil {
+			return err
+		}
 	}
 	j.remove()
 	return nil
@@ -721,7 +826,9 @@ func findSnapshot(vmID, id string) (Snapshot, error) {
 // DeleteSnapshot deletes snapshot id of a powered-off VM; its children move under its parent.
 // Once it is marked deleting it is always finished, here or when the VM is opened again.
 func DeleteSnapshot(ctx context.Context, e VMEntry, id string) error {
-	recoverSnapshotOps(e)
+	if err := recoverSnapshotOps(e); err != nil {
+		return err
+	}
 	e, err := reload(e)
 	if err != nil {
 		return err
@@ -733,7 +840,11 @@ func DeleteSnapshot(ctx context.Context, e VMEntry, id string) error {
 	if err != nil {
 		return err
 	}
-	dir, unlock, err := lockForSnapshot(e)
+	dir, err := e.Config.WorkspaceDir()
+	if err != nil {
+		return err
+	}
+	dir, unlock, err := lockForSnapshot(e, detachedSince(dir, e.Config, s))
 	if err != nil {
 		return err
 	}
@@ -805,45 +916,76 @@ func recoverSnapshotOps(e VMEntry) error {
 	if err != nil || e.ID == "" {
 		return err
 	}
-	journals, _ := filepath.Glob(filepath.Join(dir, snapDir, ".op-*.json"))
-	snaps, _ := listSnapshots(e.ID, true)
-	deleting := slices.ContainsFunc(snaps, func(s Snapshot) bool { return s.state == "deleting" })
-	if len(journals) == 0 && !deleting {
-		return nil
+	if pending, err := recoveryPending(e.ID, dir); err != nil || !pending {
+		return err
 	}
 	if _, ok := FindRun(e); ok {
 		return nil
 	}
-	unlock, err := (&VM{ID: e.ID}).lockRun(NewWorkspace(dir), e.Config)
+	unlock, err := lockRunRaw(&VM{ID: e.ID}, NewWorkspace(dir), e.Config)
 	if err != nil {
 		return err
 	}
 	defer unlock()
+	_, err = recoverLocked(e, dir)
+	return err
+}
+
+// recoveryPending reports whether e has a journal or a snapshot left deleting.
+func recoveryPending(vmID, dir string) (bool, error) {
+	if journals, _ := filepath.Glob(filepath.Join(dir, snapDir, ".op-*.json")); len(journals) > 0 {
+		return true, nil
+	}
+	snaps, err := listSnapshots(vmID, true)
+	if err != nil {
+		return false, err
+	}
+	return slices.ContainsFunc(snaps, func(s Snapshot) bool { return s.state == "deleting" }), nil
+}
+
+// recoverLocked is the recovery itself; the caller holds the VM's locks. did reports whether
+// anything was pending. Any doubt about whether an operation committed stops it with an error.
+func recoverLocked(e VMEntry, dir string) (did bool, err error) {
+	pending, err := recoveryPending(e.ID, dir)
+	if err != nil || !pending {
+		return false, err
+	}
+	journals, _ := filepath.Glob(filepath.Join(dir, snapDir, ".op-*.json"))
+	snaps, err := listSnapshots(e.ID, true)
+	if err != nil {
+		return true, err
+	}
 	ctx := context.Background()
 	var errs []error
 	deletes := map[string]*journal{}
 	for _, p := range journals {
 		data, err := os.ReadFile(p)
 		if err != nil {
-			continue
+			return true, err
 		}
 		j := &journal{path: p}
-		if json.Unmarshal(data, j) != nil || j.VMID != e.ID {
-			continue
+		if err := json.Unmarshal(data, j); err != nil || j.VMID != e.ID {
+			return true, fmt.Errorf("unreadable snapshot journal %s: move it away only after checking the VM", p)
 		}
 		switch j.Kind {
-		case "take":
-			if opDone(j.Op) {
-				j.remove()
-			} else {
-				errs = append(errs, rollbackTake(ctx, dir, j))
+		case "take", "restore":
+			done, err := opDone(j.Op)
+			if err != nil {
+				return true, err
 			}
-		case "restore":
-			s, _ := findSnapshotAny(e.ID, j.Snap)
-			rels := slices.Compact(slices.Sorted(slices.Values(append(stateFiles(e.Config), stateFiles(s.Manifest.Config)...))))
-			if opDone(j.Op) {
+			switch {
+			case j.Kind == "take" && done:
+				j.remove()
+			case j.Kind == "take":
+				errs = append(errs, rollbackTake(ctx, dir, j))
+			case done:
 				errs = append(errs, finishRestore(ctx, dir, j))
-			} else {
+			default:
+				rels := j.Rels
+				if len(rels) == 0 {
+					s, _ := findSnapshotAny(e.ID, j.Snap)
+					rels = slices.Compact(slices.Sorted(slices.Values(append(stateFiles(e.Config), stateFiles(s.Manifest.Config)...))))
+				}
 				errs = append(errs, rollbackRestore(ctx, dir, j, rels))
 			}
 		case "delete":
@@ -867,7 +1009,17 @@ func recoverSnapshotOps(e VMEntry) error {
 	for _, j := range deletes { // its snapshot is gone: the delete committed
 		j.remove()
 	}
-	return errors.Join(errs...)
+	return true, errors.Join(errs...)
+}
+
+// checkDiskPaths refuses settings whose relative disk paths leave the VM folder.
+func checkDiskPaths(c Config) error {
+	for _, d := range c.Disks {
+		if !filepath.IsAbs(d.Path) && (filepath.Base(d.Path) != d.Path || !filepath.IsLocal(d.Path)) {
+			return fmt.Errorf("disk path %q leaves the VM folder", d.Path)
+		}
+	}
+	return nil
 }
 
 func findSnapshotAny(vmID, id string) (Snapshot, error) {

@@ -36,6 +36,9 @@ func ExportBundle(ctx context.Context, e VMEntry, dst string, progress func(done
 	if err := refuseReimsCtl(e.Config, "Export"); err != nil {
 		return err
 	}
+	if err := recoverSnapshotOps(e); err != nil {
+		return err
+	}
 	if e.Path == "" { // the stored VM, not a copy from before its last snapshot
 		var err error
 		if e, err = reload(e); err != nil {
@@ -50,7 +53,6 @@ func ExportBundle(ctx context.Context, e VMEntry, dst string, progress func(done
 		return fmt.Errorf("shut down %s before exporting it", e.DisplayName())
 	}
 	w := NewWorkspace(dir)
-	recoverSnapshotOps(e)
 	snaps, err := listSnapshots(e.ID, false)
 	if err != nil {
 		return err
@@ -75,11 +77,11 @@ func ExportBundle(ctx context.Context, e VMEntry, dst string, progress func(done
 				total += st.Size()
 			}
 		}
-		tmp := dst + ".part"
-		out, err := os.Create(tmp)
+		out, err := exportTemp(dst, 0o644)
 		if err != nil {
 			return err
 		}
+		tmp := out.Name()
 		ok := false
 		defer func() {
 			if !ok {
@@ -105,6 +107,9 @@ func ExportBundle(ctx context.Context, e VMEntry, dst string, progress func(done
 			return err
 		}
 		if err := out.Close(); err != nil {
+			return err
+		}
+		if err := os.Chmod(tmp, 0o644); err != nil {
 			return err
 		}
 		ok = true
@@ -243,8 +248,8 @@ func importBundle(ctx context.Context, src, workspace string, progress func(done
 		cleanup()
 		return VMEntry{}, err
 	}
-	c := m.Config
-	c.Workspace, c.GPU = workspace, "" // a GPU address from another host means nothing here
+	c := importedConfig(m.Config) // a GPU address or host shares from another host do not apply here
+	c.Workspace = workspace
 	e, err := createImported(c)
 	if err != nil {
 		cleanup()

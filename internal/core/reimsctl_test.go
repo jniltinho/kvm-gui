@@ -76,15 +76,30 @@ func TestParseReimsCommand(t *testing.T) {
 	rt := t.TempDir()
 	t.Setenv("XDG_RUNTIME_DIR", rt)
 	os.MkdirAll(filepath.Join(rt, "kvm-gui", "a"), 0o700)
-	os.Symlink(rt, filepath.Join(t.TempDir(), "alias"))
+	link := filepath.Join(t.TempDir(), "into-run")
+	os.MkdirAll(filepath.Join(rt, "kvm-gui", "a", "sub"), 0o700)
+	os.Symlink(filepath.Join(rt, "kvm-gui", "a", "sub"), link)
+	vm := t.TempDir()
+	os.Symlink(filepath.Join(rt, "kvm-gui"), filepath.Join(vm, "relrun"))
 	for _, extra := range [][]string{
 		{"-chardev", "socket,id=x,path=" + rt + "/kvm-gui/other/qmp.sock"},
 		{"-qmp", "unix:" + rt + "/./kvm-gui/a/qmp-control.sock,server=on"},
 		{"-qmp", "unix:" + rt + "/x/../kvm-gui/a/qmp-gui.sock,server=on"},
+		{"-serial", "file:" + link + "/../qmp-control.sock"},   // a link, then ".."
+		{"-chardev", "socket,id=y,path=relrun/a/qmp-gui.sock"}, // relative to the VM folder
+		{"-pidfile", "relrun/a/x.pid"},
 	} {
 		d2 := d
 		d2.Args = append(slices.Clone(d.Args), extra...)
-		if err := d2.check("/tmp/h/vms/my mac"); err == nil {
+		if extra[0] == "-pidfile" { // the VM's own pidfile path is the vm folder's, so check another rule
+			d2.Args = append(slices.Clone(d.Args[:len(d.Args)-2]), "-serial", "file:relrun/a/serial.log")
+		}
+		for i, a := range d2.Args {
+			if a == "-pidfile" {
+				d2.Args[i+1] = filepath.Join(vm, "qemu.pid")
+			}
+		}
+		if err := d2.check(vm); err == nil {
 			t.Errorf("a socket in the app's run folder was accepted: %v", extra)
 		}
 	}
@@ -533,11 +548,15 @@ func TestReimsCtlSaveMapping(t *testing.T) {
 	e, _ = reload(e)
 	c = e.Config
 	c.Networks = append([]NIC(nil), c.Networks...)
-	if len(c.Networks) == 1 {
-		c.Networks[0].MAC = "52:54:00:aa:bb:cc"
-		if err := SaveVM(e, c); err != nil {
-			t.Fatal(err)
-		}
+	if len(c.Networks) != 1 || c.Networks[0].MAC != "52:54:00:12:34:56" {
+		t.Fatalf("the MAC reims-ctl has is not stored: %+v", c.Networks)
+	}
+	c.Networks[0].MAC = "52:54:00:aa:bb:cc"
+	if err := SaveVM(e, c); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(readFile(t, f.calls), "set mac --mac 52:54:00:aa:bb:cc") {
+		t.Fatal("a MAC change goes to reims-ctl set")
 	}
 	e, _ = reload(e)
 	c = e.Config

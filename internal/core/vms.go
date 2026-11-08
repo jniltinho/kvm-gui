@@ -644,7 +644,7 @@ func DeleteVM(e VMEntry, purge bool) ([]string, error) {
 			if err := checkNotShared(e, "delete its files"); err != nil {
 				return err
 			}
-			for _, f := range ownedFiles(e.Config) {
+			for _, f := range ownedFilesOf(e) {
 				p := w.Path(f)
 				if !exists(p) {
 					continue
@@ -846,7 +846,7 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 					os.Remove(to)
 				}
 			}
-			for _, f := range ownedFiles(e.Config) {
+			for _, f := range ownedFilesOf(e) {
 				if _, err := os.Lstat(src.Path(f)); errors.Is(err, os.ErrNotExist) {
 					continue
 				} else if err != nil {
@@ -940,7 +940,7 @@ func checkNotShared(e VMEntry, action string) error {
 		return err
 	}
 	var mine []os.FileInfo
-	for _, f := range ownedFiles(e.Config) {
+	for _, f := range ownedFilesOf(e) {
 		if st, err := os.Stat(filepath.Join(dir, f)); err == nil && st.Mode().IsRegular() {
 			mine = append(mine, st)
 		}
@@ -976,4 +976,22 @@ func checkNotShared(e VMEntry, action string) error {
 		}
 	}
 	return nil
+}
+
+// ownedFilesOf is ownedFiles plus the VM's own disks that only its snapshots still use (detached
+// since): moved and purged with the VM, never left behind; images outside the folder are not.
+func ownedFilesOf(e VMEntry) []string {
+	files := ownedFiles(e.Config)
+	if e.Config.Backend != "" || e.Config.MacOS() || e.ID == "" {
+		return files
+	}
+	snaps, _ := listSnapshots(e.ID, true)
+	for _, s := range snaps {
+		for _, d := range s.Manifest.Disks {
+			if !filepath.IsAbs(d) && filepath.Base(d) == d && !slices.Contains(files, d) {
+				files = append(files, d)
+			}
+		}
+	}
+	return files
 }

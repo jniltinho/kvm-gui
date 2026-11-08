@@ -404,3 +404,69 @@ func TestSnapshotStepsCovered(t *testing.T) {
 		t.Fatal("unexpected step lists")
 	}
 }
+
+// A restore killed while its checkpoint is being copied leaves a partial copy that recovery
+// never uses: the TPM and the variables stay as they were (Codex group 5 review).
+func TestRestorePartialCheckpoint(t *testing.T) {
+	needQemuImg(t)
+	isolateXDG(t, t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Cleanup(func() { snapStep = func(string, string) error { return nil } })
+	ctx := t.Context()
+	e := snapVM(t, "Partial", "disk0.qcow2")
+	a, _ := TakeSnapshot(ctx, e, "A", "")
+	setState(t, e, 2, "vars-2")
+	want := fingerprint(t, e)
+	snapStep = func(_, s string) error {
+		if s == "apply disk0.qcow2" {
+			return errKilled
+		}
+		return nil
+	}
+	RestoreSnapshot(ctx, e, a.ID)
+	snapStep = func(string, string) error { return nil }
+	// Simulate a kill in the middle of a later checkpoint copy: a truncated .tmp beside it.
+	dir, _ := e.Config.WorkspaceDir()
+	js, _ := filepath.Glob(filepath.Join(dir, snapDir, ".op-*.json"))
+	if len(js) != 1 {
+		t.Fatalf("journals: %v", js)
+	}
+	op := strings.TrimSuffix(strings.TrimPrefix(filepath.Base(js[0]), ".op-"), ".json")
+	write(t, filepath.Join(dir, snapDir, ".pre-"+op+".tmp", GuestTPMDir, "tpm2-00.permall"), "")
+	if err := recoverSnapshotOps(e); err != nil {
+		t.Fatal(err)
+	}
+	if got := fingerprint(t, e); got != want {
+		t.Fatalf("after recovery:\n%s\nwant\n%s", got, want)
+	}
+}
+
+// A restore that would write a disk another VM uses now is refused, and that disk is untouched.
+func TestRestoreRefusesDiskUsedByAnotherVM(t *testing.T) {
+	needQemuImg(t)
+	isolateXDG(t, t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	ctx := t.Context()
+	e := snapVM(t, "A", "disk0.qcow2", "disk1.qcow2")
+	a, _ := TakeSnapshot(ctx, e, "Clean", "")
+	cur, _ := reload(e)
+	c := cur.Config
+	c.Disks = c.Disks[:1]
+	if err := SaveVM(cur, c); err != nil {
+		t.Fatal(err)
+	}
+	dir, _ := e.Config.WorkspaceDir()
+	b := testGuest(t, "ubuntu")
+	b.Name, b.Workspace, b.Optical = "B", filepath.Join(t.TempDir(), "b"), nil
+	b.Disks = []Disk{{Path: filepath.Join(dir, "disk1.qcow2"), Format: "qcow2", Bus: BusVirtio}}
+	if _, err := CreateVM(b); err != nil {
+		t.Fatal(err)
+	}
+	fill(t, filepath.Join(dir, "disk1.qcow2"), 9) // B's newer data
+	if err := RestoreSnapshot(ctx, e, a.ID); err == nil || !strings.Contains(err.Error(), "used by B") {
+		t.Fatalf("restore over B's disk: %v", err)
+	}
+	if pattern(t, filepath.Join(dir, "disk1.qcow2")) != 9 {
+		t.Fatal("B's disk was changed")
+	}
+}

@@ -73,6 +73,11 @@ func exportV2(ctx context.Context, e VMEntry, dir string, snaps []Snapshot, dst 
 	if len(newName) == 0 {
 		return fmt.Errorf("%s has no disk: nothing to export", e.DisplayName())
 	}
+	for d := range newName { // a bundle carries qcow2 disks only, which import checks
+		if q, err := isQcow2(diskAbs(dir, d)); err != nil || !q {
+			return fmt.Errorf("disk %s is raw or unreadable (%v): convert it to qcow2 in the Media manager before a full export", d, err)
+		}
+	}
 	for f := range v2Flat {
 		if exists(filepath.Join(dir, f)) {
 			entries = append(entries, bundleEntry{f, filepath.Join(dir, f), 0o600})
@@ -134,11 +139,11 @@ func exportV2(ctx context.Context, e VMEntry, dir string, snaps []Snapshot, dst 
 			total += st.Size()
 		}
 	}
-	tmp := dst + ".part"
-	out, err := os.OpenFile(tmp, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, perm)
+	out, err := exportTemp(dst, perm)
 	if err != nil {
 		return err
 	}
+	tmp := out.Name()
 	ok := false
 	defer func() {
 		if !ok {
@@ -166,6 +171,9 @@ func exportV2(ctx context.Context, e VMEntry, dir string, snaps []Snapshot, dst 
 	if err := out.Close(); err != nil {
 		return err
 	}
+	if err := os.Chmod(tmp, perm); err != nil {
+		return err
+	}
 	ok = true
 	return os.Rename(tmp, dst)
 }
@@ -190,6 +198,11 @@ func addFileMode(ctx context.Context, tw *tar.Writer, path, name string, mode in
 // importV2 unpacks a format 2 bundle into workspace and adds the VM with its snapshots under new
 // ids. Only the allowlisted names are accepted; files are made 0600 and folders 0700.
 func importV2(ctx context.Context, tr *tar.Reader, m manifest, workspace string, size int64, progress func(done, total int64)) (VMEntry, error) {
+	for _, s := range m.Snapshots { // before anything is created
+		if !regexp.MustCompile(`^[0-9a-f]{12}$`).MatchString(s.ID) {
+			return VMEntry{}, fmt.Errorf("refusing bundle snapshot id %q", s.ID)
+		}
+	}
 	created := !exists(workspace)
 	if err := os.MkdirAll(workspace, 0o700); err != nil {
 		return VMEntry{}, err
@@ -209,9 +222,6 @@ func importV2(ctx context.Context, tr *tar.Reader, m manifest, workspace string,
 	}
 	newID := map[string]string{"": ""}
 	for _, s := range m.Snapshots {
-		if !regexp.MustCompile(`^[0-9a-f]{12}$`).MatchString(s.ID) {
-			return VMEntry{}, fmt.Errorf("refusing bundle snapshot id %q", s.ID)
-		}
 		newID[s.ID] = newIDFor()
 	}
 	var disks []string
@@ -282,12 +292,36 @@ func importV2(ctx context.Context, tr *tar.Reader, m manifest, workspace string,
 			return VMEntry{}, err
 		}
 	}
-	c := m.Config
-	c.Workspace, c.GPU, c.CurrentSnapshot = workspace, "", newID[c.CurrentSnapshot]
-	for _, d := range c.Disks {
-		if filepath.IsAbs(d.Path) || !filepath.IsLocal(d.Path) {
+	c := importedConfig(m.Config)
+	c.Workspace, c.CurrentSnapshot = workspace, newID[c.CurrentSnapshot]
+	imported := map[string]bool{}
+	for _, d := range disks {
+		imported[filepath.Base(d)] = true
+	}
+	// Every disk path a configuration names, the VM's and each snapshot's, is one of the disks the
+	// bundle brought: a crafted one cannot point at files outside the new folder.
+	inBundle := func(cfg Config, ds []string) error {
+		for _, d := range cfg.Disks {
+			ds = append(ds, d.Path)
+		}
+		for _, d := range ds {
+			if !imported[d] || filepath.Base(d) != d {
+				return fmt.Errorf("refusing bundle disk path %q", d)
+			}
+		}
+		return nil
+	}
+	if !c.MacOS() {
+		if err := inBundle(c, nil); err != nil {
 			cleanup()
-			return VMEntry{}, fmt.Errorf("refusing bundle disk path %q", d.Path)
+			return VMEntry{}, err
+		}
+	}
+	for i, s := range m.Snapshots {
+		m.Snapshots[i].Manifest.Config = importedConfig(s.Manifest.Config)
+		if err := inBundle(m.Snapshots[i].Manifest.Config, s.Manifest.Disks); err != nil && !c.MacOS() {
+			cleanup()
+			return VMEntry{}, err
 		}
 	}
 	e, err := createImported(c)
@@ -301,11 +335,7 @@ func importV2(ctx context.Context, tr *tar.Reader, m manifest, workspace string,
 			if sm.Tag == "" {
 				sm.Tag = snapTag(s.ID)
 			}
-			for _, d := range sm.Disks {
-				if filepath.IsAbs(d) || !filepath.IsLocal(d) {
-					return fmt.Errorf("refusing snapshot disk path %q", d)
-				}
-			}
+
 			mb, _ := json.Marshal(sm)
 			if _, err := tx.Exec(`INSERT INTO snapshots (id, vm_id, parent_id, name, description, created_at, manifest) VALUES (?, ?, ?, ?, ?, ?, ?)`,
 				newID[s.ID], e.ID, newID[s.ParentID], s.Name, s.Description, s.CreatedAt, string(mb)); err != nil {
@@ -320,6 +350,28 @@ func importV2(ctx context.Context, tr *tar.Reader, m manifest, workspace string,
 		return VMEntry{}, err
 	}
 	return e, nil
+}
+
+// importedConfig drops what an imported VM must not bring from another host: a GPU address,
+// host folders shared with the guest, and passed-through USB devices (to be attached again here).
+func importedConfig(c Config) Config {
+	c.GPU, c.SharedFolders, c.USBDevices = "", nil, nil
+	return c
+}
+
+// exportTemp creates the bundle's temporary file beside dst, with a random name and private
+// until finished: an existing or planted file is never reused or followed.
+func exportTemp(dst string, perm os.FileMode) (*os.File, error) {
+	f, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".*.part")
+	if err != nil {
+		return nil, err
+	}
+	if err := f.Chmod(perm & 0o600); err != nil {
+		f.Close()
+		os.Remove(f.Name())
+		return nil, err
+	}
+	return f, nil
 }
 
 func isBundleFile(name string) bool {

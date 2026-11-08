@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"syscall"
 )
@@ -312,6 +313,34 @@ var findRunFn = FindRun
 
 // gpuRunner is the running VM, other than except, that passes the GPU at addr through ("" = any GPU).
 func gpuRunner(addr, except string) (string, bool) {
+	if pid, ok := gpuProcess("/proc", addr); ok { // any QEMU passing it through, --config runs too
+		if name, ok := gpuRunnerDB(addr, except); ok {
+			return name, true
+		}
+		return fmt.Sprintf("a QEMU outside the VM list (pid %d)", pid), true
+	}
+	return gpuRunnerDB(addr, except)
+}
+
+// gpuProcess finds a QEMU with vfio-pci host=addr (any address when addr is "").
+func gpuProcess(proc, addr string) (int, bool) {
+	entries, _ := os.ReadDir(proc)
+	for _, e := range entries {
+		pid, err := strconv.Atoi(e.Name())
+		if err != nil || !isQEMU(filepath.Join(proc, e.Name())) {
+			continue
+		}
+		raw, _ := os.ReadFile(filepath.Join(proc, e.Name(), "cmdline"))
+		for _, a := range strings.Split(string(raw), "\x00") {
+			if h := suboption(strings.TrimPrefix(a, "vfio-pci,"), "host"); strings.HasPrefix(a, "vfio-pci,") && h != "" && (addr == "" || h == addr) {
+				return pid, true
+			}
+		}
+	}
+	return 0, false
+}
+
+func gpuRunnerDB(addr, except string) (string, bool) {
 	vms, err := ListVMs()
 	if err != nil {
 		return "", false
