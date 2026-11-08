@@ -99,7 +99,7 @@ var bridgeNameRe = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,15}$`)
 
 // validateNICs checks the adapter list: known modes and models, a valid bridge name and
 // unique, locally administered unicast MAC addresses.
-func validateNICs(nics []NIC) error {
+func validateNICs(nics []NIC, models []string) error {
 	if len(nics) > MaxNICs {
 		return &FieldError{"networks", fmt.Sprintf("at most %d adapters", MaxNICs)}
 	}
@@ -113,11 +113,11 @@ func validateNICs(nics []NIC) error {
 			return &FieldError{field, "choose the host bridge, for example br0"}
 		}
 		ok := false
-		for _, m := range NICModels {
+		for _, m := range models {
 			ok = ok || n.Model == m
 		}
 		if !ok {
-			return &FieldError{field, "adapter type must be one of " + strings.Join(NICModels, ", ")}
+			return &FieldError{field, "adapter type must be one of " + strings.Join(models, ", ")}
 		}
 		hw, err := net.ParseMAC(n.MAC)
 		if err != nil || len(hw) != 6 || !strings.Contains(n.MAC, ":") {

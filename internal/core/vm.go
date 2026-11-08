@@ -81,6 +81,12 @@ func BuildArgs(c Config, w Workspace, qmpSocket string, withMedia bool, gpuFuncs
 		}
 	}
 	args = append(args, moreNICs...)
+	return append(args, runArgs(c, qmpSocket)...)
+}
+
+// runArgs are the run's display and control sockets, the same for every guest type.
+func runArgs(c Config, qmpSocket string) []string {
+	var args []string
 	if c.InApp() || c.Reims() {
 		// A Reims VM's screen is always the library's own window (-display none); the VNC
 		// socket still serves the Preview and screen capture.
@@ -167,14 +173,14 @@ type VM struct {
 	// its window on X11 (SDL_VIDEO_DRIVER=x11) so the app can embed it in the Screen tab.
 	EmbedX11 bool
 
-	mu       sync.Mutex
-	proc     *os.Process
-	qmp      *QMP
-	vncSock  string // set while running with the in-app display or Reims vGPU
-	discDone func() // releases the attached installer disc, if any
-	state    VMState
-	ioError  string
-	killed   bool
+	mu      sync.Mutex
+	proc    *os.Process
+	qmp     *QMP
+	vncSock string // set while running with the in-app display or Reims vGPU
+	disc    bool   // the run has the offline installer disc attached
+	state   VMState
+	ioError string
+	killed  bool
 }
 
 func (v *VM) State() VMState {
@@ -205,6 +211,9 @@ func (v *VM) Start(c Config) error {
 	}
 	if err := c.Validate(); err != nil {
 		return err
+	}
+	if !c.MacOS() {
+		return v.startGuest(c)
 	}
 	dir, _ := c.WorkspaceDir()
 	w := NewWorkspace(dir)
@@ -241,7 +250,7 @@ func (v *VM) Start(c Config) error {
 			return err
 		}
 	}
-	qemu := "qemu-system-x86_64"
+	qemu := SystemQEMU()
 	if c.Reims() {
 		bin, warnings, err := SystemHost().ReimsReady(c)
 		if err != nil {
@@ -281,34 +290,69 @@ func (v *VM) Start(c Config) error {
 		}
 	}
 	args := BuildArgs(c, w, sock, w.HasMedia(), gpuFuncs)
+	if err := checkDevices(qemu, args); err != nil {
+		if discDone != nil {
+			discDone()
+		}
+		os.RemoveAll(qmpDir)
+		return fail(err)
+	}
 	v.log(qemu + " " + strings.Join(args, " "))
 
+	var env []string
+	if c.Reims() {
+		env = reimsEnv(os.Environ(), v.EmbedX11)
+	}
+	return v.launch(launchSpec{
+		qemu: qemu, args: args, dir: dir, env: env, sock: sock, qmpDir: qmpDir, vnc: c.InApp() || c.Reims(), disc: discDone != nil,
+		afterExit: func(ran time.Duration) {
+			if discDone != nil {
+				discDone()
+			}
+			w.ClearRootPatchMarker(c, ran)
+		},
+		unlock: unlock,
+	})
+}
+
+// launchSpec is one QEMU run: its command, its private run directory, and what to undo after it.
+type launchSpec struct {
+	qemu      string
+	args, env []string
+	dir       string // QEMU's working directory (the VM folder)
+	sock      string // the starter's QMP socket
+	qmpDir    string // the run's private directory, removed after the run
+	vnc       bool   // the run serves the VNC socket next to sock
+	disc      bool   // the offline installer disc is attached
+	afterExit func(ran time.Duration)
+	unlock    func() // the VM's locks, released last
+}
+
+// launch starts QEMU and returns once it runs; a goroutine waits for it, cleans up and reports
+// Stopped. On a start failure everything is undone before launch returns.
+func (v *VM) launch(l launchSpec) error {
 	started := make(chan error, 1)
 	go func() {
 		// Pdeathsig fires when the thread that created the process dies: it stays
 		// locked to this goroutine, which only ends after Wait.
 		runtime.LockOSThread()
-		cmd := exec.Command(qemu, args...)
-		cmd.Dir = dir
-		if c.Reims() {
-			cmd.Env = reimsEnv(os.Environ(), v.EmbedX11)
+		cmd := exec.Command(l.qemu, l.args...)
+		cmd.Dir = l.dir
+		if l.env != nil {
+			cmd.Env = l.env
 		}
 		cmd.SysProcAttr = &syscall.SysProcAttr{Pdeathsig: syscall.SIGTERM, Setpgid: true} // Ctrl+C in a terminal must not reach QEMU
 		pr, pw := io.Pipe()
 		cmd.Stdout, cmd.Stderr = pw, pw
 		if err := cmd.Start(); err != nil {
-			if discDone != nil {
-				discDone()
-			}
 			started <- err
 			return
 		}
 		v.mu.Lock()
-		v.proc, v.ioError, v.vncSock = cmd.Process, "", ""
-		if c.InApp() || c.Reims() { // BuildArgs serves VNC for both
-			v.vncSock = VNCSocket(sock)
+		v.proc, v.ioError, v.vncSock, v.disc = cmd.Process, "", "", l.disc
+		if l.vnc {
+			v.vncSock = VNCSocket(l.sock)
 		}
-		v.discDone = discDone
 		v.mu.Unlock()
 		v.setState(Running, "") // before any Stopped from this same goroutine
 		started <- nil
@@ -327,25 +371,24 @@ func (v *VM) Start(c Config) error {
 				v.log(line)
 			}
 		}()
-		go v.connectQMP(sock)
+		go v.connectQMP(l.sock)
 
 		startedAt := time.Now()
 		err := cmd.Wait()
-		w.ClearRootPatchMarker(c, time.Since(startedAt))
 		pw.Close()
 		<-logDone
 		v.mu.Lock()
-		q, killed, discDone := v.qmp, v.killed, v.discDone
-		v.proc, v.qmp, v.killed, v.vncSock, v.discDone = nil, nil, false, "", nil
+		q, killed := v.qmp, v.killed
+		v.proc, v.qmp, v.killed, v.vncSock, v.disc = nil, nil, false, "", false
 		v.mu.Unlock()
-		if discDone != nil {
-			discDone()
-		}
 		if q != nil {
 			q.Close()
 		}
-		os.RemoveAll(qmpDir)
-		unlock()
+		if l.afterExit != nil {
+			l.afterExit(time.Since(startedAt))
+		}
+		os.RemoveAll(l.qmpDir)
+		l.unlock()
 		msg := explainExit(err, tail)
 		if killed {
 			msg = "Stopped by the user (forced)."
@@ -353,8 +396,12 @@ func (v *VM) Start(c Config) error {
 		v.setState(Stopped, msg)
 	}()
 	if err := <-started; err != nil {
-		os.RemoveAll(qmpDir)
-		return fail(fmt.Errorf("could not start QEMU: %w", err))
+		if l.afterExit != nil {
+			l.afterExit(0)
+		}
+		os.RemoveAll(l.qmpDir)
+		l.unlock()
+		return fmt.Errorf("could not start QEMU: %w", err)
 	}
 	return nil
 }
@@ -433,7 +480,7 @@ func (v *VM) VNCSocket() string {
 func (v *VM) InstallerCommand() string {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if v.discDone == nil {
+	if !v.disc {
 		return ""
 	}
 	return DiscCommand

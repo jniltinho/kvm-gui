@@ -83,6 +83,24 @@ type Config struct {
 	// VerboseBoot is a one-off start option, never saved: macOS prints its boot log on screen
 	// (-v) and stops on a panic with its details (debug=0x100) instead of showing the logo.
 	VerboseBoot bool `json:"-"`
+
+	// Guest is the guest type: "" or GuestMacOS (every VM saved before guest types existed),
+	// GuestLinux, GuestWindows or GuestOther. The fields below apply to the last three
+	// (guest.go); macOS VMs keep the fields above.
+	Guest         string         `json:"guest,omitempty"`
+	Profile       string         `json:"profile,omitempty"`  // OS profile id (Profiles)
+	Firmware      string         `json:"firmware,omitempty"` // FirmwareUEFI or FirmwareBIOS
+	SecureBoot    bool           `json:"secure_boot,omitempty"`
+	TPM           bool           `json:"tpm,omitempty"`
+	Disks         []Disk         `json:"disks,omitempty"`
+	Optical       []string       `json:"optical,omitempty"`    // ISO files as CD/DVD drives; "" = an empty drive
+	BootOrder     string         `json:"boot_order,omitempty"` // "cdrom", "disk", or "" (CD first while a medium is in)
+	Serial        string         `json:"serial,omitempty"`     // "", SerialFile or SerialSocket
+	SharedFolders []SharedFolder `json:"shared_folders,omitempty"`
+	USBDevices    []USBDevice    `json:"usb_devices,omitempty"`
+	Description   string         `json:"description,omitempty"`
+	// DiskGiB is the size of a new VM's first disk (created by CreateVM); never saved.
+	DiskGiB int `json:"-"`
 }
 
 // Defaults are a new VM's settings. SSHPort 0 means automatic: CreateVM picks a free port.
@@ -183,6 +201,12 @@ func (c Config) Validate() error {
 	if _, err := c.WorkspaceDir(); err != nil {
 		return err
 	}
+	if !c.MacOS() {
+		if c.Guest != GuestLinux && c.Guest != GuestWindows && c.Guest != GuestOther {
+			return &FieldError{"guest", "expected macos, linux, windows or other"}
+		}
+		return c.validateGuest()
+	}
 	if versionIndex(c.Version) < 0 {
 		return &FieldError{"version", "unknown version: " + c.Version}
 	}
@@ -221,7 +245,7 @@ func (c Config) Validate() error {
 	if c.SSHPort < 1024 || c.SSHPort > 65535 {
 		return &FieldError{"ssh_port", "use a port between 1024 and 65535"}
 	}
-	return validateNICs(c.Adapters())
+	return validateNICs(c.Adapters(), NICModels)
 }
 
 // ConfigPath is ~/.config/macos-kvm-gui/config.json (or the XDG equivalent).

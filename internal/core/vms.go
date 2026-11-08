@@ -71,8 +71,22 @@ CREATE TABLE IF NOT EXISTS vms (
 CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT NOT NULL);`
 
 // schemaVersion is the database's PRAGMA user_version: 1 created the tables, 2 added the
-// network adapters, 3 root-patch mode, 4 the graphics adapter, 5 the Reims resolution.
-const schemaVersion = 5
+// network adapters, 3 root-patch mode, 4 the graphics adapter, 5 the Reims resolution, 6 the
+// guest settings (ext, JSON) and the snapshot tables.
+const schemaVersion = 6
+
+const schemaV6Snapshots = `
+CREATE TABLE IF NOT EXISTS snapshots (
+	id          TEXT PRIMARY KEY,
+	vm_id       TEXT NOT NULL,
+	parent_id   TEXT NOT NULL DEFAULT '',
+	name        TEXT NOT NULL,
+	description TEXT NOT NULL DEFAULT '',
+	created_at  TEXT NOT NULL DEFAULT (datetime('now')),
+	state       TEXT NOT NULL DEFAULT '',
+	manifest    TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS snapshot_ops (id TEXT PRIMARY KEY, done_at TEXT NOT NULL DEFAULT (datetime('now')));`
 
 // migrate brings a database from version v to schemaVersion. Each step is safe to repeat, and
 // the version is written last, so an interrupted upgrade runs again on the next start.
@@ -132,6 +146,21 @@ func migrate(db *sql.DB, v int) error {
 			}
 		}
 	}
+	if v < 6 {
+		var n int
+		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('vms') WHERE name = 'ext'`).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := db.Exec(`ALTER TABLE vms ADD COLUMN ext TEXT NOT NULL DEFAULT ''`); err != nil &&
+				!strings.Contains(err.Error(), "duplicate column name") {
+				return err
+			}
+		}
+		if _, err := db.Exec(schemaV6Snapshots); err != nil {
+			return err
+		}
+	}
 	if v < 1 {
 		// Imported files are renamed as they are read, so a retry does not read them twice.
 		if err := importFiles(db); err != nil {
@@ -172,6 +201,10 @@ func openDB() (*sql.DB, error) {
 		db.Close()
 		return nil, fmt.Errorf("database %s: %w", path, err)
 	}
+	if v > schemaVersion {
+		db.Close()
+		return nil, fmt.Errorf("database %s has schema %d, newer than this kvm-gui knows (%d): use a newer kvm-gui; the file was not changed", path, v, schemaVersion)
+	}
 	if v < schemaVersion {
 		if err := migrate(db, v); err != nil {
 			db.Close()
@@ -181,7 +214,7 @@ func openDB() (*sql.DB, error) {
 	return db, nil
 }
 
-const vmColumns = `id, name, workspace, version, ram_mib, cores, vcpus, ssh_port, display, gpu, networks, root_patch, graphics, resolution`
+const vmColumns = `id, name, workspace, version, ram_mib, cores, vcpus, ssh_port, display, gpu, networks, root_patch, graphics, resolution, ext`
 
 // networksJSON stores the adapters; "" keeps a VM on its legacy single NAT adapter.
 func networksJSON(c Config) string {
@@ -192,11 +225,56 @@ func networksJSON(c Config) string {
 	return string(b)
 }
 
+// guestExt is the part of Config schema 6 stores as JSON in the ext column: the fields of
+// Linux, Windows and Other VMs. "" (every VM from before) is a macOS VM.
+type guestExt struct {
+	Guest         string         `json:"guest,omitempty"`
+	Profile       string         `json:"profile,omitempty"`
+	Firmware      string         `json:"firmware,omitempty"`
+	SecureBoot    bool           `json:"secure_boot,omitempty"`
+	TPM           bool           `json:"tpm,omitempty"`
+	Disks         []Disk         `json:"disks,omitempty"`
+	Optical       []string       `json:"optical,omitempty"`
+	BootOrder     string         `json:"boot_order,omitempty"`
+	Serial        string         `json:"serial,omitempty"`
+	SharedFolders []SharedFolder `json:"shared_folders,omitempty"`
+	USBDevices    []USBDevice    `json:"usb_devices,omitempty"`
+	Description   string         `json:"description,omitempty"`
+}
+
+func extJSON(c Config) string {
+	x := guestExt{c.Guest, c.Profile, c.Firmware, c.SecureBoot, c.TPM, c.Disks, c.Optical, c.BootOrder,
+		c.Serial, c.SharedFolders, c.USBDevices, c.Description}
+	if x.Guest == "" && x.Description == "" {
+		return ""
+	}
+	b, _ := json.Marshal(x)
+	return string(b)
+}
+
+func applyExt(c *Config, s string) error {
+	if s == "" {
+		return nil
+	}
+	var x guestExt
+	if err := json.Unmarshal([]byte(s), &x); err != nil {
+		return err
+	}
+	c.Guest, c.Profile, c.Firmware, c.SecureBoot, c.TPM, c.Disks, c.Optical, c.BootOrder = x.Guest, x.Profile, x.Firmware, x.SecureBoot, x.TPM, x.Disks, x.Optical, x.BootOrder
+	c.Serial, c.SharedFolders, c.USBDevices, c.Description = x.Serial, x.SharedFolders, x.USBDevices, x.Description
+	return nil
+}
+
 func scanVM(row interface{ Scan(...any) error }) (VMEntry, error) {
 	var e VMEntry
 	c := &e.Config
-	var nets string
-	err := row.Scan(&e.ID, &c.Name, &c.Workspace, &c.Version, &c.RAMMiB, &c.Cores, &c.VCPUs, &c.SSHPort, &c.Display, &c.GPU, &nets, &c.RootPatch, &c.Graphics, &c.Resolution)
+	var nets, ext string
+	err := row.Scan(&e.ID, &c.Name, &c.Workspace, &c.Version, &c.RAMMiB, &c.Cores, &c.VCPUs, &c.SSHPort, &c.Display, &c.GPU, &nets, &c.RootPatch, &c.Graphics, &c.Resolution, &ext)
+	if err == nil {
+		if xerr := applyExt(c, ext); xerr != nil {
+			return e, fmt.Errorf("VM %s: unreadable settings: %w", e.ID, xerr)
+		}
+	}
 	if err == nil && nets != "" {
 		if jerr := json.Unmarshal([]byte(nets), &c.Networks); jerr != nil {
 			return e, fmt.Errorf("VM %s: unreadable network adapters: %w", e.ID, jerr)
@@ -437,8 +515,8 @@ func insertVM(db dbtx, c Config) (VMEntry, error) {
 		}
 		id = fmt.Sprintf("%s-%d", base, i)
 	}
-	_, err := db.Exec(`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-		id, c.Name, c.Workspace, c.Version, c.RAMMiB, c.Cores, c.VCPUs, c.SSHPort, c.Display, c.GPU, networksJSON(c), c.RootPatch, c.Graphics, c.Resolution)
+	_, err := db.Exec(`INSERT INTO vms (`+vmColumns+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, c.Name, c.Workspace, c.Version, c.RAMMiB, c.Cores, c.VCPUs, c.SSHPort, c.Display, c.GPU, networksJSON(c), c.RootPatch, c.Graphics, c.Resolution, extJSON(c))
 	if isUniqueErr(err) {
 		return VMEntry{}, &FieldError{"name", "a VM with this name already exists"}
 	}
@@ -474,8 +552,8 @@ func SaveVM(e VMEntry, c Config) error {
 
 func updateVM(db dbtx, id string, c Config) error {
 	res, err := db.Exec(`UPDATE vms SET name = ?, workspace = ?, version = ?, ram_mib = ?, cores = ?, vcpus = ?, ssh_port = ?,
-		display = ?, gpu = ?, networks = ?, root_patch = ?, graphics = ?, resolution = ?, updated_at = datetime('now') WHERE id = ?`,
-		c.Name, c.Workspace, c.Version, c.RAMMiB, c.Cores, c.VCPUs, c.SSHPort, c.Display, c.GPU, networksJSON(c), c.RootPatch, c.Graphics, c.Resolution, id)
+		display = ?, gpu = ?, networks = ?, root_patch = ?, graphics = ?, resolution = ?, ext = ?, updated_at = datetime('now') WHERE id = ?`,
+		c.Name, c.Workspace, c.Version, c.RAMMiB, c.Cores, c.VCPUs, c.SSHPort, c.Display, c.GPU, networksJSON(c), c.RootPatch, c.Graphics, c.Resolution, extJSON(c), id)
 	if isUniqueErr(err) {
 		return &FieldError{"name", "a VM with this name already exists"}
 	}

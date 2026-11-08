@@ -7,6 +7,9 @@ import (
 
 // TestMain keeps every test away from the developer's real settings.yaml and .env.
 func TestMain(m *testing.M) {
+	if os.Getenv("FAKE_SWTPM") != "" { // the test binary run as swtpm (TestStartTPM)
+		fakeSwtpm()
+	}
 	dir, err := os.MkdirTemp("", "macos-kvm-gui-test-")
 	if err != nil {
 		panic(err)

@@ -63,11 +63,11 @@ func TestValidateNICs(t *testing.T) {
 		"too many":    {ok, ok, ok, ok, ok},
 	}
 	for name, nics := range cases {
-		if err := validateNICs(nics); err == nil {
+		if err := validateNICs(nics, NICModels); err == nil {
 			t.Errorf("%s must be refused", name)
 		}
 	}
-	if err := validateNICs([]NIC{ok}); err != nil {
+	if err := validateNICs([]NIC{ok}, NICModels); err != nil {
 		t.Fatal(err)
 	}
 	for i := 0; i < 50; i++ {

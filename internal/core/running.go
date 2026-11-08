@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -61,7 +62,15 @@ func runningIn(proc string, c Config) (RunInfo, bool) {
 	if err != nil {
 		return RunInfo{}, false
 	}
-	disk := realPath(filepath.Join(dir, DiskFile))
+	var disks []string
+	if c.MacOS() {
+		disks = []string{realPath(filepath.Join(dir, DiskFile))}
+	}
+	for _, d := range c.Disks {
+		if p, err := c.DiskPath(d); err == nil {
+			disks = append(disks, realPath(p))
+		}
+	}
 	entries, _ := os.ReadDir(proc)
 	for _, e := range entries {
 		pid, err := strconv.Atoi(e.Name())
@@ -78,7 +87,7 @@ func runningIn(proc string, c Config) (RunInfo, bool) {
 		}
 		args := strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00")
 		cwd, _ := os.Readlink(filepath.Join(base, "cwd"))
-		if !usesDisk(args, disk, cwd) {
+		if !slices.ContainsFunc(disks, func(d string) bool { return usesDisk(args, d, cwd) }) {
 			continue
 		}
 		info := RunInfo{PID: pid}
