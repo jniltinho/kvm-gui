@@ -17,7 +17,8 @@ type RunInfo struct {
 	Started   time.Time
 	ByApp     bool   // started by macos-kvm-gui (its QMP socket is in the command line)
 	VNCSocket string // the in-app display socket, when there is one
-	Control   string // the second QMP socket, for a process other than the starter
+	Control   string // qmp-control.sock, for the CLI and the MCP server
+	GUI       string // qmp-gui.sock, for the GUI
 	Disc      bool   // the offline installer disc is attached
 	Reims     bool   // it runs on Reims vGPU (apple-gfx-pci), whatever the VM's config says now
 	SSHPort   int    // the 127.0.0.1 port forwarded to the guest's port 22 (hostfwd); 0 without one
@@ -141,9 +142,15 @@ func processInfo(proc string, pid int) (RunInfo, bool) {
 			sock, _, _ := strings.Cut(strings.TrimPrefix(args[i+1], "unix:"), ",server")
 			runDir = filepath.Dir(strings.ReplaceAll(sock, ",,", ","))
 		}
-		if a == "-qmp" && i+1 < len(args) && strings.Contains(args[i+1], "qmp-control.sock") {
+		if a == "-qmp" && i+1 < len(args) {
 			sock, _, _ := strings.Cut(strings.TrimPrefix(args[i+1], "unix:"), ",server")
-			info.Control = strings.ReplaceAll(sock, ",,", ",")
+			sock = strings.ReplaceAll(sock, ",,", ",")
+			switch filepath.Base(sock) {
+			case "qmp-control.sock":
+				info.Control = sock
+			case "qmp-gui.sock":
+				info.GUI = sock
+			}
 		}
 		if strings.HasPrefix(a, "id=InstallerDisc,") {
 			info.Disc = true

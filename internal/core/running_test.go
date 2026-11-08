@@ -32,11 +32,12 @@ func TestRunningDetection(t *testing.T) {
 	fakeProc(t, proc, "200", "qemu-system-x86", "", "qemu-system-x86_64", "-drive", "id=MacHDD,if=none,format=qcow2,file="+esc+"/mac_hdd_ng.img",
 		"-vnc", "unix:/run/user/1000/macos-kvm-gui-1/vnc.sock,lock-key-sync=off", "-qmp", "unix:/run/user/1000/macos-kvm-gui-1/qmp.sock,server=on,wait=off",
 		"-qmp", "unix:/run/user/1000/macos-kvm-gui-1/qmp-control.sock,server=on,wait=off",
+		"-qmp", "unix:/run/user/1000/macos-kvm-gui-1/qmp-gui.sock,server=on,wait=off",
 		"-netdev", "user,id=net0,hostfwd=tcp:127.0.0.1:2301-:22",
 		"-drive", "id=InstallerDisc,if=none,format=raw,snapshot=on,file=/c/InstallAssistant.iso")
 	r, ok := runningIn(proc, c)
 	if !ok || r.PID != 200 || !r.ByApp || r.VNCSocket != "/run/user/1000/macos-kvm-gui-1/vnc.sock" ||
-		r.Control != "/run/user/1000/macos-kvm-gui-1/qmp-control.sock" || !r.Disc || r.Reims || r.SSHPort != 2301 {
+		r.Control != "/run/user/1000/macos-kvm-gui-1/qmp-control.sock" || r.GUI != "/run/user/1000/macos-kvm-gui-1/qmp-gui.sock" || !r.Disc || r.Reims || r.SSHPort != 2301 {
 		t.Fatalf("app-started VM: %+v %v", r, ok)
 	}
 	// The running process tells whether it is on Reims vGPU, not the config.

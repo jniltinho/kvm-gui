@@ -98,15 +98,28 @@ func runArgs(c Config, qmpSocket string) []string {
 		// lock-key-sync=off keeps QEMU from injecting Caps Lock presses inferred from keysyms.
 		args = append(args, "-display", "none", "-vnc", "unix:"+qemuPath(VNCSocket(qmpSocket))+",lock-key-sync=off")
 	}
-	// A second monitor for one other process (the MCP server or an attached app): QMP serves
-	// one client per monitor, and the starter keeps the first.
-	return append(args, "-qmp", "unix:"+qemuPath(qmpSocket)+",server=on,wait=off",
-		"-qmp", "unix:"+qemuPath(ControlSocket(qmpSocket))+",server=on,wait=off")
+	return append(args, qmpArgs(qmpSocket)...)
 }
 
-// ControlSocket is the second QMP socket next to a run's QMP socket.
+// qmpArgs are a run's three QMP monitors, one client each: the starter's qmp.sock, the GUI's
+// qmp-gui.sock and qmp-control.sock for the CLI and the MCP server, so the GUI and an agent never
+// compete for one monitor; each gets the events on its own (design D2).
+func qmpArgs(qmpSocket string) []string {
+	var args []string
+	for _, s := range []string{qmpSocket, GUISocket(qmpSocket), ControlSocket(qmpSocket)} {
+		args = append(args, "-qmp", "unix:"+qemuPath(s)+",server=on,wait=off")
+	}
+	return args
+}
+
+// ControlSocket is the CLI's and the MCP server's QMP socket next to a run's QMP socket.
 func ControlSocket(qmpSocket string) string {
 	return filepath.Join(filepath.Dir(qmpSocket), "qmp-control.sock")
+}
+
+// GUISocket is the GUI's QMP socket next to a run's QMP socket.
+func GUISocket(qmpSocket string) string {
+	return filepath.Join(filepath.Dir(qmpSocket), "qmp-gui.sock")
 }
 
 // VNCSocket is the VNC socket next to a VM run's QMP socket.

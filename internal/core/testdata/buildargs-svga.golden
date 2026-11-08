@@ -52,6 +52,8 @@ unix:/run/macos-kvm-gui-x/vnc.sock,lock-key-sync=off
 -qmp
 unix:/run/macos-kvm-gui-x/qmp.sock,server=on,wait=off
 -qmp
+unix:/run/macos-kvm-gui-x/qmp-gui.sock,server=on,wait=off
+-qmp
 unix:/run/macos-kvm-gui-x/qmp-control.sock,server=on,wait=off
 --
 -name
@@ -107,5 +109,7 @@ vfio-pci,host=0000:03:00.0,multifunction=on,x-no-kvm-intx=on
 vfio-pci,host=0000:03:00.1
 -qmp
 unix:/run/macos-kvm-gui-x/qmp.sock,server=on,wait=off
+-qmp
+unix:/run/macos-kvm-gui-x/qmp-gui.sock,server=on,wait=off
 -qmp
 unix:/run/macos-kvm-gui-x/qmp-control.sock,server=on,wait=off
