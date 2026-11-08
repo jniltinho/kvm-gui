@@ -51,6 +51,7 @@ case "${1:-}" in
     # and every Rust crate (SDL3's source is the sdl3-src crate), gathered in the build image.
     docker run --rm -e HOST_UID="$(id -u)" -e HOST_GID="$(id -g)" -e NAME="$name" \
       -v "$work:/out" -v "$dockerfile:/Dockerfile:ro" "$image" bash -euo pipefail -c '
+        trap "chown -R \"\$HOST_UID:\$HOST_GID\" /out" EXIT
         d=/out/$NAME
         mkdir -p "$d/vendor/qemu"
         git -C /src archive HEAD | tar -x -C "$d"
@@ -64,9 +65,11 @@ case "${1:-}" in
         cargo vendor --quiet --manifest-path crates/reims-ctl/Cargo.toml vendor/cargo-reims-ctl > cargo-vendor-reims-ctl.toml
         # reims-util at the commit reims-ctl installs (crates/reims-ctl/src/reims_util.rs), with its crates.
         rev=$(grep -o "REV: &str = \"[0-9a-f]*\"" crates/reims-ctl/src/reims_util.rs | grep -o "[0-9a-f]\{40\}")
+        # Vendored outside the upstream tree: inside it, cargo takes it for a member of the upstream workspace.
         git clone -q https://github.com/steelbrain/reims-util /tmp/reims-util && git -C /tmp/reims-util checkout -q "$rev"
-        mkdir -p reims-util && git -C /tmp/reims-util archive HEAD | tar -x -C reims-util
-        (cd reims-util && cargo vendor --quiet vendor/cargo > cargo-vendor.toml)
+        mkdir -p /tmp/ru && git -C /tmp/reims-util archive HEAD | tar -x -C /tmp/ru
+        (cd /tmp/ru && cargo vendor --quiet vendor/cargo > cargo-vendor.toml)
+        cp -a /tmp/ru reims-util
         mkdir -p kvm-gui && cp /Dockerfile kvm-gui/Dockerfile
         {
           echo "Reims vGPU QEMU, corresponding source"
@@ -92,7 +95,7 @@ case "${1:-}" in
           echo "Build: kvm-gui/Dockerfile, the recipe the packages were built with: it runs all of"
           echo "scripts/install-ctl.sh (QEMU, reims-ctl, reims-util), then strips the binaries."
         } > SOURCES.txt
-        chown -R "$HOST_UID:$HOST_GID" /out'
+'
     pack "$work" "$(cd "$out" && pwd)/$name.tar.gz" "$name"
     ;;
   *)
