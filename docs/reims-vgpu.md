@@ -2,10 +2,15 @@
 
 [Documentation index](README.md)
 
-**Experimental.** [Reims vGPU](https://github.com/steelbrain/reims-vgpu) — the base of this page; its README and `docs/qemu.md` are the source of truth — is a paravirtual GPU for macOS guests: macOS uses the paravirtualized graphics driver it already ships, and the host renders its Metal work through the host's own Vulkan driver. It needs no spare GPU, no VFIO and no host reboot, and it works with the GPU that drives your desktop, NVIDIA, AMD or Intel, including cards macOS has no driver for. Upstream is beta and has measured x86-64 guests on macOS 26 only; on this app's reference host, Sequoia 15.8.1 runs on it (see [validated results](#validated-results)).
+**Experimental.** [Reims vGPU](https://github.com/steelbrain/reims-vgpu) — the base of this page; its [README](https://github.com/steelbrain/reims-vgpu#readme) and [`docs/qemu.md`](https://github.com/steelbrain/reims-vgpu/blob/main/docs/qemu.md) are the source of truth, and this page does not repeat them — is a paravirtual GPU for macOS guests: macOS uses the paravirtualized graphics driver it already ships, and the host renders its Metal work through the host's own Vulkan driver. It needs no spare GPU, no VFIO and no host reboot, and it works with the GPU that drives your desktop, NVIDIA, AMD or Intel, including cards macOS has no driver for. Upstream is beta and has measured x86-64 guests on macOS 26 only; on this app's reference host, Sequoia 15.8.1 runs on it (see [validated results](#validated-results)).
 
 
 ![Settings › Display with Reims vGPU](screenshots/reims-settings.png)
+
+
+## VMs made by reims-ctl
+
+A macOS VM can also be one of upstream's `reims-ctl` VMs: the New VM wizard's **Create with reims-ctl**, `vm_create` with `backend: reims-ctl` in the [MCP server](mcp.md), or **Add › From reims-ctl** and `kvm-gui vm add --reims-ctl <name>` for one that kvm-gui's `reims-ctl` folders (`~/.config/kvm-gui/reims-ctl`) or your own `~/.config/reims-ctl` already have. The app runs it itself: it reads the QEMU command `reims-ctl command` prints, without running that script, refuses options that would take QEMU away from it (such as `-daemonize`), and adds its own screen and control sockets for that run only, so `reims-ctl start` still runs exactly upstream's command later. CPUs, memory, resolution, SSH port and MAC are changed with `reims-ctl set`; snapshots, clone, export, move and GPU passthrough are not available for these VMs yet.
 
 ## Why
 
@@ -240,4 +245,4 @@ Reims vGPU is not part of the app's packages or source. The library is GPL-2.0-o
 
 ## Credits
 
-Reims vGPU is the work of [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu) and its contributors: the library, the `apple-gfx-pci` device in its QEMU fork, the measured command line this app follows, and `reims-ctl`/`reims-util`, upstream's own VM runner and OpenCore tools, which this app does not use. Bugs in the app's integration belong here; bugs in rendering belong upstream. See [references](references.md#reims-vgpu).
+Reims vGPU is the work of [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu) and its contributors: the library, the `apple-gfx-pci` device in its QEMU fork, the measured command line this app follows, and `reims-ctl`/`reims-util`, upstream's own VM runner and OpenCore tools: the app creates, adds and runs `reims-ctl` VMs with them (below). Bugs in the app's integration belong here; bugs in rendering belong upstream. See [references](references.md#reims-vgpu).

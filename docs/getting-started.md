@@ -13,7 +13,7 @@
   sudo apt install qemu-system-x86 qemu-utils pkexec
   ```
 
-- Ubuntu 24.04, Ubuntu 26.04, Debian 13 or Rocky Linux 10; the `.deb` and `.rpm` declare their runtime dependencies. On Rocky Linux 10, only Reims vGPU VMs run for now: Rocky's QEMU is `/usr/libexec/qemu-kvm`, which the app does not look up yet (planned), and it has no `vmware-svga`. The desktop GUI (Go + Wails) is being rebuilt; meanwhile use the [command line](cli.md) or the [MCP server](mcp.md).
+- Ubuntu 24.04, Ubuntu 26.04, Debian 13 or Rocky Linux 10; the `.deb` and `.rpm` declare their runtime dependencies. On Rocky Linux 10 the app uses Rocky's QEMU, `/usr/libexec/qemu-kvm`, which has no `vmware-svga`: macOS VMs there use Reims vGPU.
 - At least **4096 MiB guest RAM**; the default is 8192 MiB. Leave resources for the host. Ventura and later require host SSE4.1 and AVX2.
 - A writable workspace with room for recovery and macOS. Recovery preparation checks for at least **4 GiB free**, but downloads, conversion and the installed system need additional space. The virtual disk minimum is **40 GiB**, with **80 GiB** prefilled in the UI; it grows on the host as used.
 - Internet access for Apple's recovery download and the installer inside macOS.
@@ -22,9 +22,7 @@ No OSX-KVM clone, Git or Python is needed at runtime. OpenCore, its kexts and OV
 
 ## Install a release
 
-kvm-gui's first release comes with the Go + Wails desktop GUI. Until then, the last published apps (`macos-kvm-gui` v0.13.0, `reims-gui` v0.1.6) stay on [GitHub Releases](https://github.com/jniltinho/kvm-gui/releases) and read the same VMs.
-
-A kvm-gui release has a `.deb` (Ubuntu 24.04, Ubuntu 26.04, Debian 13), an `.rpm` (Rocky Linux 10) and `SHA256SUMS`. Check and install:
+A kvm-gui release on [GitHub Releases](https://github.com/jniltinho/kvm-gui/releases) has an AppImage, a plain binary, a `.deb` (Ubuntu 24.04, Ubuntu 26.04, Debian 13), an `.rpm` (Rocky Linux 10) and `SHA256SUMS`. Check and install:
 
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS
@@ -33,7 +31,15 @@ sudo dnf install epel-release                      # Rocky Linux 10: WebKitGTK 6
 sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm       # Rocky Linux 10
 ```
 
-Both replace an installed `macos-kvm-gui` and keep `macos-kvm-gui` as a command name. Do not run the app as root: only host fixes and GPU reservation request elevation through `pkexec`.
+The AppImage and the binary need the same libraries and QEMU, without a package:
+
+```sh
+sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf                            # Ubuntu, Debian
+sudo dnf install epel-release && sudo dnf install gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf          # Rocky Linux 10
+chmod +x kvm-gui-vX.Y.Z-x86_64.AppImage && ./kvm-gui-vX.Y.Z-x86_64.AppImage
+```
+
+The packages replace an installed `macos-kvm-gui` and keep `macos-kvm-gui` as a command name; the first start copies its settings and VM list (see the README for a backup and rollback). Do not run the app as root: only host fixes and GPU reservation request elevation through `pkexec`. Install `swtpm` for Windows 11 VMs (a TPM 2.0); the packages recommend it.
 
 ## Built from this branch
 

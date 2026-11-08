@@ -18,15 +18,35 @@
 
 > **For home lab use.** macOS is Apple's software, and its license only allows it on Apple-branded hardware. Make sure your use complies with Apple's macOS license terms. This project is not affiliated with Apple.
 
-## Status: moving to one Go app
+## What it is
 
-kvm-gui is becoming one Go application: a desktop GUI in Go + [Wails](https://wails.io) (Vue 3, Vite Plus, Tailwind), with VirtualBox-like workflows, that creates macOS VMs (with [Reims vGPU](https://github.com/steelbrain/reims-vgpu)) and ordinary KVM VMs (Linux, Windows), plus the command line and the MCP server, in one binary. The plan is the OpenSpec change [`migrate-gui-to-go-wails`](openspec/changes/migrate-gui-to-go-wails/proposal.md).
+One binary: a desktop GUI in Go + [Wails](https://wails.io) (Vue 3, Vite Plus, Tailwind) with VirtualBox-like workflows, the [command line](docs/cli.md) and an [MCP server](docs/mcp.md) for AI agents.
 
-On this branch today:
+- **macOS VMs**, with OpenCore and OVMF built in, or on [Reims vGPU](https://github.com/steelbrain/reims-vgpu) through upstream's `reims-ctl`.
+- **Linux, Windows and Other VMs**: OS profiles, ISO detection, UEFI with Secure Boot, TPM 2.0 through swtpm.
+- **Snapshots** (offline, journaled), **full clones**, and **bundles** to move a VM between hosts.
+- VMs started from the GUI or by an agent keep running when the app closes.
 
-- **The command line and the MCP server** work: create, configure, start and stop macOS VMs, install macOS, Reims vGPU, GPU passthrough ([command line](docs/cli.md), [MCP server](docs/mcp.md)).
-- **The desktop GUI** is being rebuilt in Wails; `kvm-gui gui` says so until it lands. The previous Go/Fyne GUI is gone, and the Rust app `reims-gui` is archived, read-only, in [`archive/rust/reims-gui`](archive/rust/reims-gui/ARCHIVED.md).
-- **Releases:** none from this branch yet. The last published apps, `macos-kvm-gui` v0.13.0 and `reims-gui` v0.1.6, stay on the [releases page](https://github.com/jniltinho/kvm-gui/releases) and read the same VMs.
+The work is planned in the OpenSpec change [`migrate-gui-to-go-wails`](openspec/changes/migrate-gui-to-go-wails/proposal.md); the Rust app `reims-gui` is archived, read-only, in [`archive/rust/reims-gui`](archive/rust/reims-gui/ARCHIVED.md).
+
+## Install
+
+Each release has five files: an AppImage, a plain binary, a `.deb`, an `.rpm` and `SHA256SUMS`. Check them first:
+
+```sh
+sha256sum -c --ignore-missing SHA256SUMS
+```
+
+| Distribution | Install |
+|---|---|
+| Ubuntu 24.04, 26.04, Debian 13 | `sudo apt install ./kvm-gui_X.Y.Z_amd64.deb` |
+| Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm` (WebKitGTK 6 comes from EPEL) |
+| AppImage or binary, Ubuntu/Debian | `sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf`, then `chmod +x` and run the file |
+| AppImage or binary, Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf`, then `chmod +x` and run the file |
+
+The packages replace `macos-kvm-gui` and keep `macos-kvm-gui` as a command name. Each install command above runs in a clean container of its distribution on every CI run (`scripts/check-dist.sh`).
+
+**Upgrading from `macos-kvm-gui`.** The first start copies the old settings and VM list from `~/.config/macos-kvm-gui` to `~/.config/kvm-gui` and `~/.local/share/kvm-gui`, and leaves the old folder untouched; VMs stay in their folders. To be safe, back it up first: `tar czf ~/macos-kvm-gui-backup.tgz -C ~/.config macos-kvm-gui`. To roll back, reinstall the old package (`sudo apt install ./macos-kvm-gui_0.13.0_amd64.deb`): it reads its own untouched folder, so VMs created or changed after the upgrade are not in its list.
 
 ## Reims vGPU
 
@@ -40,7 +60,9 @@ Everything builds and runs in one Docker image; the host needs only Docker and m
 make image      # the build image (build/linux.Dockerfile)
 make test       # gofmt, go vet, go test -race, every needed tool required
 make openspec   # openspec validate --all --strict
-make dist       # dist/: the .deb, the .rpm and SHA256SUMS
+make self-test  # the GUI opens and loads the VM list, under Xvfb
+make dist       # dist/: the AppImage, the binary, the .deb, the .rpm and SHA256SUMS
+scripts/check-dist.sh ubuntu24.04 all   # the artifacts on a clean distribution (also ubuntu26.04, debian13, rocky10)
 ```
 
 ## Documentation

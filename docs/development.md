@@ -10,7 +10,9 @@ Everything builds and runs in one Docker image, `build/linux.Dockerfile` (Ubuntu
 make image          # build the image (kvm-gui-build:24.04)
 make build          # dist/kvm-gui (CGO_ENABLED=0)
 make build-prod     # stripped, -trimpath, main.version from VERSION
-make dist           # dist/: kvm-gui_<v>_amd64.deb, kvm-gui-<v>-1.x86_64.rpm and SHA256SUMS
+make self-test      # the GUI opens and loads the VM list, under Xvfb in the image
+make dist           # dist/: the AppImage, the binary, kvm-gui_<v>_amd64.deb, kvm-gui-<v>-1.x86_64.rpm and SHA256SUMS
+scripts/check-dist.sh <ubuntu24.04|ubuntu26.04|debian13|rocky10> all   # the artifacts in clean containers
 ```
 
 Go's build and module caches persist in `~/.cache/kvm-gui-build`. Boot assets are committed; a normal build does not fetch them.
@@ -92,8 +94,8 @@ Read changes in context: `add-desktop-gui` describes the original clone/Python d
 
 | Workflow | Trigger and work |
 | --- | --- |
-| [CI](../.github/workflows/ci.yml) | Pushes to `main` and pull requests: `make test`, `make openspec` and `make dist`, all in the build image. New runs cancel earlier runs for the same ref. |
-| [Release](../.github/workflows/go-release.yml) | By hand on a `v*` tag. Refuses a commit without the Wails GUI (`frontend/package.json`); then `make test openspec` and `make dist VERSION=<tag>`, and publishes the `.deb`, the `.rpm` and `SHA256SUMS` as the latest release. |
+| [CI](../.github/workflows/ci.yml) | Pushes to `main` and pull requests: `make test`, `layers`, `openspec`, `frontend-check`, `self-test` and `dist` in the build image, then `scripts/check-dist.sh` on Ubuntu 24.04, Ubuntu 26.04, Debian 13 and Rocky Linux 10 (Rocky's self-test runs on Wayland under a headless Weston: RHEL 10 has no Xorg server). New runs cancel earlier runs for the same ref. |
+| [Release](../.github/workflows/go-release.yml) | By hand. It runs CI on the exact commit first; on a `v*` tag it then publishes the AppImage, the binary, the `.deb`, the `.rpm` and `SHA256SUMS` as the latest release. With `-f publish=false` (any ref) it keeps the five files as the run's artifact and publishes nothing. |
 | [Reims vGPU](../.github/workflows/reims-release.yml) | A `reims-<7-digit commit>` tag matching `reims/Dockerfile`: builds QEMU, `reims-ctl` and `reims-util` for Ubuntu 24.04, 26.04, Debian 13 and Rocky Linux 10, checks each in a clean container, and publishes them with the source archive. |
 
 Neither workflow runs the real-QEMU integration target, a macOS installation or a real-GPU test. Release does not run the separate OpenSpec job. Builds use committed boot assets rather than refetching them; tests may fetch `ocvalidate` on a fresh runner.

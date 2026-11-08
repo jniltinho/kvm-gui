@@ -41,7 +41,8 @@ package)
 	;;
 libs)
 	epel
-	if $apt; then pkgs libgtk-4-1 libwebkitgtk-6.0-4; else pkgs gtk4 webkitgtk6.0; fi
+	# exactly the README's commands for the AppImage and the binary
+	if $apt; then pkgs libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf; else pkgs gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf; fi
 	x11
 	cp /dist/kvm-gui-*-x86_64.AppImage /dist/kvm-gui-v*-linux-amd64 /usr/local/bin/
 	chmod 755 /usr/local/bin/kvm-gui-*

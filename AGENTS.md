@@ -34,7 +34,9 @@ The only Rust that is built is upstream Reims vGPU, inside `reims/`'s Docker bui
 make image       # the build image
 make test        # gofmt, go vet, go test -race (MKG_REQUIRE_TOOLS=1: a missing tool fails)
 make openspec    # openspec validate --all --strict
-make dist        # dist/: kvm-gui_<v>_amd64.deb, kvm-gui-<v>-1.x86_64.rpm, SHA256SUMS
+make self-test   # the GUI opens under Xvfb in the image
+make dist        # dist/: AppImage, binary, kvm-gui_<v>_amd64.deb, kvm-gui-<v>-1.x86_64.rpm, SHA256SUMS
+scripts/check-dist.sh <ubuntu24.04|ubuntu26.04|debian13|rocky10> all  # artifacts in clean containers
 make test-integration  # real QEMU/KVM boot of the embedded OpenCore (needs /dev/kvm)
 ```
 
@@ -51,8 +53,8 @@ make test-integration  # real QEMU/KVM boot of the embedded OpenCore (needs /dev
 
 | File | Runs | Does |
 |---|---|---|
-| `ci.yml` | push to `main`, PRs | `make test`, `make openspec`, `make dist`, all in the build image |
-| `go-release.yml` | manual on a `v*` tag | refuses a commit without the Wails GUI (`frontend/package.json`); tests, `make dist`, publishes latest |
+| `ci.yml` | push to `main`, PRs | `make test layers openspec frontend-check self-test dist` in the build image, then `scripts/check-dist.sh` on the four distributions |
+| `go-release.yml` | manual | runs `ci.yml` on the exact commit, then on a `v*` tag publishes the AppImage, binary, `.deb`, `.rpm` and `SHA256SUMS` as latest; `-f publish=false` keeps them as run artifacts |
 | `reims-release.yml` | tag `reims-<commit>` | Reims QEMU with `reims-ctl` and `reims-util` for 24.04, 26.04, debian13, rocky10, and the source archive |
 
 ## Testing on real hardware
