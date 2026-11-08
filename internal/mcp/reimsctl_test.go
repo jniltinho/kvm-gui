@@ -3,8 +3,11 @@ package mcp
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/jniltinho/kvm-gui/internal/core"
 	"testing"
 )
 
@@ -46,5 +49,42 @@ func TestVMCreateReimsCtl(t *testing.T) {
 	}
 	if msg, isErr := call(t, cs, "vm_create", map[string]any{"name": "x", "backend": "libvirt"}); !isErr || !strings.Contains(msg, "unknown backend") {
 		t.Fatalf("unknown backend: %q", msg)
+	}
+}
+
+// Snapshot tools and vm_clone, with the same rules as the GUI and the CLI (task 5.5).
+func TestSnapshotTools(t *testing.T) {
+	if _, err := exec.LookPath("qemu-img"); err != nil {
+		t.Skip(err)
+	}
+	cs := session(t)
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	c := core.Defaults()
+	c.Name, c.Version = "Lab", "sequoia"
+	c.Workspace = filepath.Join(t.TempDir(), "lab")
+	c.Networks = core.NewNetworks(c.Version)
+	os.MkdirAll(c.Workspace, 0o755)
+	exec.Command("qemu-img", "create", "-f", "qcow2", filepath.Join(c.Workspace, core.DiskFile), "16M").Run()
+	if _, err := core.CreateVM(c); err != nil {
+		t.Fatal(err)
+	}
+	if out := callOut(t, cs, "snapshot_take", map[string]any{"vm": "Lab", "name": "Clean"}); out["name"] != "Clean" {
+		t.Fatalf("take: %v", out)
+	}
+	out := callOut(t, cs, "snapshot_list", map[string]any{"vm": "Lab"})
+	if snaps, _ := out["snapshots"].([]any); len(snaps) != 1 || out["current_snapshot"] == "" {
+		t.Fatalf("list: %v", out)
+	}
+	if msg, isErr := call(t, cs, "snapshot_restore", map[string]any{"vm": "Lab", "snapshot": "Clean"}); !isErr || !strings.Contains(msg, "confirm") {
+		t.Fatalf("restore without confirm: %q", msg)
+	}
+	if msg, isErr := call(t, cs, "snapshot_restore", map[string]any{"vm": "Lab", "snapshot": "Clean", "confirm": true}); isErr {
+		t.Fatalf("restore: %q", msg)
+	}
+	if out := callOut(t, cs, "vm_clone", map[string]any{"vm": "Lab", "name": "Lab copy", "folder": filepath.Join(t.TempDir(), "copy")}); out["name"] != "Lab copy" {
+		t.Fatalf("clone: %v", out)
+	}
+	if msg, isErr := call(t, cs, "snapshot_delete", map[string]any{"vm": "Lab", "snapshot": "Clean", "confirm": true}); isErr {
+		t.Fatalf("delete: %q", msg)
 	}
 }

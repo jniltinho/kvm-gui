@@ -3,6 +3,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -58,5 +59,46 @@ func TestVMAddReimsCtl(t *testing.T) {
 	// A reims-ctl VM refuses move the same way as in core.
 	if _, err := run(t, "vm", "move", "app", t.TempDir()); err == nil || !strings.Contains(err.Error(), core.ErrReimsCtlUnsupported.Error()) {
 		t.Fatalf("move: %v", err)
+	}
+}
+
+// snapshot list|take|restore|delete and vm clone (task 5.5).
+func TestSnapshotCommands(t *testing.T) {
+	if _, err := exec.LookPath("qemu-img"); err != nil {
+		t.Skip(err)
+	}
+	isolateXDG(t, t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Cleanup(func() { snapYes, snapDescription = false, "" })
+	c := core.Defaults()
+	c.Name, c.Version = "Ubuntu", "sequoia"
+	c.Workspace = filepath.Join(t.TempDir(), "u")
+	c.Networks = core.NewNetworks(c.Version)
+	os.MkdirAll(c.Workspace, 0o755)
+	exec.Command("qemu-img", "create", "-f", "qcow2", filepath.Join(c.Workspace, core.DiskFile), "16M").Run()
+	if _, err := core.CreateVM(c); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{{"snapshot", "take", "Ubuntu", "Before update", "--description", "clean"}, {"snapshot", "take", "Ubuntu", "After"}} {
+		if out, err := run(t, args...); err != nil {
+			t.Fatalf("%v: %v %s", args, err, out)
+		}
+	}
+	out, err := run(t, "snapshot", "list", "Ubuntu")
+	if err != nil || !strings.Contains(out, "Before update") || !strings.Contains(out, "  After") || !strings.Contains(out, "* Current state") {
+		t.Fatalf("list:\n%s %v", out, err)
+	}
+	if _, err := run(t, "snapshot", "restore", "Ubuntu", "Before update"); err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("restore without --yes: %v", err)
+	}
+	if out, err := run(t, "snapshot", "restore", "Ubuntu", "Before update", "--yes"); err != nil {
+		t.Fatalf("restore: %v %s", err, out)
+	}
+	if out, err := run(t, "snapshot", "delete", "Ubuntu", "After", "--yes"); err != nil {
+		t.Fatalf("delete: %v %s", err, out)
+	}
+	snapYes = false
+	if out, err := run(t, "vm", "clone", "Ubuntu", "Ubuntu copy", "--folder", filepath.Join(t.TempDir(), "copy")); err != nil || !strings.Contains(out, "cloned Ubuntu as Ubuntu copy") {
+		t.Fatalf("clone: %v %s", err, out)
 	}
 }

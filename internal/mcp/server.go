@@ -35,6 +35,7 @@ func newServer(version string) *mcp.Server {
 	destructive := &mcp.ToolAnnotations{DestructiveHint: &yes}
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
 
+	addSnapshotTools(s, readOnly, destructive)
 	mcp.AddTool(s, &mcp.Tool{Name: "vm_list", Annotations: readOnly,
 		Description: "List the VMs and whether each is running."}, vmList)
 	mcp.AddTool(s, &mcp.Tool{Name: "vm_status", Annotations: readOnly,
