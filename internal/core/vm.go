@@ -262,6 +262,9 @@ func (v *VM) Start(c Config) error {
 	}
 	var gpuFuncs []string
 	if c.GPU != "" {
+		if name, ok := gpuRunner(c.GPU, v.ID); ok {
+			return fmt.Errorf("GPU %s is passed through to %s, which is running: shut it down first", c.GPU, name)
+		}
 		var err error
 		if gpuFuncs, err = SystemHost().GPUReady(c, memlockLimit()); err != nil {
 			return err
