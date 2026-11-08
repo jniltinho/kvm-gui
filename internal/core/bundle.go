@@ -24,9 +24,10 @@ const bundleManifest = "macos-kvm-gui-vm.json"
 var bundleFiles = []string{DiskFile, VarsFile, identityFile, MediaFile, mediaMarker, rootPatchMarker}
 
 type manifest struct {
-	Format int    `json:"format"`
-	App    string `json:"app"`
-	Config Config `json:"config"`
+	Format    int          `json:"format"`
+	App       string       `json:"app"`
+	Config    Config       `json:"config"`
+	Snapshots []bundleSnap `json:"snapshots,omitempty"` // format 2
 }
 
 // ExportBundle writes e as a bundle to dst (through a temporary file). The VM must be stopped:
@@ -34,6 +35,12 @@ type manifest struct {
 func ExportBundle(ctx context.Context, e VMEntry, dst string, progress func(done, total int64)) error {
 	if err := refuseReimsCtl(e.Config, "Export"); err != nil {
 		return err
+	}
+	if e.Path == "" { // the stored VM, not a copy from before its last snapshot
+		var err error
+		if e, err = reload(e); err != nil {
+			return err
+		}
 	}
 	dir, err := e.Config.WorkspaceDir()
 	if err != nil {
@@ -43,6 +50,14 @@ func ExportBundle(ctx context.Context, e VMEntry, dst string, progress func(done
 		return fmt.Errorf("shut down %s before exporting it", e.DisplayName())
 	}
 	w := NewWorkspace(dir)
+	recoverSnapshotOps(e)
+	snaps, err := listSnapshots(e.ID, false)
+	if err != nil {
+		return err
+	}
+	if !e.Config.MacOS() || len(snaps) > 0 {
+		return w.withLock(func() error { return exportV2(ctx, e, dir, snaps, dst, progress) })
+	}
 	if !w.HasDisk() {
 		return fmt.Errorf("%s has no disk yet: nothing to export", e.DisplayName())
 	}
@@ -163,8 +178,11 @@ func importBundle(ctx context.Context, src, workspace string, progress func(done
 		return VMEntry{}, errors.New("not a macos-kvm-gui VM bundle (no manifest)")
 	}
 	var m manifest
-	if err := json.NewDecoder(io.LimitReader(tr, 1<<20)).Decode(&m); err != nil || m.Format != 1 {
+	if err := json.NewDecoder(io.LimitReader(tr, 1<<24)).Decode(&m); err != nil || m.Format != 1 && m.Format != 2 {
 		return VMEntry{}, fmt.Errorf("unsupported bundle manifest: %v", err)
+	}
+	if m.Format == 2 {
+		return importV2(ctx, tr, m, workspace, st.Size(), progress)
 	}
 
 	created := !exists(workspace)
@@ -222,12 +240,7 @@ func importBundle(ctx context.Context, src, workspace string, progress func(done
 	}
 	c := m.Config
 	c.Workspace, c.GPU = workspace, "" // a GPU address from another host means nothing here
-	e, err := CreateVM(c)
-	var fe *FieldError
-	if errors.As(err, &fe) && fe.Field == "name" {
-		c.Name = strings.TrimSpace(c.Name) + " (imported)"
-		e, err = CreateVM(c)
-	}
+	e, err := createImported(c)
 	if err != nil {
 		cleanup()
 		return VMEntry{}, err
@@ -283,6 +296,24 @@ func ImportSettings(path string) (VMEntry, error) {
 	var fe *FieldError
 	if errors.As(err, &fe) && fe.Field == "name" {
 		c.Name += " (imported)"
+		e, err = CreateVM(c)
+	}
+	return e, err
+}
+
+// createImported adds an imported VM; a name in use gets " (imported)", then " (imported 2)"...
+func createImported(c Config) (VMEntry, error) {
+	base := strings.TrimSpace(c.Name)
+	e, err := CreateVM(c)
+	for i := 1; i < 100; i++ {
+		var fe *FieldError
+		if !errors.As(err, &fe) || fe.Field != "name" {
+			break
+		}
+		c.Name = base + " (imported)"
+		if i > 1 {
+			c.Name = fmt.Sprintf("%s (imported %d)", base, i)
+		}
 		e, err = CreateVM(c)
 	}
 	return e, err

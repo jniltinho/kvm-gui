@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"time"
 
@@ -584,8 +585,12 @@ func writeSnapshot(c Config) {
 		Note   string `json:"_note"`
 		Config Config `json:"config"`
 	}{"Generated from macos-kvm-gui.db; edit the VM in the app or with the CLI, not here.", c}, "", "  ")
-	if os.MkdirAll(filepath.Join(dir, BootDir), 0o755) == nil {
-		writeFileAtomic(filepath.Join(dir, snapshotFile), data, 0o644)
+	dirMode, fileMode := os.FileMode(0o755), os.FileMode(0o644)
+	if !c.MacOS() { // a Linux, Windows or Other VM's folder is private (TPM state, disks)
+		dirMode, fileMode = 0o700, 0o600
+	}
+	if os.MkdirAll(filepath.Join(dir, BootDir), dirMode) == nil {
+		writeFileAtomic(filepath.Join(dir, snapshotFile), data, fileMode)
 	}
 }
 
@@ -604,9 +609,9 @@ func ownedFiles(c Config) []string {
 		return nil // reims-ctl's files: `reims-ctl delete` removes them
 	}
 	if c.MacOS() {
-		return workspaceFiles
+		return append(slices.Clone(workspaceFiles), snapDir)
 	}
-	files := []string{GuestVarsFile, GuestVarsKind, GuestTPMDir, GuestSerialLog}
+	files := []string{GuestVarsFile, GuestVarsKind, GuestTPMDir, GuestSerialLog, snapDir}
 	for _, d := range c.Disks {
 		if !filepath.IsAbs(d.Path) {
 			files = append(files, filepath.Clean(d.Path))
@@ -626,6 +631,9 @@ func DeleteVM(e VMEntry, purge bool) ([]string, error) {
 		}
 		dir, err := e.Config.WorkspaceDir()
 		if err != nil {
+			return nil, err
+		}
+		if err := checkNotShared(e, "delete its files"); err != nil {
 			return nil, err
 		}
 		w := NewWorkspace(dir)
@@ -663,6 +671,7 @@ func DeleteVM(e VMEntry, purge bool) ([]string, error) {
 	if _, err := db.Exec(`DELETE FROM vms WHERE id = ?`, e.ID); err != nil {
 		return removed, err
 	}
+	db.Exec(`DELETE FROM snapshots WHERE vm_id = ?`, e.ID) // its tree goes with it
 	return append(removed, "VM "+e.ID+" (database)"), nil
 }
 
@@ -784,6 +793,9 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 	}
 	if _, ok := FindRun(e); ok {
 		return e, errors.New("shut down the VM before moving it")
+	}
+	if err := checkNotShared(e, "move it"); err != nil {
+		return e, err
 	}
 	c := e.Config
 	c.Workspace = strings.TrimSpace(dst)
@@ -908,3 +920,49 @@ func CreateVMWithDefaults(ctx context.Context, name, version, folder string, ssh
 
 // DefaultDiskGiB is a new VM's disk size.
 const DefaultDiskGiB = 80
+
+// checkNotShared refuses to move or delete a VM's own files while another VM, or another VM's
+// snapshot, uses one of them (B attached A's disk): that VM would lose it.
+func checkNotShared(e VMEntry, action string) error {
+	dir, err := e.Config.WorkspaceDir()
+	if err != nil {
+		return err
+	}
+	var mine []os.FileInfo
+	for _, f := range ownedFiles(e.Config) {
+		if st, err := os.Stat(filepath.Join(dir, f)); err == nil && st.Mode().IsRegular() {
+			mine = append(mine, st)
+		}
+	}
+	if len(mine) == 0 {
+		return nil
+	}
+	shared := func(p string) bool {
+		st, err := os.Stat(p)
+		return err == nil && slices.ContainsFunc(mine, func(m os.FileInfo) bool { return os.SameFile(m, st) })
+	}
+	vms, err := ListVMs()
+	if err != nil {
+		return err
+	}
+	for _, o := range vms {
+		if o.ID == e.ID {
+			continue
+		}
+		odir, _ := o.Config.WorkspaceDir()
+		for _, st := range diskFiles(o.Config) {
+			if slices.ContainsFunc(mine, func(m os.FileInfo) bool { return os.SameFile(m, st) }) {
+				return fmt.Errorf("cannot %s: %s uses one of its disks", action, o.DisplayName())
+			}
+		}
+		snaps, _ := listSnapshots(o.ID, true)
+		for _, s := range snaps {
+			for _, d := range s.Manifest.Disks {
+				if shared(diskAbs(odir, d)) {
+					return fmt.Errorf("cannot %s: a snapshot of %s uses one of its disks", action, o.DisplayName())
+				}
+			}
+		}
+	}
+	return nil
+}

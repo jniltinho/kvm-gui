@@ -35,6 +35,7 @@ type Snapshot struct {
 // snapManifest is what a snapshot holds: its disks (as the VM's config names them: relative to
 // the VM folder or absolute), the state files copied (relative to the VM folder) and the settings.
 type snapManifest struct {
+	Tag    string   `json:"tag,omitempty"` // the disks' internal snapshot name (snapTag of the id it was taken with)
 	Disks  []string `json:"disks"`
 	Files  []string `json:"files,omitempty"`
 	Config Config   `json:"config"`
@@ -55,7 +56,16 @@ func newID() string {
 }
 
 func snapTag(id string) string { return "kvm-gui-" + id }
-func preTag(op string) string  { return "kvm-gui-pre-" + op }
+
+// tag is the name of s in its disks: the one recorded when it was taken, kept by an import that
+// gives the snapshot a new id.
+func (s Snapshot) tag() string {
+	if s.Manifest.Tag != "" {
+		return s.Manifest.Tag
+	}
+	return snapTag(s.ID)
+}
+func preTag(op string) string { return "kvm-gui-pre-" + op }
 
 // snapshotDisks are the VM's hard disks as its config names them; install media are not disks.
 func snapshotDisks(c Config) []string {
@@ -413,7 +423,7 @@ func TakeSnapshot(ctx context.Context, e VMEntry, name, description string) (Sna
 		}
 		return Snapshot{}, err
 	}
-	s.Manifest.Config = e.Config
+	s.Manifest.Config, s.Manifest.Tag = e.Config, snapTag(s.ID)
 	for _, d := range snapshotDisks(e.Config) {
 		if err := step(j, "tag "+d); err != nil {
 			return fail(err)
@@ -549,7 +559,7 @@ func RestoreSnapshot(ctx context.Context, e VMEntry, id string) error {
 		}
 	}
 	for _, d := range s.Manifest.Disks {
-		if ok, err := hasTag(ctx, diskAbs(dir, d), snapTag(s.ID)); err != nil || !ok {
+		if ok, err := hasTag(ctx, diskAbs(dir, d), s.tag()); err != nil || !ok {
 			return fmt.Errorf("disk %s no longer holds this snapshot (%v): it cannot be restored", d, err)
 		}
 	}
@@ -606,7 +616,7 @@ func RestoreSnapshot(ctx context.Context, e VMEntry, id string) error {
 		if err := ctx.Err(); err != nil {
 			return fail(err)
 		}
-		if err := qemuImg(ctx, "snapshot", "-a", snapTag(s.ID), diskAbs(dir, d)); err != nil {
+		if err := qemuImg(ctx, "snapshot", "-a", s.tag(), diskAbs(dir, d)); err != nil {
 			return fail(fmt.Errorf("disk %s: %w", d, err))
 		}
 	}
@@ -753,7 +763,7 @@ func finishDelete(ctx context.Context, dir string, j *journal, s Snapshot) error
 		if err := step(j, "untag "+d); err != nil {
 			return err
 		}
-		if err := dropTag(ctx, diskAbs(dir, d), snapTag(s.ID)); err != nil {
+		if err := dropTag(ctx, diskAbs(dir, d), s.tag()); err != nil {
 			return fmt.Errorf("disk %s: %w (the delete is finished when the VM is opened again)", d, err)
 		}
 	}
