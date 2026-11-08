@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -233,4 +236,84 @@ func saveReimsCtl(e VMEntry, c Config) error {
 	}
 	defer db.Close()
 	return updateVM(db, e.ID, e2.Config)
+}
+
+// UserReimsCtlConfig is the user's own reims-ctl configuration folder ($XDG_CONFIG_HOME/reims-ctl).
+func UserReimsCtlConfig() string {
+	base := os.Getenv("XDG_CONFIG_HOME")
+	if !filepath.IsAbs(base) {
+		home, _ := os.UserHomeDir()
+		base = filepath.Join(home, ".config")
+	}
+	return filepath.Join(base, "reims-ctl")
+}
+
+// ReimsCtlCandidate is a reims-ctl VM the app has not registered yet, in ConfigDir.
+type ReimsCtlCandidate struct {
+	ReimsCtlVM
+	ConfigDir string
+}
+
+// ReimsCtlCandidates lists, for the Manager's Add, the VMs of kvm-gui's reims-ctl folders and of
+// the user's own reims-ctl that are not registered yet. A folder reims-ctl cannot read is skipped.
+func ReimsCtlCandidates(ctx context.Context) ([]ReimsCtlCandidate, error) {
+	base, err := reimsCtlFor(Config{})
+	if err != nil {
+		return nil, err
+	}
+	registered, err := ListVMs()
+	if err != nil {
+		return nil, err
+	}
+	var out []ReimsCtlCandidate
+	for _, dir := range []string{base.ConfigDir, UserReimsCtlConfig()} {
+		r, _ := reimsCtlFor(Config{ReimsCtlConfig: dir})
+		vms, err := r.List(ctx)
+		if err != nil {
+			continue
+		}
+		for _, v := range vms {
+			if !slices.ContainsFunc(registered, func(e VMEntry) bool {
+				return e.Config.Backend == BackendReimsCtl && e.Config.ReimsCtlName == v.Name && e.Config.ReimsCtlConfig == dir
+			}) {
+				out = append(out, ReimsCtlCandidate{v, dir})
+			}
+		}
+	}
+	return out, nil
+}
+
+// AddReimsCtlVM registers reims-ctl's VM name from configDir ("" = kvm-gui's), recording that
+// folder for every later reims-ctl call. When its SSH port belongs to another VM, reims-ctl gets
+// the free port CreateVM picked (the Notice says so).
+func AddReimsCtlVM(ctx context.Context, name, configDir string) (VMEntry, error) {
+	base, err := reimsCtlFor(Config{})
+	if err != nil {
+		return VMEntry{}, err
+	}
+	if configDir == "" {
+		configDir = base.ConfigDir
+	}
+	c := Config{Name: name, Backend: BackendReimsCtl, ReimsCtlName: name, ReimsCtlConfig: configDir}
+	if err := c.validateReimsCtl(); err != nil {
+		return VMEntry{}, err
+	}
+	r, err := reimsCtlFor(c)
+	if err != nil {
+		return VMEntry{}, err
+	}
+	if err := refreshReimsCtl(ctx, r, &c); err != nil {
+		return VMEntry{}, err
+	}
+	port := c.SSHPort
+	e, err := CreateVM(c)
+	if err != nil {
+		return VMEntry{}, err
+	}
+	if port != 0 && e.Config.SSHPort != port {
+		if _, err := r.run(ctx, nil, "set", name, "--ssh-port", strconv.Itoa(e.Config.SSHPort)); err != nil {
+			return e, err
+		}
+	}
+	return e, nil
 }

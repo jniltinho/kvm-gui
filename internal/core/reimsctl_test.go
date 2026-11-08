@@ -433,3 +433,62 @@ func TestReimsCtlSettings(t *testing.T) {
 		}
 	}
 }
+
+// writeListingReimsCtl writes a reims-ctl whose VMs depend on REIMS_CTL_CONFIG_DIR: "app" in
+// kvm-gui's folder, "mine" in any other; both forward SSH from port.
+func writeListingReimsCtl(t *testing.T, port int) (calls string) {
+	root := t.TempDir()
+	qemu := filepath.Join(root, "qemu-system-x86_64")
+	write(t, qemu, "")
+	calls = filepath.Join(root, "calls")
+	for _, n := range []string{"app", "mine"} {
+		os.MkdirAll(filepath.Join(root, n), 0o755)
+		write(t, filepath.Join(root, n+".sh"), fmt.Sprintf("#!/bin/sh\nexec %s -m 8G -smp 4 -netdev 'user,id=n,hostfwd=tcp:127.0.0.1:%d-:22' -drive 'id=disk,if=none,format=qcow2,file=%s/%s/disk.qcow2'\n", qemu, port, root, n))
+	}
+	write(t, filepath.Join(root, "reims-ctl"), `#!/bin/sh
+echo "$* CONFIG=$REIMS_CTL_CONFIG_DIR" >> `+calls+`
+case "$REIMS_CTL_CONFIG_DIR" in */kvm-gui/*) n=app;; *) n=mine;; esac
+case "$1" in
+list) echo "[{\"name\":\"$n\",\"dir\":\"`+root+`/$n\",\"pid\":null,\"state\":\"stopped\"}]";;
+command) cp `+root+`/$n.sh "$4";;
+set) ;;
+*) exit 2;;
+esac
+`)
+	os.Chmod(filepath.Join(root, "reims-ctl"), 0o755)
+	t.Setenv("MKG_REIMS_QEMU", qemu)
+	return calls
+}
+
+// Add lists reims-ctl's VMs from kvm-gui's folders and the user's own, records the folder each
+// came from, and gives reims-ctl the free port when its own belongs to another VM (task 4.7).
+func TestReimsCtlAdd(t *testing.T) {
+	isolateXDG(t, t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	calls := writeListingReimsCtl(t, 2222)
+	taken := testDefaults()
+	taken.Name, taken.Workspace, taken.SSHPort = "Taken", filepath.Join(t.TempDir(), "t"), 2222
+	if _, err := CreateVM(taken); err != nil {
+		t.Fatal(err)
+	}
+	cands, err := ReimsCtlCandidates(t.Context())
+	if err != nil || len(cands) != 2 || cands[0].Name != "app" || cands[1].Name != "mine" || cands[1].ConfigDir != UserReimsCtlConfig() {
+		t.Fatalf("candidates: %+v %v", cands, err)
+	}
+	e, err := AddReimsCtlVM(t.Context(), "mine", UserReimsCtlConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if e.Config.ReimsCtlConfig != UserReimsCtlConfig() || e.Config.SSHPort == 2222 || e.Config.RAMMiB != 8192 || len(e.Config.Disks) != 1 {
+		t.Fatalf("added: %+v", e.Config)
+	}
+	if !strings.Contains(readFile(t, calls), fmt.Sprintf("set mine --ssh-port %d CONFIG=%s", e.Config.SSHPort, UserReimsCtlConfig())) {
+		t.Fatalf("calls:\n%s", readFile(t, calls))
+	}
+	if cands, _ := ReimsCtlCandidates(t.Context()); len(cands) != 1 || cands[0].Name != "app" {
+		t.Fatalf("an added VM is no candidate: %+v", cands)
+	}
+	if _, err := AddReimsCtlVM(t.Context(), "-x", ""); err == nil {
+		t.Fatal("a name that looks like an option was accepted")
+	}
+}

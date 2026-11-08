@@ -85,6 +85,40 @@ var vmCreateCmd = &cobra.Command{
 	},
 }
 
+var addReimsCtl, addReimsCtlConfig string
+
+var vmAddCmd = &cobra.Command{
+	Use:     "add",
+	Short:   "Add a VM that reims-ctl already has (kvm-gui's reims-ctl folders or your own); without --reims-ctl, list them",
+	Example: "  kvm-gui vm add\n  kvm-gui vm add --reims-ctl mac --reims-ctl-config ~/.config/reims-ctl",
+	Args:    cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		out := cmd.OutOrStdout()
+		if addReimsCtl == "" {
+			cands, err := core.ReimsCtlCandidates(cmd.Context())
+			if err != nil {
+				return err
+			}
+			if len(cands) == 0 {
+				fmt.Fprintln(out, "no reims-ctl VM to add")
+			}
+			for _, c := range cands {
+				fmt.Fprintf(out, "%s\t%s\t%s (--reims-ctl-config %s)\n", c.Name, c.State, c.Dir, c.ConfigDir)
+			}
+			return nil
+		}
+		e, err := core.AddReimsCtlVM(cmd.Context(), addReimsCtl, addReimsCtlConfig)
+		if err != nil {
+			return err
+		}
+		if e.Notice != "" {
+			fmt.Fprintln(out, "note:", e.Notice)
+		}
+		fmt.Fprintf(out, "added %s (%s) from reims-ctl, folder %s, SSH port %d\n", e.DisplayName(), e.ID, e.Config.Workspace, e.Config.SSHPort)
+		return nil
+	},
+}
+
 var vmSelectCmd = &cobra.Command{
 	Use:   "select <name>",
 	Short: "Select the VM that commands (and the app) act on",
@@ -297,5 +331,7 @@ func init() {
 	vmCreateCmd.Flags().IntVar(&createSSHPort, "ssh-port", 0, "SSH port on 127.0.0.1 (default: the lowest free port from 2222; another VM's port is replaced by a free one)")
 	vmDeleteCmd.Flags().BoolVar(&deletePurge, "purge", false, "also delete the disk, install media and boot files the app created in the VM folder")
 	vmDeleteCmd.Flags().BoolVar(&deleteYes, "yes", false, "confirm")
-	vmCmd.AddCommand(vmListCmd, vmStatusCmd, vmCreateCmd, vmSelectCmd, vmDeleteCmd, vmExportCmd, vmImportCmd, vmMoveCmd)
+	vmAddCmd.Flags().StringVar(&addReimsCtl, "reims-ctl", "", "the reims-ctl VM's name")
+	vmAddCmd.Flags().StringVar(&addReimsCtlConfig, "reims-ctl-config", "", "its reims-ctl configuration folder (default kvm-gui's)")
+	vmCmd.AddCommand(vmAddCmd, vmListCmd, vmStatusCmd, vmCreateCmd, vmSelectCmd, vmDeleteCmd, vmExportCmd, vmImportCmd, vmMoveCmd)
 }

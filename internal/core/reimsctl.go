@@ -166,10 +166,18 @@ type ReimsCreate struct {
 // and registers the VM with a free SSH port only once reims-ctl made it: a failed create
 // registers nothing.
 func CreateReimsCtlVM(ctx context.Context, o ReimsCreate, progress func(string)) (VMEntry, error) {
+	if o.Dir == "" {
+		o.Dir = VMFolder(o.Name)
+	}
 	c := Config{Name: o.Name, Workspace: o.Dir, Version: o.MacOS, Backend: BackendReimsCtl, ReimsCtlName: Slug(o.Name)}
 	if err := c.validateReimsCtl(); err != nil {
 		return VMEntry{}, err
 	}
+	dir, err := c.WorkspaceDir() // reims-ctl gets an absolute folder: no shell expands its ~
+	if err != nil {
+		return VMEntry{}, err
+	}
+	o.Dir = dir
 	r, err := reimsCtlFor(c)
 	if err != nil {
 		return VMEntry{}, err

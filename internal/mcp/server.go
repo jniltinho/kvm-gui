@@ -764,9 +764,28 @@ type createIn struct {
 	Version    string `json:"version,omitempty" jsonschema:"macOS version: high-sierra ... tahoe; default sonoma"`
 	Folder     string `json:"folder,omitempty" jsonschema:"VM folder; default <Workspace>/<name>"`
 	SSHPort    int    `json:"ssh_port,omitempty" jsonschema:"SSH port on 127.0.0.1; default the lowest free one from 2222; another VM's port is replaced by a free one"`
+	Backend    string `json:"backend,omitempty" jsonschema:"reims-ctl: a macOS VM on Reims vGPU that upstream's reims-ctl creates (downloads macOS from Apple); default the app's own"`
+	Offline    bool   `json:"offline,omitempty" jsonschema:"with backend reims-ctl: an offline installer (13 to 20 GB) instead of the recovery image"`
 }
 
 func vmCreate(ctx context.Context, _ *mcp.CallToolRequest, in createIn) (*mcp.CallToolResult, vmConfigOut, error) {
+	switch in.Backend {
+	case core.BackendReimsCtl:
+		if in.Guest != "" && in.Guest != core.GuestMacOS {
+			return nil, vmConfigOut{}, errors.New("backend reims-ctl creates macOS VMs only")
+		}
+		if in.Version == "" {
+			in.Version = "tahoe"
+		}
+		e, err := core.CreateReimsCtlVM(ctx, core.ReimsCreate{Name: in.Name, Dir: in.Folder, MacOS: in.Version, Offline: in.Offline}, nil)
+		if err != nil {
+			return nil, vmConfigOut{}, err
+		}
+		return nil, vmConfigOut{ID: e.ID, Config: e.Config, Notice: e.Notice}, nil
+	case "":
+	default:
+		return nil, vmConfigOut{}, fmt.Errorf("unknown backend %q: use reims-ctl or leave it out", in.Backend)
+	}
 	if in.Guest != "" && in.Guest != core.GuestMacOS {
 		if in.Profile == "" {
 			in.Profile = map[string]string{core.GuestLinux: "linux", core.GuestWindows: "windows11", core.GuestOther: "other"}[in.Guest]
