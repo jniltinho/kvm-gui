@@ -294,7 +294,7 @@ func TestKeplerGPU(t *testing.T) {
 }
 
 func TestPatchKextGPU(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	host := slices.Clone(referenceHost)
 	host[2].device = "73df" // RX 6700 XT
 	reason := func() (bool, string) {

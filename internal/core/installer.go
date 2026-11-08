@@ -317,10 +317,15 @@ type CachedInstaller struct {
 	Path string `json:"-"` // the .iso
 }
 
-// InstallersDir is the shared cache: <Workspace>/.installers/<build>/.
-func InstallersDir() (string, error) {
-	dir, err := (Config{Workspace: WorkspaceRoot()}).WorkspaceDir()
-	return filepath.Join(dir, ".installers"), err
+// InstallersDir is the shared cache: ~/.cache/kvm-gui/installers/<build>/.
+func InstallersDir() (string, error) { return filepath.Join(CacheDir(), "installers"), nil }
+
+// legacyInstallersDir is macos-kvm-gui's <old Workspace>/.installers, still read ("" without one).
+func legacyInstallersDir() string {
+	if old := legacyWorkspaceDir(); old != "" {
+		return filepath.Join(old, ".installers")
+	}
+	return ""
 }
 
 // CachedInstallers lists the verified installers, newest first.
@@ -329,20 +334,28 @@ func CachedInstallers() []CachedInstaller {
 	if err != nil {
 		return nil
 	}
-	entries, _ := os.ReadDir(dir)
 	var out []CachedInstaller
-	for _, e := range entries {
-		b, err := os.ReadFile(filepath.Join(dir, e.Name(), "info.json"))
-		if err != nil {
+	seen := map[string]bool{}
+	// kvm-gui's cache first, then macos-kvm-gui's in the old Workspace (read, never deleted).
+	for _, d := range []string{dir, legacyInstallersDir()} {
+		if d == "" {
 			continue
 		}
-		var c CachedInstaller
-		if json.Unmarshal(b, &c) != nil || !buildRe.MatchString(c.Build) {
-			continue
-		}
-		c.Path = filepath.Join(dir, e.Name(), discFile)
-		if st, err := os.Stat(c.Path); err == nil && st.Size() > c.Size {
-			out = append(out, c)
+		entries, _ := os.ReadDir(d)
+		for _, e := range entries {
+			b, err := os.ReadFile(filepath.Join(d, e.Name(), "info.json"))
+			if err != nil {
+				continue
+			}
+			var c CachedInstaller
+			if json.Unmarshal(b, &c) != nil || !buildRe.MatchString(c.Build) || seen[c.Build] {
+				continue
+			}
+			c.Path = filepath.Join(d, e.Name(), discFile)
+			if st, err := os.Stat(c.Path); err == nil && st.Size() > c.Size {
+				out = append(out, c)
+				seen[c.Build] = true
+			}
 		}
 	}
 	sort.Slice(out, func(i, j int) bool { return versionLess(out[j].Version, out[i].Version) })

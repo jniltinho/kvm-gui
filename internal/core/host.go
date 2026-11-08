@@ -44,6 +44,8 @@ type Host struct {
 
 	// ShareRoot is /usr/share (Vulkan ICD manifests); DevUdmabuf is /dev/udmabuf.
 	ShareRoot, DevUdmabuf string
+	// QEMUKVM is RHEL-family QEMU, /usr/libexec/qemu-kvm; FirmwareRoot is "/" (host OVMF).
+	QEMUKVM, FirmwareRoot string
 	// extras, when set, is the start's kexts snapshot that eligibility uses instead of
 	// reading settings.yaml again.
 	extras *ExtraKexts
@@ -65,14 +67,75 @@ func SystemHost() Host {
 			}
 			return err
 		},
-		ShareRoot:  "/usr/share",
-		DevUdmabuf: "/dev/udmabuf",
+		ShareRoot:    "/usr/share",
+		DevUdmabuf:   "/dev/udmabuf",
+		QEMUKVM:      "/usr/libexec/qemu-kvm",
+		FirmwareRoot: "/",
 	}
 }
 
-var tools = []struct{ bin, pkg string }{
-	{"qemu-system-x86_64", "qemu-system-x86"},
-	{"qemu-img", "qemu-utils"},
+// tools are the commands the host needs, with their package for apt (Ubuntu, Debian) and dnf
+// (Rocky Linux 10).
+var tools = []struct{ bin, apt, dnf string }{
+	{"qemu-system-x86_64", "qemu-system-x86", "qemu-kvm"},
+	{"qemu-img", "qemu-utils", "qemu-img"},
+}
+
+// PackageManager is the host's package manager kvm-gui installs with: "apt" on Ubuntu and Debian,
+// "dnf" on Rocky Linux and the RHEL family, "" on any other distribution.
+func (h Host) PackageManager() string {
+	data, _ := os.ReadFile(filepath.Join(h.EtcRoot, "os-release"))
+	kv := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+			kv[k] = strings.Trim(v, `"'`)
+		}
+	}
+	family := append([]string{kv["ID"]}, strings.Fields(kv["ID_LIKE"])...)
+	for _, f := range family {
+		switch f {
+		case "ubuntu", "debian":
+			return "apt"
+		case "rocky", "rhel", "almalinux", "centos", "fedora":
+			return "dnf"
+		}
+	}
+	return ""
+}
+
+// pkgFor is the package that provides a tool with the host's package manager.
+func (h Host) pkgFor(apt, dnf string) string {
+	if h.PackageManager() == "dnf" {
+		return dnf
+	}
+	return apt
+}
+
+// installHint is the command that installs pkg on the host.
+func (h Host) installHint(pkg string) string {
+	if h.PackageManager() == "dnf" {
+		return "sudo dnf install " + pkg
+	}
+	return "sudo apt install " + pkg
+}
+
+// qemuBin is the host's QEMU: qemu-system-x86_64, or /usr/libexec/qemu-kvm on the RHEL family.
+func (h Host) qemuBin() (string, bool) {
+	if p, err := h.LookPath("qemu-system-x86_64"); err == nil {
+		return p, true
+	}
+	if h.QEMUKVM != "" && exists(h.QEMUKVM) {
+		return h.QEMUKVM, true
+	}
+	return "", false
+}
+
+func (h Host) toolFound(bin string) (string, bool) {
+	if bin == "qemu-system-x86_64" {
+		return h.qemuBin()
+	}
+	p, err := h.LookPath(bin)
+	return p, err == nil
 }
 
 // Checks runs every host check for the chosen macOS version.
@@ -102,13 +165,32 @@ func (h Host) baseChecks(version string) []Check {
 	flags := h.cpuFlags()
 	out := []Check{h.checkVirt(flags), h.checkKVM()}
 	for _, t := range tools {
-		if _, err := h.LookPath(t.bin); err != nil {
-			out = append(out, Check{t.bin, Fail, "not found in PATH", "sudo apt install " + t.pkg})
+		if p, ok := h.toolFound(t.bin); !ok {
+			out = append(out, Check{t.bin, Fail, "not found in PATH", h.installHint(h.pkgFor(t.apt, t.dnf))})
 		} else {
-			out = append(out, Check{t.bin, OK, "found", ""})
+			out = append(out, Check{t.bin, OK, "found: " + p, ""})
 		}
 	}
-	return append(out, h.checkQEMUVersion(), h.checkCompat(flags, version), h.checkMSRs(), h.checkConflict())
+	return append(out, h.checkQEMUVersion(), h.checkCompat(flags, version), h.checkMSRs(), h.checkConflict(),
+		h.checkSwtpm(), h.checkSecureBootFirmware())
+}
+
+// checkSwtpm: VMs with a TPM (Windows 11) need swtpm; a Warning, since other VMs run without it.
+func (h Host) checkSwtpm() Check {
+	if p, err := h.LookPath("swtpm"); err == nil {
+		return Check{"swtpm", OK, "found: " + p, ""}
+	}
+	return Check{"swtpm", Warn, "not found: VMs with a TPM (Windows 11) cannot start", h.installHint("swtpm")}
+}
+
+// checkSecureBootFirmware: VMs with Secure Boot need OVMF with Microsoft's keys enrolled.
+func (h Host) checkSecureBootFirmware() Check {
+	fw, err := HostFirmware(h.FirmwareRoot, true)
+	if err != nil {
+		return Check{"Secure Boot firmware", Warn, "not found: VMs with Secure Boot (Windows 11) cannot start",
+			h.installHint(h.pkgFor("ovmf", "edk2-ovmf"))}
+	}
+	return Check{"Secure Boot firmware", OK, fw.Code, ""}
 }
 
 // MemTotalMiB reads MemTotal from /proc/meminfo (0 if it cannot be read).
@@ -174,7 +256,11 @@ var qemuVersionRe = regexp.MustCompile(`version (\d+)\.(\d+)\.(\d+)`)
 
 func (h Host) checkQEMUVersion() Check {
 	c := Check{Name: "QEMU version", Hint: "QEMU 8.2.2 or later is required"}
-	out, err := h.Output("qemu-system-x86_64", "--version")
+	bin, ok := h.qemuBin()
+	if !ok {
+		bin = "qemu-system-x86_64"
+	}
+	out, err := h.Output(bin, "--version")
 	m := qemuVersionRe.FindStringSubmatch(string(out))
 	if err != nil || m == nil {
 		c.Status, c.Detail = Unknown, "could not read the version"
@@ -310,9 +396,14 @@ func (h Host) FixIgnoreMSRs() error {
 const setupScript = `case "$1" in ""|-*|*[!a-z0-9_.-]*) echo "invalid user name" >&2; exit 2;; esac
 case "$2" in kvm_intel|kvm_amd) ;; *) echo "invalid KVM module" >&2; exit 2;; esac
 case "$3" in *[!a-z0-9.+\ -]*) echo "invalid package list" >&2; exit 2;; esac
+case "$4" in apt|dnf) ;; *) echo "invalid package manager" >&2; exit 2;; esac
 if [ -n "$3" ]; then
-  command -v apt-get >/dev/null || { echo "apt-get not found: install $3 with your package manager" >&2; exit 3; }
-  DEBIAN_FRONTEND=noninteractive apt-get install -y $3 || exit 1
+  if [ "$4" = dnf ]; then
+    dnf install -y $3 || exit 1
+  else
+    command -v apt-get >/dev/null || { echo "apt-get not found: install $3 with your package manager" >&2; exit 3; }
+    DEBIAN_FRONTEND=noninteractive apt-get install -y $3 || exit 1
+  fi
 fi
 [ -e /dev/kvm ] || modprobe "$2" || { echo "could not load $2: enable virtualization in the BIOS" >&2; exit 1; }
 getent group kvm >/dev/null || groupadd --system kvm || exit 1
@@ -347,11 +438,18 @@ func (h Host) SetupHost(user string) (string, error) {
 	}
 	var pkgs []string
 	for _, t := range tools {
-		if _, err := h.LookPath(t.bin); err != nil {
-			pkgs = append(pkgs, t.pkg)
+		if _, ok := h.toolFound(t.bin); !ok {
+			pkgs = append(pkgs, h.pkgFor(t.apt, t.dnf))
 		}
 	}
-	err := h.Run("pkexec", "/bin/sh", "-c", setupScript, "sh", user, module, strings.Join(pkgs, " "))
+	pm := h.PackageManager()
+	if pm == "" {
+		if len(pkgs) > 0 {
+			return "", fmt.Errorf("this distribution is not one kvm-gui installs packages on (Ubuntu, Debian, Rocky Linux): install QEMU and qemu-img (%s) with your package manager, then run the setup again", strings.Join(pkgs, ", "))
+		}
+		pm = "apt" // nothing to install: the package manager is not used
+	}
+	err := h.Run("pkexec", "/bin/sh", "-c", setupScript, "sh", user, module, strings.Join(pkgs, " "), pm)
 	if pkexecCancelled(err) {
 		return "", ErrCancelled
 	}

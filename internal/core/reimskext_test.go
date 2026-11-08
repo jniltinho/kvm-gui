@@ -50,7 +50,7 @@ func TestResolution(t *testing.T) {
 }
 
 func TestResolutionSchema5(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	path, _ := DBPath()
 	os.MkdirAll(filepath.Dir(path), 0o755)
 	old, err := sql.Open("sqlite", "file:"+path)
@@ -101,7 +101,7 @@ func TestResolutionSchema5(t *testing.T) {
 }
 
 func TestReimsKext(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	root := t.TempDir()
 	if err := SetWorkspaceRoot(root); err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestReimsKext(t *testing.T) {
 	if err := DownloadReimsKext(context.Background()); err != nil || !ReimsKextReady() {
 		t.Fatalf("download: %v", err)
 	}
-	if !strings.HasSuffix(dir, filepath.Join(".kexts", "reims-util-b302389", "ReimsVgpu.kext")) {
+	if dir != filepath.Join(CacheDir(), "kexts", "reims-util-b302389", "ReimsVgpu.kext") {
 		t.Fatalf("cache: %s", dir)
 	}
 

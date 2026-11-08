@@ -39,19 +39,8 @@ func (e VMEntry) DisplayName() string {
 	return "macOS " + e.Config.Version
 }
 
-func appConfigDir() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "macos-kvm-gui"), nil
-}
-
-// DBPath is the database file.
-func DBPath() (string, error) {
-	dir, err := appConfigDir()
-	return filepath.Join(dir, "macos-kvm-gui.db"), err
-}
+// DBPath is the database file: ~/.local/share/kvm-gui/kvm-gui.db.
+func DBPath() (string, error) { return filepath.Join(DataDir(), "kvm-gui.db"), nil }
 
 const schemaV1 = `
 CREATE TABLE IF NOT EXISTS vms (
@@ -180,6 +169,9 @@ func openDB() (*sql.DB, error) {
 	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return nil, err
+	}
+	if err := migrateLegacy(path); err != nil {
+		return nil, fmt.Errorf("copying macos-kvm-gui's settings and VM list: %w", err)
 	}
 	// _txlock=immediate: a transaction takes the write lock at BEGIN, so two creates (from
 	// either app) cannot pick the same SSH port.
@@ -318,7 +310,7 @@ func Slug(name string) string {
 }
 
 // DefaultWorkspace is the app's Workspace when none is saved: the parent folder of every VM.
-const DefaultWorkspace = "~/macOS-VMs"
+const DefaultWorkspace = "~/KVM-VMs"
 
 // WorkspaceRoot is the folder that holds one subfolder per VM. VMs added before it existed (for
 // example an OSX-KVM folder) keep their own folder.
@@ -692,10 +684,7 @@ func FindVM(vms []VMEntry, key string) (VMEntry, bool) {
 // importFiles moves VMs stored as files by older versions into a new database: the JSON files
 // under vms/ and the single-VM config.json. The originals are renamed, not deleted.
 func importFiles(db *sql.DB) error {
-	dir, err := appConfigDir()
-	if err != nil {
-		return err
-	}
+	dir := legacyConfigDir()
 	vmsDir := filepath.Join(dir, "vms")
 	files, _ := filepath.Glob(filepath.Join(vmsDir, "*.json"))
 	legacy := filepath.Join(dir, "config.json")

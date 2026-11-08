@@ -9,8 +9,8 @@ import (
 
 func TestSetting(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
-	write(t, filepath.Join(cfg, "macos-kvm-gui", ".env"), "# comment\nMKG_FOO = \"from-file\"\nMKG_BAR=x\n")
+	isolateXDG(t, cfg)
+	write(t, filepath.Join(cfg, "kvm-gui", ".env"), "# comment\nMKG_FOO = \"from-file\"\nMKG_BAR=x\n")
 	if got := Setting("MKG_FOO"); got != "from-file" {
 		t.Errorf(".env value: %q", got)
 	}
@@ -25,10 +25,10 @@ func TestSetting(t *testing.T) {
 
 func TestSettingsYAML(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	isolateXDG(t, cfg)
 	t.Setenv("MKG_THEME", "")
 	os.Unsetenv("MKG_THEME")
-	write(t, filepath.Join(cfg, "macos-kvm-gui", ".env"), "MKG_THEME=dark\nMKG_ASSETS_DIR=/from-env-file\n")
+	write(t, filepath.Join(cfg, "kvm-gui", ".env"), "MKG_THEME=dark\nMKG_ASSETS_DIR=/from-env-file\n")
 	if got := Setting("MKG_THEME"); got != "dark" {
 		t.Errorf("the default settings.yaml sets nothing, so .env applies: %q", got)
 	}
@@ -49,7 +49,7 @@ func TestSettingsYAML(t *testing.T) {
 }
 
 func TestAssetsDirOverride(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	if v := AssetVersions(); !strings.Contains(v, "OpenCore 1.") || !strings.Contains(v, "built in") {
 		t.Errorf("embedded versions: %q", v)
 	}

@@ -16,6 +16,10 @@ import (
 var (
 	createVersion, createWorkspace string
 	createSSHPort                  int
+	createGuest, createProfile     string
+	createISO, createFirmware      string
+	createDisk                     int
+	createSecureBoot, createTPM    bool
 	deletePurge, deleteYes         bool
 )
 
@@ -45,10 +49,30 @@ var vmListCmd = &cobra.Command{
 var vmCreateCmd = &cobra.Command{
 	Use:     "create <name>",
 	Short:   "Create a VM with CPU and RAM recommended for this host, select it and prepare its folder",
-	Example: "  kvm-gui vm create \"Tahoe lab\" --version tahoe --folder ~/macOS-VMs/tahoe",
+	Example: "  kvm-gui vm create \"Tahoe lab\" --version tahoe\n  kvm-gui vm create Ubuntu --guest linux --profile ubuntu --iso ubuntu-24.04.iso --disk 40\n  kvm-gui vm create \"Windows 11\" --guest windows --profile windows11 --iso Win11.iso",
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
-		e, err := core.CreateVMWithDefaults(cmd.Context(), args[0], createVersion, createWorkspace, createSSHPort)
+		var e core.VMEntry
+		var err error
+		if createGuest == "" || createGuest == core.GuestMacOS {
+			e, err = core.CreateVMWithDefaults(cmd.Context(), args[0], createVersion, createWorkspace, createSSHPort)
+		} else {
+			o := core.GuestOptions{Profile: createProfile, ISO: createISO, Folder: createWorkspace, Firmware: createFirmware,
+				DiskGiB: createDisk, SSHPort: createSSHPort}
+			if o.Profile == "" {
+				o.Profile = map[string]string{core.GuestLinux: "linux", core.GuestWindows: "windows11", core.GuestOther: "other"}[createGuest]
+			}
+			if p, ok := core.ProfileByID(o.Profile); ok && p.Guest != createGuest {
+				return fmt.Errorf("profile %s is a %s profile, not %s", o.Profile, p.Guest, createGuest)
+			}
+			if cmd.Flags().Changed("secure-boot") {
+				o.SecureBoot = &createSecureBoot
+			}
+			if cmd.Flags().Changed("tpm") {
+				o.TPM = &createTPM
+			}
+			e, err = core.CreateGuest(cmd.Context(), args[0], o)
+		}
 		if e.Notice != "" {
 			fmt.Fprintln(cmd.OutOrStdout(), "note:", e.Notice)
 		}
@@ -260,6 +284,13 @@ func init() {
 	vmImportCmd.Flags().StringVar(&importWorkspace, "folder", "", "VM folder for a .tar bundle (default <Workspace>/<name>)")
 	vmCreateCmd.Flags().StringVar(&createVersion, "version", "sonoma", "macOS version (high-sierra ... tahoe)")
 	vmCreateCmd.Flags().StringVar(&createWorkspace, "folder", "", "VM folder (default <Workspace>/<name>)")
+	vmCreateCmd.Flags().StringVar(&createGuest, "guest", "macos", "guest type: macos, linux, windows or other")
+	vmCreateCmd.Flags().StringVar(&createProfile, "profile", "", "OS profile of a linux, windows or other VM: "+strings.Join(core.ProfileIDs(), ", "))
+	vmCreateCmd.Flags().StringVar(&createISO, "iso", "", "installer ISO attached to the first optical drive")
+	vmCreateCmd.Flags().IntVar(&createDisk, "disk", 0, "size of the new disk in GiB (default: the profile's)")
+	vmCreateCmd.Flags().StringVar(&createFirmware, "firmware", "", "uefi or bios (default: the profile's)")
+	vmCreateCmd.Flags().BoolVar(&createSecureBoot, "secure-boot", false, "UEFI Secure Boot with Microsoft keys (default: the profile's)")
+	vmCreateCmd.Flags().BoolVar(&createTPM, "tpm", false, "a TPM 2.0 through swtpm (default: the profile's)")
 	vmCreateCmd.Flags().IntVar(&createSSHPort, "ssh-port", 0, "SSH port on 127.0.0.1 (default: the lowest free port from 2222; another VM's port is replaced by a free one)")
 	vmDeleteCmd.Flags().BoolVar(&deletePurge, "purge", false, "also delete the disk, install media and boot files the app created in the VM folder")
 	vmDeleteCmd.Flags().BoolVar(&deleteYes, "yes", false, "confirm")

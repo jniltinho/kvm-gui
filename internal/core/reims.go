@@ -10,12 +10,9 @@ import (
 // renders through the host's Vulkan driver. It runs on its own QEMU build, which the app
 // installs from a prebuilt package or builds in Docker, but never embeds (docs/reims-vgpu.md).
 
-// ReimsDir is <Workspace>/.reims, next to .kexts and .installers: qemu/<build>, qemu/current
-// and the build caches.
-func ReimsDir() (string, error) {
-	dir, err := (Config{Workspace: WorkspaceRoot()}).WorkspaceDir()
-	return filepath.Join(dir, ".reims"), err
-}
+// ReimsDir is ~/.local/share/kvm-gui/reims-ctl, reims-ctl's data folder for kvm-gui: qemu/<build>
+// and qemu/current. Builds made by macos-kvm-gui stay in the old Workspace's .reims.
+func ReimsDir() (string, error) { return filepath.Join(DataDir(), "reims-ctl"), nil }
 
 // ReimsQEMU finds the Reims QEMU: reims_qemu in settings.yaml (or MKG_REIMS_QEMU), the app's
 // own install in <Workspace>/.reims, then an upstream reims-ctl install. A relative reims_qemu
@@ -36,6 +33,9 @@ func ReimsQEMU() (string, error) {
 	if dir, err := ReimsDir(); err == nil {
 		tried = append(tried, filepath.Join(dir, "qemu", "current", "bin", "qemu-system-x86_64"))
 	}
+	if old := legacyWorkspaceDir(); old != "" {
+		tried = append(tried, filepath.Join(old, ".reims", "qemu", "current", "bin", "qemu-system-x86_64"))
+	}
 	data := os.Getenv("XDG_DATA_HOME")
 	if !filepath.IsAbs(data) {
 		home, _ := os.UserHomeDir()
@@ -47,5 +47,5 @@ func ReimsQEMU() (string, error) {
 			return p, nil
 		}
 	}
-	return "", errors.New("Reims vGPU is not installed (looked for " + tried[0] + "): install it in the Host tab or with `macos-kvm-gui reims install`")
+	return "", errors.New("Reims vGPU is not installed (looked for " + tried[0] + "): install it with Install Reims vGPU or `kvm-gui reims install`")
 }

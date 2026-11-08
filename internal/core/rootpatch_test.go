@@ -116,7 +116,7 @@ func kextZip(t *testing.T, name string, extra ...string) []byte {
 }
 
 func TestRootPatchKextsAndTransitions(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	root := t.TempDir()
 	if err := SetWorkspaceRoot(root); err != nil {
 		t.Fatal(err)

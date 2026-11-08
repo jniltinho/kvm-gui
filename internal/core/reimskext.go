@@ -29,10 +29,19 @@ var reimsKextFiles = []struct{ Path, SHA256 string }{
 // reimsKextMinKernel is Darwin 25, macOS 26: the kext does nothing before it.
 const reimsKextMinKernel = "25.0.0"
 
-// ReimsKextDir is the cached kext: <Workspace>/.kexts/reims-util-b302389/ReimsVgpu.kext.
+// ReimsKextDir is the cached kext: ~/.cache/kvm-gui/kexts/reims-util-b302389/ReimsVgpu.kext, or
+// the copy macos-kvm-gui cached in the old Workspace's .kexts when only that one exists.
 func ReimsKextDir() (string, error) {
-	dir, err := (Config{Workspace: WorkspaceRoot()}).WorkspaceDir()
-	return filepath.Join(dir, ".kexts", "reims-util-"+reimsUtilCommit[:7], "ReimsVgpu.kext"), err
+	rel := filepath.Join("reims-util-"+reimsUtilCommit[:7], "ReimsVgpu.kext")
+	return firstExisting(filepath.Join(CacheDir(), "kexts", rel), legacyKexts(rel)), nil
+}
+
+// legacyKexts is rel under the old Workspace's .kexts ("" without one).
+func legacyKexts(rel string) string {
+	if old := legacyWorkspaceDir(); old != "" {
+		return filepath.Join(old, ".kexts", rel)
+	}
+	return ""
 }
 
 // ReimsKextReady reports whether the kext is in the cache.

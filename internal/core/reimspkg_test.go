@@ -217,7 +217,7 @@ func fakeReims(t *testing.T) []byte {
 }
 
 func TestInstallReims(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	t.Setenv("MKG_REIMS_QEMU", "")
 	if err := SetWorkspaceRoot(t.TempDir()); err != nil {
 		t.Fatal(err)
@@ -274,7 +274,7 @@ func TestInstallReimsPackage(t *testing.T) {
 	if err != nil {
 		t.Skip(err)
 	}
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	t.Setenv("MKG_REIMS_QEMU", "")
 	if err := SetWorkspaceRoot(t.TempDir()); err != nil {
 		t.Fatal(err)

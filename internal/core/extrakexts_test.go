@@ -23,7 +23,7 @@ import (
 func kextsYAML(t *testing.T, body string) {
 	t.Helper()
 	if os.Getenv("XDG_CONFIG_HOME") == "" || !strings.HasPrefix(os.Getenv("XDG_CONFIG_HOME"), os.TempDir()) {
-		t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+		isolateXDG(t, t.TempDir())
 	}
 	os.MkdirAll(filepath.Dir(SettingsFile()), 0o755)
 	if err := os.WriteFile(SettingsFile(), []byte(body), 0o644); err != nil {
@@ -32,7 +32,7 @@ func kextsYAML(t *testing.T, body string) {
 }
 
 func TestLoadExtraKexts(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	if ks, err := LoadExtraKexts(); err != nil || len(ks.Entries)+len(ks.Disabled) != 0 {
 		t.Fatalf("no file is an empty list: %+v %v", ks, err)
 	}
@@ -164,7 +164,7 @@ func TestHTTPSGetMax(t *testing.T) {
 }
 
 func TestDownloadExtraKexts(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	if err := SetWorkspaceRoot(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}
@@ -210,7 +210,7 @@ func TestDownloadExtraKexts(t *testing.T) {
 }
 
 func TestExtraKextsBoot(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	root := t.TempDir()
 	if err := SetWorkspaceRoot(root); err != nil {
 		t.Fatal(err)
@@ -298,7 +298,7 @@ func TestExtraKextsBoot(t *testing.T) {
 }
 
 func TestKextSwitches(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	id, _ := newIdentity()
 	c := testDefaults()
 	c.Extras = &ExtraKexts{Disabled: []string{"WhateverGreen"}}
@@ -355,7 +355,7 @@ func TestRootPatchEntryUnchanged(t *testing.T) {
 }
 
 func TestExtraKextsEdges(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	kextsYAML(t, "kexts:\n  - url: https://example.com/a.zip\n    load: []\n")
 	ks, err := LoadExtraKexts()
 	if err != nil || ks.Entries[0].Kexts != nil || ks.Entries[0].id() != (ExtraKext{URL: "https://example.com/a.zip"}).id() {

@@ -80,10 +80,10 @@ var rootPatchKexts = []oclpKext{
 	{"KDKlessWorkaround", "Misc/KDKlessWorkaround-v1.0.0-RELEASE.zip", "8bdb85181d587cf8663e07f2853bc3e6ffa4712300b0dbcf954a97a25da6d0f1", "22.3.0"},
 }
 
-// RootPatchKextsDir is the shared cache of those kexts: <Workspace>/.kexts/oclp-2.5.1.
+// RootPatchKextsDir is the shared cache of those kexts: ~/.cache/kvm-gui/kexts/oclp-2.5.1, or
+// macos-kvm-gui's copy in the old Workspace when only that one exists.
 func RootPatchKextsDir() (string, error) {
-	dir, err := (Config{Workspace: WorkspaceRoot()}).WorkspaceDir()
-	return filepath.Join(dir, ".kexts", "oclp-2.5.1"), err
+	return firstExisting(filepath.Join(CacheDir(), "kexts", "oclp-2.5.1"), legacyKexts("oclp-2.5.1")), nil
 }
 
 // RootPatchKextsReady reports whether every kext is in the cache.

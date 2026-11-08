@@ -19,7 +19,9 @@ func TestMain(m *testing.M) {
 	if err != nil {
 		panic(err)
 	}
-	os.Setenv("XDG_CONFIG_HOME", dir)
+	for _, v := range []string{"XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"} {
+		os.Setenv(v, filepath.Join(dir, v))
+	}
 	code := m.Run()
 	os.RemoveAll(dir)
 	os.Exit(code)
@@ -32,4 +34,14 @@ func needTool(t *testing.T, why string) {
 		t.Fatal("required tool missing: ", why)
 	}
 	t.Skip(why)
+}
+
+// isolateXDG points every XDG base directory at dir, so a test has its own settings, database,
+// caches and logs.
+func isolateXDG(t *testing.T, dir string) {
+	t.Helper()
+	t.Setenv("XDG_CONFIG_HOME", dir)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(dir, ".data"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(dir, ".cache"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(dir, ".state"))
 }

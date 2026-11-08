@@ -179,3 +179,39 @@ func TestVMCreate(t *testing.T) {
 		t.Fatalf("a refused create adds nothing: %d VMs", len(vms))
 	}
 }
+
+// vm_create and vm_config_set for Linux and Windows VMs (task 3.10).
+func TestVMCreateGuests(t *testing.T) {
+	if _, err := exec.LookPath("qemu-img"); err != nil {
+		needTool(t, "qemu-img unavailable")
+	}
+	cs := session(t)
+	iso := filepath.Join(t.TempDir(), "Win11.iso")
+	os.WriteFile(iso, nil, 0o644)
+	folder := filepath.Join(t.TempDir(), "w11")
+	got := callOut(t, cs, "vm_create", map[string]any{"name": "Windows 11", "guest": "windows", "profile": "windows11",
+		"iso": iso, "disk_gib": 1, "folder": folder})
+	if got["guest"] != "windows" || got["secure_boot"] != true || got["tpm"] != true || got["firmware"] != "uefi" {
+		t.Fatalf("vm_create windows11: %v", got)
+	}
+	if _, err := os.Stat(filepath.Join(folder, "disk0.qcow2")); err != nil {
+		t.Fatalf("disk: %v", err)
+	}
+	got = callOut(t, cs, "vm_config_get", map[string]any{"vm": "Windows 11"})
+	if got["tpm"] != true || got["optical"].([]any)[0] != iso {
+		t.Fatalf("vm_config_get: %v", got)
+	}
+	got = callOut(t, cs, "vm_config_set", map[string]any{"vm": "Windows 11", "tpm": false, "iso": ""})
+	if got["tpm"] == true {
+		t.Fatalf("vm_config_set tpm: %v", got)
+	}
+	// A profile of another guest type, a relative ISO and a bad NIC model are refused.
+	for _, args := range []map[string]any{
+		{"name": "bad", "guest": "linux", "profile": "windows11"},
+		{"name": "bad", "guest": "linux", "profile": "ubuntu", "iso": "relative.iso"},
+	} {
+		if _, isErr := call(t, cs, "vm_create", args); !isErr {
+			t.Errorf("accepted: %v", args)
+		}
+	}
+}

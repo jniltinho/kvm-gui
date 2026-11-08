@@ -13,7 +13,7 @@ import (
 )
 
 func session(t *testing.T) *mcp.ClientSession {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	if err := core.SetWorkspaceRoot(t.TempDir()); err != nil {
 		t.Fatal(err)
 	}

@@ -87,11 +87,8 @@ func (e ExtraKext) id() string {
 	return e.URL + " sha256=" + e.SHA256 + " load=" + strings.Join(e.Kexts, ":")
 }
 
-// ExtraKextsDir is the cache shared by the Workspace's VMs: <Workspace>/.kexts/extra.
-func ExtraKextsDir() (string, error) {
-	dir, err := (Config{Workspace: WorkspaceRoot()}).WorkspaceDir()
-	return filepath.Join(dir, ".kexts", "extra"), err
-}
+// ExtraKextsDir is the cache shared by every VM: ~/.cache/kvm-gui/kexts/extra.
+func ExtraKextsDir() (string, error) { return filepath.Join(CacheDir(), "kexts", "extra"), nil }
 
 func (e ExtraKext) dir(base string) string {
 	sum := sha256.Sum256([]byte(e.id()))

@@ -11,7 +11,7 @@ import (
 
 func TestVMsDatabase(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	isolateXDG(t, cfg)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	app := filepath.Join(cfg, "macos-kvm-gui")
 
@@ -128,7 +128,7 @@ func TestLockFollowsSymlinks(t *testing.T) {
 }
 
 func TestMoveVM(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	old := t.TempDir()
 	c := testDefaults()
@@ -172,7 +172,7 @@ func TestMoveVM(t *testing.T) {
 
 func TestMigrationRetriesAfterAFailedImport(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	isolateXDG(t, cfg)
 	dir := filepath.Join(cfg, "macos-kvm-gui", "vms")
 	os.MkdirAll(dir, 0o755)
 	os.WriteFile(filepath.Join(dir, "a.json"), []byte(`{"name":"A","workspace":"/tmp/a"}`), 0o644)

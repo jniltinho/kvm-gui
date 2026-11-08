@@ -516,7 +516,7 @@ func BuildReims(ctx context.Context, release string, log func(string)) error {
 		return err
 	}
 	defer unlock()
-	work := filepath.Join(filepath.Dir(qdir), "build-"+release)
+	work := filepath.Join(CacheDir(), "reims-build", release)
 	share := filepath.Join(work, "share", "reims-ctl", "qemu")
 	os.RemoveAll(share) // only this run's build may be found there
 	if err := os.MkdirAll(work, 0o755); err != nil {

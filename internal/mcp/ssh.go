@@ -56,8 +56,7 @@ type sshOut struct {
 // knownHosts is the app's own known_hosts, so a guest reinstalled on the same port does not
 // break the user's ~/.ssh/known_hosts.
 func knownHosts() (string, error) {
-	db, err := core.DBPath()
-	return filepath.Join(filepath.Dir(db), "known_hosts"), err
+	return filepath.Join(core.ConfigDir(), "known_hosts"), nil
 }
 
 // sshArgs is ssh's command line; the password is never part of it.

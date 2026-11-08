@@ -44,6 +44,28 @@ func init() {
 	configSetCmd.Flags().BoolVar(&rootPatchReverted, "root-patch-reverted", false, "confirm the root patch was reverted in OCLP, to turn root-patch mode off")
 }
 
+var resetNVRAMYes bool
+
+var configResetNVRAMCmd = &cobra.Command{
+	Use:   "reset-nvram",
+	Short: "Make a powered-off Linux, Windows or Other VM's UEFI variables again for its Secure Boot setting",
+	Args:  cobra.NoArgs,
+	RunE: func(cmd *cobra.Command, _ []string) error {
+		if !resetNVRAMYes {
+			return errors.New("pass --yes: boot entries stored in the UEFI variables are lost")
+		}
+		e, err := currentVM()
+		if err != nil {
+			return err
+		}
+		if err := core.ResetVars(e.Config); err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "UEFI variables reset for", e.DisplayName())
+		return nil
+	},
+}
+
 var configSetCmd = &cobra.Command{
 	Use:   "set key=value...",
 	Short: "Change settings (workspace, version, ram, cores, vcpus, ssh-port, display, gpu, graphics, resolution, root-patch, nic<N>.enabled|mode|bridge|model|mac)",
@@ -117,6 +139,7 @@ var configRecommendCmd = &cobra.Command{
 }
 
 func init() {
-	configCmd.AddCommand(configShowCmd, configSetCmd, configRecommendCmd)
+	configResetNVRAMCmd.Flags().BoolVar(&resetNVRAMYes, "yes", false, "confirm: boot entries stored in the UEFI variables are lost")
+	configCmd.AddCommand(configShowCmd, configSetCmd, configRecommendCmd, configResetNVRAMCmd)
 	rootCmd.AddCommand(configCmd)
 }

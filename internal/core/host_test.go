@@ -49,6 +49,7 @@ func fakeHost(t *testing.T, cpuFlags, msrs string, procs ...string) Host {
 		write(t, filepath.Join(h.ProcRoot, string(rune('1'+i)), "comm"), p+"\n")
 	}
 	write(t, h.DevKVM, "")
+	write(t, filepath.Join(h.EtcRoot, "os-release"), "ID=ubuntu\nVERSION_ID=\"24.04\"\n")
 	return h
 }
 
@@ -213,6 +214,8 @@ func TestSetupScriptRejectsInjection(t *testing.T) {
 		{"nilton", "kvm_amd;reboot", ""},
 		{"nilton", "kvm_amd", "qemu-utils;reboot"},
 		{"nilton", "kvm_amd", "$(id)"},
+		{"nilton", "kvm_amd", "", "yum;reboot"},
+		{"nilton", "kvm_amd", ""},
 	} {
 		err := exec.Command("/bin/sh", append([]string{"-c", setupScript, "sh"}, args...)...).Run()
 		var ee *exec.ExitError
@@ -244,5 +247,57 @@ func TestPkexecCancelled(t *testing.T) {
 	h.Run = func(string, ...string) error { return kde }
 	if _, err := h.SetupHost("nilton"); !errors.Is(err, ErrCancelled) {
 		t.Errorf("KDE cancel must be reported as cancelled: %v", err)
+	}
+}
+
+// The package manager and QEMU per distribution, and the guest checks (task 3.9).
+func TestHostPerDistribution(t *testing.T) {
+	h := fakeHost(t, "svm avx2", "Y")
+	for release, want := range map[string]string{
+		"ID=ubuntu\nVERSION_ID=\"26.04\"\n":              "apt",
+		"ID=debian\nVERSION_ID=\"13\"\n":                 "apt",
+		"ID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\n": "dnf",
+		"ID=almalinux\nID_LIKE=\"rhel centos fedora\"\n": "dnf",
+		"ID=arch\n": "",
+		"ID=opensuse-tumbleweed\nID_LIKE=\"opensuse suse\"\n": "",
+	} {
+		write(t, filepath.Join(h.EtcRoot, "os-release"), release)
+		if got := h.PackageManager(); got != want {
+			t.Errorf("%q: %q, want %q", release, got, want)
+		}
+	}
+	// Rocky: qemu-kvm in /usr/libexec, packages and hints through dnf.
+	write(t, filepath.Join(h.EtcRoot, "os-release"), "ID=\"rocky\"\nID_LIKE=\"rhel centos fedora\"\nVERSION_ID=\"10.0\"\n")
+	h.QEMUKVM = filepath.Join(t.TempDir(), "qemu-kvm")
+	write(t, h.QEMUKVM, "")
+	h.LookPath = func(s string) (string, error) { return "", exec.ErrNotFound }
+	h.FirmwareRoot = t.TempDir()
+	cs := byName(h.Checks("sonoma"))
+	if c := cs["qemu-system-x86_64"]; c.Status != OK || !strings.Contains(c.Detail, h.QEMUKVM) {
+		t.Fatalf("Rocky QEMU: %+v", c)
+	}
+	if c := cs["qemu-img"]; c.Status != Fail || c.Hint != "sudo dnf install qemu-img" {
+		t.Fatalf("qemu-img hint: %+v", c)
+	}
+	if c := cs["swtpm"]; c.Status != Warn || c.Hint != "sudo dnf install swtpm" {
+		t.Fatalf("swtpm: %+v", c)
+	}
+	if c := cs["Secure Boot firmware"]; c.Status != Warn || c.Hint != "sudo dnf install edk2-ovmf" {
+		t.Fatalf("firmware: %+v", c)
+	}
+	var ran []string
+	h.Run = func(name string, args ...string) error {
+		ran = args
+		write(t, h.msrsPath(), "Y")
+		return nil
+	}
+	if _, err := h.SetupHost("nilton"); err != nil || ran[6] != "qemu-img" || ran[7] != "dnf" {
+		t.Fatalf("Rocky setup: %v %q", err, ran)
+	}
+	// Unsupported distribution with a missing package: nothing runs, the packages are listed.
+	write(t, filepath.Join(h.EtcRoot, "os-release"), "ID=arch\n")
+	ran = nil
+	if _, err := h.SetupHost("nilton"); err == nil || !strings.Contains(err.Error(), "qemu-utils") || ran != nil {
+		t.Fatalf("unsupported: %v %q", err, ran)
 	}
 }

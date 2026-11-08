@@ -152,7 +152,7 @@ func TestSSHPortInUse(t *testing.T) {
 
 func TestMigrationToVersion2(t *testing.T) {
 	cfg := t.TempDir()
-	t.Setenv("XDG_CONFIG_HOME", cfg)
+	isolateXDG(t, cfg)
 	path, _ := DBPath()
 	os.MkdirAll(filepath.Dir(path), 0o755)
 	// A version 1 database, as the previous release left it.

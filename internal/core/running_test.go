@@ -59,7 +59,7 @@ func TestRunningDetection(t *testing.T) {
 }
 
 func TestPreferences(t *testing.T) {
-	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	isolateXDG(t, t.TempDir())
 	if Preference("theme") != "" {
 		t.Fatal("unset preference must be empty")
 	}

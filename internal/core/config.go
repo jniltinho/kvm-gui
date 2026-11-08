@@ -248,14 +248,8 @@ func (c Config) Validate() error {
 	return validateNICs(c.Adapters(), NICModels)
 }
 
-// ConfigPath is ~/.config/macos-kvm-gui/config.json (or the XDG equivalent).
-func ConfigPath() (string, error) {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(dir, "macos-kvm-gui", "config.json"), nil
-}
+// ConfigPath is the single-VM config.json of the oldest macos-kvm-gui versions, imported once.
+func ConfigPath() (string, error) { return filepath.Join(legacyConfigDir(), "config.json"), nil }
 
 // LoadConfig returns the defaults when the file does not exist yet. A standalone file has no
 // VM list to pick a port from, so it gets FirstSSHPort unless it names one.

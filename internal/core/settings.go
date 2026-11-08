@@ -24,13 +24,8 @@ type fileSettings struct {
 	ExtraKexts `yaml:",inline"`
 }
 
-// SettingsFile is ~/.config/macos-kvm-gui/settings.yaml ("" without a user config folder).
-func SettingsFile() string {
-	if env := envFile(); env != "" {
-		return filepath.Join(filepath.Dir(env), "settings.yaml")
-	}
-	return ""
-}
+// SettingsFile is ~/.config/kvm-gui/settings.yaml.
+func SettingsFile() string { return filepath.Join(ConfigDir(), "settings.yaml") }
 
 // loadSettingsFile reads settings.yaml, creating it from the commented default first.
 func loadSettingsFile() (fileSettings, error) {
@@ -68,14 +63,8 @@ func ResetSettings() error {
 	return writeFileAtomic(SettingsFile(), defaultSettingsYAML, 0o644)
 }
 
-// envFile is the optional local settings file: ~/.config/macos-kvm-gui/.env.
-func envFile() string {
-	dir, err := os.UserConfigDir()
-	if err != nil {
-		return ""
-	}
-	return filepath.Join(dir, "macos-kvm-gui", ".env")
-}
+// envFile is the older optional settings file: ~/.config/kvm-gui/.env.
+func envFile() string { return filepath.Join(ConfigDir(), ".env") }
 
 // Setting returns key from the environment, then settings.yaml, then the older local .env file.
 // The file holds plain KEY=value lines; # starts a comment and quotes around values are dropped.
@@ -100,4 +89,17 @@ func Setting(key string) string {
 		return strings.Trim(strings.TrimSpace(v), `"'`)
 	}
 	return ""
+}
+
+// Skins are the GUI's themes (frontend/src/themes), plus "system", which follows the desktop.
+var Skins = []string{"light", "dark", "xp", "macos", "macos-dark", "macos-retro", "system"}
+
+// ThemeOrSystem is t when it names a skin, otherwise "system".
+func ThemeOrSystem(t string) string {
+	for _, s := range Skins {
+		if t == s {
+			return t
+		}
+	}
+	return "system"
 }

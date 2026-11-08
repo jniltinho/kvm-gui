@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -271,4 +272,48 @@ func usbNode(sysRoot, devRoot string, u USBDevice) (string, error) {
 		return filepath.Join(devRoot, fmt.Sprintf("%03d", b), fmt.Sprintf("%03d", d)), nil
 	}
 	return "", fmt.Errorf("USB device %s:%s is not plugged in", u.Vendor, u.Product)
+}
+
+// GuestOptions are `vm create --guest` and MCP vm_create's choices for a Linux, Windows or Other
+// VM; nil and zero fields keep the profile's defaults.
+type GuestOptions struct {
+	Profile, ISO, Folder, Firmware string
+	DiskGiB, SSHPort               int
+	SecureBoot, TPM                *bool
+}
+
+// CreateGuest creates a Linux, Windows or Other VM with the profile's defaults and the options,
+// recommended CPU and RAM for this host (never below the profile's), its folder and disk.
+func CreateGuest(ctx context.Context, name string, o GuestOptions) (VMEntry, error) {
+	if o.ISO != "" {
+		abs, err := filepath.Abs(o.ISO)
+		if err != nil {
+			return VMEntry{}, err
+		}
+		o.ISO = abs
+	}
+	c, err := NewGuest(o.Profile, name, o.ISO)
+	if err != nil {
+		return VMEntry{}, err
+	}
+	p, _ := ProfileByID(o.Profile)
+	rec := Recommended(c, runtime.NumCPU(), SystemHost().MemTotalMiB())
+	c.RAMMiB, c.VCPUs, c.Cores = max(rec.RAMMiB, p.RAMMiB), rec.VCPUs, rec.Cores
+	c.Workspace, c.SSHPort = o.Folder, o.SSHPort
+	if o.DiskGiB > 0 {
+		c.DiskGiB = o.DiskGiB
+	}
+	if o.Firmware != "" {
+		c.Firmware = o.Firmware
+		if c.Firmware == FirmwareBIOS && o.SecureBoot == nil {
+			c.SecureBoot = false
+		}
+	}
+	if o.SecureBoot != nil {
+		c.SecureBoot = *o.SecureBoot
+	}
+	if o.TPM != nil {
+		c.TPM = *o.TPM
+	}
+	return CreateGuestVM(ctx, c)
 }

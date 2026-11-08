@@ -30,16 +30,12 @@ type VM struct {
 func (a *App) Version() string { return a.version }
 
 // Theme is the skin to draw: KVM_GUI_THEME or MKG_THEME (or settings.yaml), else the saved
-// preference, else "system". Unknown ids fall back to "system" in the page.
+// preference, else "system"; an unknown id is "system".
 func (a *App) Theme() string {
-	if t := core.Setting("KVM_GUI_THEME"); t != "" {
-		return t
-	}
-	if t := core.Setting("MKG_THEME"); t != "" {
-		return t
-	}
-	if t := core.Preference("theme"); t != "" {
-		return t
+	for _, t := range []string{core.Setting("KVM_GUI_THEME"), core.Setting("MKG_THEME"), core.Preference("theme")} {
+		if t != "" {
+			return core.ThemeOrSystem(t)
+		}
 	}
 	return "system"
 }
