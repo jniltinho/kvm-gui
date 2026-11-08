@@ -237,6 +237,10 @@ func planImport(a appliance, o ImportOptions, hostMiB, hostThreads int) (importP
 		}
 		c.Networks = append(c.Networks, nic)
 	}
+	if len(c.Networks) == 0 { // kvm-gui keeps one adapter: disabled, so the VM has no network, as the appliance said
+		c.Networks = []NIC{{Enabled: false, Mode: NetNAT, Model: prof.NIC, MAC: RandomMAC()}}
+		notes = append(notes, "the appliance has no network adapter: the VM's adapter is disabled (turn it on in Settings › Network)")
+	}
 	if len(c.Networks) > 4 {
 		notes = append(notes, fmt.Sprintf("%d adapters: the first 4 are kept", len(c.Networks)))
 		c.Networks = c.Networks[:4]

@@ -69,6 +69,23 @@ user has it; otherwise the `render` group). It is OpenGL only: Vulkan in the gue
 (QEMU 9.2 or later, as on Ubuntu 26.04 and Debian 13), which kvm-gui does not set up yet. Windows
 has no virgl driver, so the box is off for Windows VMs.
 
+## Import a VirtualBox appliance
+
+`kvm-gui vm import-ova lab.ova` (or the MCP tool `vm_import_ova`) turns an OVF appliance, as
+VirtualBox's File › Export Appliance writes it, into a Linux, Windows or Other VM: the OS type
+picks the profile, then memory and processors (within this host's), firmware and Secure Boot
+(from VirtualBox's own record in the appliance), disks converted to qcow2 on the controller the
+appliance used when kvm-gui has it (SATA, NVMe; IDE and SCSI become SATA, virtio-scsi becomes
+virtio-blk, each with a note), empty optical drives and network adapters with new MAC addresses.
+Run it with `--dry-run` first: it lists what is not kept, such as bridged adapters (NAT unless
+`--bridge` names a host bridge), UEFI boot entries (the guest starts from its fallback loader),
+TPM state (a BitLocker volume asks for its recovery key) and floppy drives.
+
+The appliance is treated as untrusted: only plain files with flat names, the descriptor first, a
+manifest that must match when present, and disks that stand alone (a VMDK that is one file, a
+qcow2 without a backing file) whose real size is the one declared; kvm-gui reads each disk's header
+itself before `qemu-img` opens it. A refused or failed import leaves nothing behind.
+
 ## Validated
 
 - 3D acceleration on the reference host (Ubuntu 24.04, QEMU 8.2.2, virglrenderer 1.0): the

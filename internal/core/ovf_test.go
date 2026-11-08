@@ -213,3 +213,14 @@ func TestPlanImport(t *testing.T) {
 		t.Errorf("Windows 11 without firmware: %+v %v", p.Config, p.Notes)
 	}
 }
+
+// An appliance without adapters gets one disabled adapter, so the VM is valid and has no network.
+func TestPlanImportNoNIC(t *testing.T) {
+	p, err := planImport(appliance{OSType: "Debian_64", CPUs: 1}, ImportOptions{Folder: t.TempDir() + "/d"}, 0, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Config.Networks) != 1 || p.Config.Networks[0].Enabled || validatePlan(p.Config) != nil {
+		t.Errorf("networks %+v, validate %v", p.Config.Networks, validatePlan(p.Config))
+	}
+}
