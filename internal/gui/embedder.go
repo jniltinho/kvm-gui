@@ -77,7 +77,8 @@ func (a *App) EmbedScreen(id, host string, x, y, w, h, dpr float64) (EmbedState,
 		win = a.vmWindow(id)
 	}
 	if win == nil || !onX11() {
-		return EmbedState{"unavailable", "the app is not on X11"}, nil
+		logf("%s: not embedded in the %s window: the app is not in an X11 session", id, host)
+		return EmbedState{"unavailable", "the app is not in an X11 session"}, nil
 	}
 	embeds.mu.Lock()
 	v := embeds.vms[id]
@@ -93,6 +94,9 @@ func (a *App) EmbedScreen(id, host string, x, y, w, h, dpr float64) (EmbedState,
 			logf("%s: the VM's window is gone", id)
 			embeds.drop(id)
 			return EmbedState{"unavailable", "the VM's window is gone"}, nil
+		}
+		if w < 2 || h < 2 { // no size yet (or hidden): the next call places it
+			return EmbedState{State: "embedded"}, nil
 		}
 		ox, oy, scale := webviewOrigin(win)
 		rx, ry, rw, rh := int16(ox*float64(scale)+x*dpr), int16(oy*float64(scale)+y*dpr), uint16(w*dpr), uint16(h*dpr)
@@ -168,6 +172,11 @@ func (m *embedder) take(id, host string, win *application.WebviewWindow, pid uin
 		return
 	}
 	logf("%s: window %#x embedded into %#x", id, child, parent)
+	if self, err := core.SelfPath(); err != nil {
+		logf("%s: no embed guard: %v", id, err)
+	} else if err := e.StartGuard(self, "embed-guard"); err != nil {
+		logf("%s: no embed guard: %v", id, err) // embedded all the same; a SIGKILL may then cost the VM its window
+	}
 	v := &vmEmbed{host: host, e: e, release: release, stop: make(chan struct{})}
 	m.mu.Lock()
 	m.vms[id] = v

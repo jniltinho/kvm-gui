@@ -37,6 +37,8 @@ make openspec    # openspec validate --all --strict
 make self-test   # the GUI opens under Xvfb in the image
 make dist        # dist/: AppImage, binary, kvm-gui_<v>_amd64.deb, kvm-gui-<v>-1.x86_64.rpm, SHA256SUMS
 scripts/check-dist.sh <ubuntu24.04|ubuntu26.04|debian13|rocky10> all  # artifacts in clean containers
+scripts/check-gnome.sh <24.04|26.04>  # Reims embedding under GNOME (X11; Wayland: none), the .deb in clean containers
+make test-embed  # internal/embed under Xvfb
 make test-integration  # real QEMU/KVM boot of the embedded OpenCore (needs /dev/kvm)
 ```
 

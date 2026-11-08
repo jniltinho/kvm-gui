@@ -22,6 +22,7 @@ func runGUI() error {
 func init() {
 	for _, c := range []*cobra.Command{rootCmd, guiCmd} {
 		c.Flags().BoolVar(&guiOpts.SafeGPU, "safe-gpu", false, "start the window with GPU acceleration off (or KVM_GUI_SAFE_GPU=1)")
+		c.Flags().StringVar(&guiOpts.Show, "show", "", "open this VM's window too (id or name); in the running app when it is open")
 		c.Flags().BoolVar(&guiOpts.SelfTest, "self-test", false, "open the Manager, wait until it has loaded the VM list, and exit 0")
 	}
 	rootCmd.AddCommand(guiCmd)

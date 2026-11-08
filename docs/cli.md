@@ -1,6 +1,6 @@
 # Command line
 
-`kvm-gui` is a command line tool and an MCP server; the desktop GUI (Go + Wails) comes with the next release, and until then the binary without a command says so. Every step runs from a terminal, so installs can be scripted. Every command has `--help`. The packages also install `macos-kvm-gui` as a link to `kvm-gui`.
+`kvm-gui` is the desktop GUI (the binary without a command, or `gui`), a command line tool and an MCP server. Every step runs from a terminal, so installs can be scripted. Every command has `--help`. The packages also install `macos-kvm-gui` as a link to `kvm-gui`.
 
 ```sh
 kvm-gui --help          # all commands
@@ -14,6 +14,7 @@ VMs live in `~/.config/macos-kvm-gui/macos-kvm-gui.db` (SQLite). Commands act on
 
 | Command | What it does |
 |---|---|
+| `gui [--show <vm>] [--safe-gpu]` | Opens the desktop GUI. `--show` also opens that VM's window (id or name); when the GUI is already open, it opens the window there. `--safe-gpu` (or `KVM_GUI_SAFE_GPU=1`) turns the window's GPU acceleration off. |
 | `check` | Runs the Host tab's checks. Exits with an error when any check fails. |
 | `mcp` | Runs the [MCP server](mcp.md) for AI agents on standard input and output. |
 | `setup` | Installs missing QEMU packages, loads the KVM module, adds you to the `kvm` group, enables `ignore_msrs` and raises `vm.max_map_count` to 2097152 for Reims vGPU. It asks for your password once, through `pkexec`. |

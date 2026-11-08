@@ -7,7 +7,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
+	"os/exec"
 	"strings"
 	"time"
 
@@ -129,6 +131,8 @@ type Embedded struct {
 	x0, y0                   int16
 	w, h                     uint16
 	alive, released, shown   bool
+	guard                    *exec.Cmd // StartGuard's process
+	guardIn                  io.WriteCloser
 }
 
 // Embed reparents child (whose _NET_WM_PID must still be pid: a window re-used by another
@@ -322,6 +326,7 @@ func (e *Embedded) Release() error {
 		return nil
 	}
 	e.released = true
+	e.stopGuard()
 	e.drain()
 	// Never trust alive here: destroying a container that still holds the VM's window destroys
 	// that window, and QEMU dies of the BadWindow.

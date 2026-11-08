@@ -19,6 +19,12 @@ import (
 // waits to be killed (FAKE_X_APP), besides the tests.
 func TestMain(m *testing.M) {
 	switch {
+	case os.Getenv("FAKE_X_GUARD") != "": // the guard the fake app starts (StartGuard)
+		if err := GuardMain(os.Args[1:]); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+		os.Exit(0)
 	case os.Getenv("FAKE_X_CLIENT") != "":
 		fakeClient()
 	case os.Getenv("FAKE_X_APP") != "":
@@ -106,6 +112,12 @@ func fakeApp() {
 		os.Exit(6)
 	}
 	e.SetRect(10, 20, 300, 200)
+	if os.Getenv("FAKE_X_APP_GUARD") != "" {
+		os.Setenv("FAKE_X_GUARD", "1")
+		if err := e.StartGuard(os.Args[0]); err != nil {
+			os.Exit(7)
+		}
+	}
 	fmt.Println("embedded")
 	select {}
 }
@@ -246,6 +258,9 @@ func TestSurvivesSIGKILL(t *testing.T) {
 	}
 }
 
+// teardown is how long fakeWM takes to destroy the frame of a window that was destroyed.
+const teardown = 30 * time.Millisecond
+
 // fakeWM is a reparenting window manager like KWin: it frames every top-level window mapped on
 // the root, and on unmap puts the window back on the root and destroys the frame. stop ends it.
 func fakeWM(t *testing.T) (stop func()) {
@@ -280,6 +295,13 @@ func fakeWM(t *testing.T) (stop func()) {
 				frames[ev.Window] = f
 			case xproto.ConfigureRequestEvent:
 				xproto.ConfigureWindow(conn, ev.Window, xproto.ConfigWindowWidth|xproto.ConfigWindowHeight, []uint32{uint32(ev.Width), uint32(ev.Height)})
+			case xproto.DestroyNotifyEvent:
+				// Its client is gone: the frame goes, a moment later, like a real window manager's
+				// (several round trips: mutter's frames client, KWin's close effect).
+				if f, ok := frames[ev.Window]; ok {
+					delete(frames, ev.Window)
+					time.AfterFunc(teardown, func() { xproto.DestroyWindow(conn, f); conn.Sync() })
+				}
 			case xproto.UnmapNotifyEvent:
 				if f, ok := frames[ev.Window]; ok && ev.Event == f {
 					delete(frames, ev.Window)
@@ -343,5 +365,49 @@ func TestEmbedUnderWindowManager(t *testing.T) {
 	e.Release()
 	if p := parentOf(t, app, w); p == e.container {
 		t.Fatal("still in the container")
+	}
+}
+
+// The app is killed with SIGKILL under a reparenting window manager: the save-set moves the VM's
+// window into the frame of the app's window, which the window manager destroys. Without a guard
+// the VM loses its window (QEMU dies of it); the guard puts it back on the desktop first.
+func TestSIGKILLUnderWindowManager(t *testing.T) {
+	needX(t)
+	stop := fakeWM(t)
+	defer stop()
+	x, err := Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+	for _, guarded := range []bool{false, true} {
+		client := startClient(t)
+		app := exec.Command(os.Args[0])
+		app.Env = append(os.Environ(), "FAKE_X_APP="+strconv.Itoa(client.Process.Pid))
+		if guarded {
+			app.Env = append(app.Env, "FAKE_X_APP_GUARD=1")
+		}
+		out, _ := app.StdoutPipe()
+		if err := app.Start(); err != nil {
+			t.Fatal(err)
+		}
+		buf := make([]byte, 16)
+		if n, _ := out.Read(buf); string(buf[:n]) != "embedded\n" {
+			app.Process.Kill()
+			app.Wait()
+			t.Fatalf("guarded %v: the fake app did not embed: %q", guarded, buf[:n])
+		}
+		app.Process.Signal(syscall.SIGKILL)
+		app.Wait()
+		time.Sleep(10 * teardown)
+		ctx, cancel := context.WithTimeout(t.Context(), time.Second)
+		_, err := x.FindWindow(ctx, uint32(client.Process.Pid), ReimsTitle)
+		cancel()
+		if guarded && err != nil {
+			t.Fatalf("with a guard the VM lost its window: %v", err)
+		}
+		if !guarded && err == nil {
+			t.Fatal("without a guard the window survived: the fake window manager does not destroy frames")
+		}
 	}
 }

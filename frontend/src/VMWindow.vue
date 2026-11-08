@@ -19,6 +19,8 @@ const screen = ref<InstanceType<typeof VMScreen>>();
 const viewer = computed(() => screen.value?.viewer);
 
 const reims = computed(() => vm.value?.graphics === "reims-vgpu");
+// The screen is in this window unless QEMU draws it in its own (Settings › Display › Screen).
+const inApp = computed(() => reims.value || info.value?.config.display !== "window");
 async function refresh() {
   try {
     const v = (await VMs()).find((x) => x.id === props.id) ?? null;

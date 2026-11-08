@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/jniltinho/kvm-gui/internal/core"
@@ -28,9 +29,10 @@ func TestMemArgAndX11(t *testing.T) {
 		gdk, wayland, display string
 		want                  bool
 	}{
-		{"", "", ":0", true},           // X11 session
-		{"", "wayland-0", ":0", false}, // GTK picks Wayland
-		{"x11", "wayland-0", ":0", true},
+		{"", "", ":0", true},              // X11 session
+		{"", "wayland-0", ":0", false},    // GTK picks Wayland
+		{"x11", "wayland-0", ":0", false}, // XWayland on a Wayland desktop: never (design D6)
+		{"x11", "", ":0", true},
 		{"wayland,x11", "", ":0", false},
 		{"", "", "", false},
 	} {
@@ -87,6 +89,15 @@ func TestGuestConfig(t *testing.T) {
 		m(&b)
 		if got := field(b); got != want {
 			t.Errorf("want FieldError %s, got %q", want, got)
+		}
+	}
+}
+
+// A second launch's --show reaches the running app in either spelling.
+func TestShowArg(t *testing.T) {
+	for args, want := range map[string]string{"kvm-gui --show Nilton": "Nilton", "kvm-gui gui --show=a b": "a", "kvm-gui --show": "", "kvm-gui": ""} {
+		if got := showArg(strings.Fields(args)); got != want {
+			t.Errorf("%q: %q, want %q", args, got, want)
 		}
 	}
 }

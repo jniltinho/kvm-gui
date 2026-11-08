@@ -11,6 +11,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -32,6 +33,8 @@ type Options struct {
 	SafeGPU bool
 	// SelfTest opens the Manager, waits until the page has loaded the VM list, and exits 0.
 	SelfTest bool
+	// Show opens this VM's window (id or name) too; a second launch asks the running app (--show).
+	Show string
 }
 
 // selfTestTimeout bounds --self-test: the page must report ready by then.
@@ -80,7 +83,11 @@ func Run(o Options) error {
 	if !o.SelfTest {
 		opts.SingleInstance = &application.SingleInstanceOptions{
 			UniqueID: "io.github.jniltinho.kvm-gui",
-			OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+			OnSecondInstanceLaunch: func(d application.SecondInstanceData) {
+				if key := showArg(d.Args); key != "" {
+					showVM(svc, key)
+					return
+				}
 				if win != nil {
 					win.Restore()
 					win.Focus()
@@ -164,6 +171,10 @@ func Run(o Options) error {
 		// The embedded VM window goes back to the desktop before this window is destroyed.
 		w.RegisterHook(events.Common.WindowClosing, func(*application.WindowEvent) { embeds.drop(id) })
 	}
+	if o.Show != "" {
+		var once sync.Once
+		win.OnWindowEvent(events.Common.WindowShow, func(*application.WindowEvent) { once.Do(func() { showVM(svc, o.Show) }) })
+	}
 	svc.mainWindow = func() *application.WebviewWindow { return win }
 	svc.vmWindow = func(id string) *application.WebviewWindow {
 		if w, ok := app.Window.GetByName("vm:" + id); ok {
@@ -196,4 +207,34 @@ func Run(o Options) error {
 		}
 	}
 	return nil
+}
+
+// showArg is --show's value in a second launch's arguments ("--show X" or "--show=X").
+func showArg(args []string) string {
+	for i, a := range args {
+		if v, ok := strings.CutPrefix(a, "--show="); ok {
+			return v
+		}
+		if a == "--show" && i+1 < len(args) {
+			return args[i+1]
+		}
+	}
+	return ""
+}
+
+// showVM opens the window of the VM key names (id or name).
+func showVM(svc *App, key string) {
+	vms, err := core.ListVMs()
+	if err != nil {
+		slog.Warn("--show", "error", err)
+		return
+	}
+	e, ok := core.FindVM(vms, key)
+	if !ok {
+		slog.Warn("--show: no such VM", "vm", key)
+		return
+	}
+	if err := svc.Show(e.ID); err != nil {
+		slog.Warn("--show", "vm", key, "error", err)
+	}
 }

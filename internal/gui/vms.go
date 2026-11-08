@@ -532,11 +532,12 @@ func vmTitle(name string, running bool) string {
 	return name + " [" + state + "] — kvm-gui"
 }
 
-// onX11 says whether this window is drawn on X11 (XWayland included): GTK takes GDK_BACKEND's
-// first entry, else Wayland when there is a Wayland display.
+// onX11 says whether the app runs in an X11 session, where it can hold Reims vGPU's window. Never
+// on a Wayland desktop, even on XWayland: XWayland 24 crashes, taking every X11 client with it,
+// when an app holding another client's window dies (scripts/check-gnome.sh 26.04, design D6).
 func onX11() bool {
-	if b := os.Getenv("GDK_BACKEND"); b != "" {
-		return strings.HasPrefix(b, "x11")
+	if b := os.Getenv("GDK_BACKEND"); b != "" && !strings.HasPrefix(b, "x11") {
+		return false
 	}
 	return os.Getenv("WAYLAND_DISPLAY") == "" && os.Getenv("DISPLAY") != ""
 }

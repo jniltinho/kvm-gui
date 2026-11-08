@@ -13,6 +13,8 @@ make build-prod     # stripped, -trimpath, main.version from VERSION
 make self-test      # the GUI opens and loads the VM list, under Xvfb in the image
 make dist           # dist/: the AppImage, the binary, kvm-gui_<v>_amd64.deb, kvm-gui-<v>-1.x86_64.rpm and SHA256SUMS
 scripts/check-dist.sh <ubuntu24.04|ubuntu26.04|debian13|rocky10> all   # the artifacts in clean containers
+scripts/check-gnome.sh <24.04|26.04>   # Reims vGPU embedding under GNOME (X11 on 24.04, Wayland on 26.04)
+make test-embed     # the embedding package under Xvfb, with a fake reparenting window manager
 ```
 
 Go's build and module caches persist in `~/.cache/kvm-gui-build`. Boot assets are committed; a normal build does not fetch them.

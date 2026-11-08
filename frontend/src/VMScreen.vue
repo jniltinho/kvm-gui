@@ -19,8 +19,8 @@ defineExpose({ state, reason, viewer });
 async function place() {
   const el = area.value;
   if (!el || !embedding.value || props.covered) return;
+  // Asked even before the area has a size: where it cannot embed (Wayland), the viewer at once.
   const r = el.getBoundingClientRect();
-  if (r.width < 2 || r.height < 2) return;
   try {
     const s = await EmbedScreen(props.id, props.host, r.left, r.top, r.width, r.height, window.devicePixelRatio || 1);
     state.value = s.state;

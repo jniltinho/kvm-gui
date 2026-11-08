@@ -2,16 +2,16 @@
 
 ## Purpose
 
-How the desktop GUI shows Reims vGPU's own accelerated window inside a VM window on X11, and how it falls back to that window on the desktop when it cannot.
+How the desktop GUI shows Reims vGPU's own accelerated window inside the app on X11 (the Manager's Screen tab or the VM's window), and how it falls back to that window on the desktop when it cannot.
 
 ## ADDED Requirements
 
 ### Requirement: When the window is embedded
-The GUI SHALL embed a Reims vGPU VM's window in that VM's window only when the run was started from the GUI, the GUI is on X11 (directly or through XWayland), and no other running GUI instance holds that run. Otherwise the guest SHALL stay in Reims vGPU's own window and the VM window SHALL say where the screen is. The GUI SHALL never take a window of a run started by the CLI or MCP server.
+The GUI SHALL embed a Reims vGPU VM's window, in the Manager's Screen tab or in the VM's window (one at a time), only when the run was started from the GUI, the GUI runs in an X11 session (never on Wayland, XWayland included), and no other running GUI instance holds that run. Otherwise the guest SHALL stay in Reims vGPU's own window and the app SHALL say where the screen is. The GUI SHALL never take a window of a run started by the CLI or MCP server.
 
 #### Scenario: Started from the GUI on X11
 - **WHEN** a Reims vGPU VM starts with Normal from the GUI on X11
-- **THEN** within 30 seconds macOS shows inside the VM window and no separate Reims vGPU window remains on the desktop
+- **THEN** within 30 seconds macOS shows inside the Manager's Screen tab and no separate Reims vGPU window remains on the desktop
 
 #### Scenario: Started by the CLI
 - **WHEN** `kvm-gui vm start` starts the VM while the GUI is open
@@ -19,7 +19,7 @@ The GUI SHALL embed a Reims vGPU VM's window in that VM's window only when the r
 
 #### Scenario: Wayland desktop
 - **WHEN** the GUI starts a Reims vGPU VM on a Wayland desktop with XWayland
-- **THEN** both the GUI and Reims vGPU's window run on XWayland and the guest is embedded
+- **THEN** the guest stays in Reims vGPU's own window and the VM window says so
 
 ### Requirement: Run ownership survives the GUI
 A run started from the GUI SHALL stay a GUI run after that GUI exits: a later GUI of the same user SHALL be able to embed it, after checking that the run is the same QEMU process that was started (not a reused process id) and that no live GUI instance holds it.
@@ -57,7 +57,7 @@ A click on the GUI's own controls SHALL give the keyboard back to the GUI until 
 - **THEN** that application keeps the keyboard
 
 ### Requirement: Release before the parent goes away
-Before a VM window that holds an embedded guest is closed, recreated or destroyed, and before the GUI exits normally or on SIGTERM, SIGINT or SIGHUP, the GUI SHALL put the guest window back on the desktop. If the GUI dies without doing so, the X server SHALL give the window back to the desktop instead of destroying it. The VM SHALL keep running.
+Before a VM window that holds an embedded guest is closed, recreated or destroyed, and before the GUI exits normally or on SIGTERM, SIGINT or SIGHUP, the GUI SHALL put the guest window back on the desktop. If the GUI dies without doing so, the window SHALL still go back to the desktop instead of being destroyed, also under a reparenting window manager (whose frame of the GUI's window goes away with it). The VM SHALL keep running.
 
 #### Scenario: Close one of two VM windows
 - **WHEN** two Reims vGPU VMs are embedded and the user closes one VM window choosing to continue in the background
