@@ -4,6 +4,7 @@ go 1.27.2
 
 require (
 	github.com/coder/websocket v1.8.14
+	github.com/jezek/xgb v1.3.1
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/spf13/cobra v1.10.2
 	github.com/wailsapp/wails/v3 v3.1.0

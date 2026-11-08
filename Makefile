@@ -42,6 +42,10 @@ layers: image embed-stub
 RUN_GUI := $(subst --rm,--rm --init --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
            --security-opt systempaths=unconfined -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro,$(RUN))
 
+# Embedding of a VM's X11 window (internal/embed) under Xvfb, with an X client of the test binary.
+test-embed: image
+	$(RUN) sh -c 'Xvfb :58 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; DISPLAY=:58 MKG_REQUIRE_X=1 go test -race -count=1 -v ./internal/embed'
+
 # The Manager opens, loads the VM list and exits 0.
 self-test: build
 	$(RUN_GUI) sh -c 'export XDG_RUNTIME_DIR=$$(mktemp -d); Xvfb :57 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; \
@@ -102,4 +106,4 @@ dist: package appimage
 clean:
 	rm -rf dist
 
-.PHONY: self-test image tidy embed-stub frontend frontend-check layers test openspec build build-prod test-integration package appimage dist clean
+.PHONY: test-embed self-test image tidy embed-stub frontend frontend-check layers test openspec build build-prod test-integration package appimage dist clean

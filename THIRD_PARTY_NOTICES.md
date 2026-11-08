@@ -44,6 +44,7 @@ The binary is built from these modules (`go.mod`); each one's license text is in
 | `github.com/yosida95/uritemplate/v3` | used by the MCP SDK | BSD-3-Clause |
 | `github.com/ncruces/go-strftime` | used by modernc.org/sqlite | MIT |
 | `github.com/mattn/go-isatty` | used by Wails | MIT |
+| `github.com/jezek/xgb` | the X11 protocol for embedding a VM's own window (`internal/embed`) | BSD-3-Clause |
 | `github.com/coder/websocket` | the VM screen's WebSocket, and Wails | ISC |
 | `github.com/ebitengine/purego` | used by Wails | Apache-2.0 |
 | `github.com/go-ole/go-ole` | used by Wails on Windows only (not in the Linux binary) | MIT |

@@ -30,6 +30,8 @@ jobs:
         run: make openspec
       - name: Frontend lint (Vite Plus)
         run: make frontend-check
+      - name: Embedding a VM's X11 window, SIGKILL included (Xvfb)
+        run: make test-embed
       - name: The Manager opens and loads the VM list (Xvfb)
         run: make self-test
       - name: Artifacts (.deb, .rpm, AppImage, binary, SHA256SUMS)
