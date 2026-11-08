@@ -10,7 +10,7 @@ Guidance for AI coding agents (Claude Code, Codex, Cursor) working in this repos
 |---|---|---|
 | kvm-gui | `main.go`, `cmd/`, `internal/` | `vX.Y.Z` → `kvm-gui vX.Y.Z` (none until the Wails GUI lands) |
 | Reims vGPU's QEMU, `reims-ctl`, `reims-util` | upstream [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu), packaged from `reims/` | `reims-<commit>` → `Reims vGPU QEMU <commit>` |
-| reims-gui (Rust, archived) | `archive/rust/reims-gui/` | none: read-only, never built |
+| reims-gui (Rust, archived) | `archive/rust/reims-gui/` | none: read-only, never built; its old builds are in the `archive` release |
 
 The only Rust that is built is upstream Reims vGPU, inside `reims/`'s Docker build. `steelbrain/reims-vgpu` is the base reference for anything Reims.
 
@@ -20,7 +20,7 @@ The only Rust that is built is upstream Reims vGPU, inside `reims/`'s Docker bui
 - **Docker-only builds.** Every build, test and package runs in the build image (`build/linux.Dockerfile`) through `make`; never use or install Go, Node, Rust or GTK headers on the host.
 - **After each milestone, `make dist`** writes the milestone's artifacts to `dist/` with `SHA256SUMS`.
 - **Validate locally before GitHub.** Build, test and check packages here first, then push or tag.
-- **Keep the last 2 releases and tags of each series** (`v*`, `reims-*`). Delete older ones with `gh release delete <tag> --cleanup-tag -y`. Exception: `v0.13.0` (the last `macos-kvm-gui`) stays while `scripts/check-dist.sh` uses it as the upgrade fixture (checksums pinned there).
+- **Keep the last 2 releases and tags of each series** (`v*`, `reims-*`). Delete older ones with `gh release delete <tag> --cleanup-tag -y`. Exception: `v0.13.0` (the last `macos-kvm-gui`) stays while `scripts/check-dist.sh` uses it as the upgrade fixture (checksums pinned there). The `archive` release (the archived Rust `reims-gui` 0.1.5 and 0.1.6 builds, history only) stays too.
 - **Release notes** follow `.claude/skills/create-release/SKILL.md`: the home lab notice, ✨/🔧/🧹/📚 sections, Install, **Validated** (only what really ran) and Full Changelog (links to tags that still exist, or commit ids).
 - **OpenSpec** (`openspec/`) for features: propose, have Codex review it (`codex exec -s read-only -C . "<review prompt>"`), fix P1/P2 findings, implement, mark each task with its evidence, archive. `make openspec` (`openspec validate --all --strict`) must pass.
 - **References.** VirtualBox, virt-manager and webvirtmgr are behavior references only: never copy their code, strings, layouts or icons (this project is BSD-3-Clause). Reference captures live in `docs/prints/` (git-ignored).
