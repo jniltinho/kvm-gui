@@ -31,6 +31,8 @@ export interface USBDevice { vendor: string; product: string }
 /** internal/core.Config as JSON (snake_case keys, as the core stores it). */
 export interface Config {
   name?: string;
+  /** "reims-ctl": a macOS VM reims-ctl keeps; only CPUs, memory, resolution and SSH port change. */
+  backend?: string;
   workspace: string;
   version: string;
   ram_mib: number;
@@ -95,7 +97,11 @@ export interface NewVM {
   name: string; folder: string; guest: Guest; version: string; profile: string; iso: string; graphics: string;
   ramMiB: number; vcpus: number; firmware: string; secureBoot: boolean; tpm: boolean;
   disk: "new" | "existing" | "none"; diskGiB: number; diskPath: string;
+  backend: "" | "reims-ctl"; offline: boolean;
 }
+
+/** A reims-ctl VM not in the list yet (core.ReimsCtlCandidate). */
+export interface ReimsCandidate { name: string; dir: string; state: string; config_dir: string }
 
 export interface Prefs { workspace: string; theme: string; scale: string; hostKey: string }
 export interface Medium extends DiskInfo { kind: "disk" | "optical"; vms: string[] }
@@ -113,6 +119,10 @@ export const AddVM = (path: string) => call<Result>("AddVM", path);
 export const DeleteVM =(id: string, purge: boolean) => call<string[]>("DeleteVM", id, purge);
 export const SelectVM = (id: string) => call<void>("SelectVM", id);
 export const ShutDown = (id: string) => call<void>("ShutDown", id);
+/** Starts the VM detached: it keeps running when the app closes. */
+export const Start = (id: string, headless: boolean) => call<void>("Start", id, headless);
+export const ReimsCtlCandidates = () => call<ReimsCandidate[] | null>("ReimsCtlCandidates");
+export const AddReimsCtl = (name: string, configDir: string) => call<Result>("AddReimsCtl", name, configDir);
 export const GetLog = (id: string) => call<string>("Log", id);
 export const GetMedia = () => call<Medium[]>("Media");
 export const GetPrefs = () => call<Prefs>("Preferences");

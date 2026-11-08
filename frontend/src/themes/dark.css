@@ -7,7 +7,7 @@
   --toolbar: #1e1e1e;
   --input: #121212;
   --text: #f0f0f0;
-  --text-muted: #a0a0a0;
+  --text-muted: #b0b0b0;
   --text-disabled: #6b6b6b;
   --accent: #3794ff;
   --border: #5a5a5a;
@@ -17,7 +17,7 @@
   --hover: #3a3a3a;
   --pressed: #505050;
   --focus: #3794ff;
-  --danger: #f1707a;
+  --danger: #ff8f97;
   --warning: #fce100;
   --success: #6ccb5f;
   --tab-active: #1e1e1e;
@@ -31,4 +31,8 @@
   --ctl-radius: 0;
   --win-radius: 0;
   --tile-line: var(--border);
+  --link: #75beff;
+  --ctl-border: #8c8c8c;
+  --primary: #0e639c;
+  --primary-text: #ffffff;
 }

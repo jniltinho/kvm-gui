@@ -19,19 +19,31 @@ input[type="checkbox"], input[type="radio"] { accent-color: var(--accent); }
 :focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
 
 /* Form controls shared by the dialogs (goXterm's Settings look: flat, 1 px borders, skin tokens only). */
-.in { height: 24px; padding: 0 6px; font: inherit; font-size: 12px; color: var(--text); background: var(--input); border: 1px solid var(--border); outline: none; min-width: 0; }
-.in:focus { border-color: var(--focus); }
-.in:disabled { color: var(--text-disabled); background: var(--panel); }
+/* --ctl-border: control boundaries at 3:1 or more against the input and panel colours (WCAG 1.4.11). */
+.in { height: 24px; padding: 0 6px; font: inherit; font-size: 12px; color: var(--text); background: var(--input); border: 1px solid var(--ctl-border); outline: none; min-width: 0; }
+.in:focus { border-color: var(--focus); box-shadow: 0 0 0 1px var(--focus); }
+.in:disabled { color: var(--text-disabled); background: var(--panel); border-color: var(--border); }
 .in.bad-field, .dd.bad-field { border-color: var(--danger); box-shadow: 0 0 0 1px var(--danger); }
 textarea.in { height: auto; padding: 4px 6px; resize: vertical; }
 input[type="number"].in { width: 90px; }
-.btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 26px; min-width: 76px; padding: 0 10px; font: inherit; font-size: 12px; color: var(--text); background: var(--panel); border: 1px solid var(--border); cursor: pointer; white-space: nowrap; }
+.btn { display: inline-flex; align-items: center; justify-content: center; gap: 4px; height: 26px; min-width: 76px; padding: 0 10px; font: inherit; font-size: 12px; color: var(--text); background: var(--panel); border: 1px solid var(--ctl-border); cursor: pointer; white-space: nowrap; }
 .btn:hover:not(:disabled) { background: var(--hover); border-color: var(--outline); }
 .btn:active:not(:disabled) { background: var(--pressed); }
-.btn:disabled { color: var(--text-disabled); cursor: default; }
+.btn:disabled { color: var(--text-disabled); border-color: var(--border); cursor: default; }
 .btn.small { height: 24px; min-width: 0; padding: 0 8px; }
-.btn.primary { border-color: var(--accent); }
+/* The default action: filled, so it stands apart from the focus ring, which sits outside it. */
+.btn.primary { color: var(--primary-text); background: var(--primary); border-color: var(--primary); font-weight: 600; }
+.btn.primary:hover:not(:disabled) { background: color-mix(in srgb, var(--primary) 85%, #000); border-color: var(--primary); }
+.btn.primary:active:not(:disabled) { background: color-mix(in srgb, var(--primary) 70%, #000); }
+.btn.primary:disabled { color: var(--text-disabled); background: var(--panel); border-color: var(--border); font-weight: 400; }
+.btn.primary:focus-visible { outline-offset: 2px; }
+.btn.danger { color: var(--danger); border-color: var(--danger); font-weight: 600; }
 .btn img { width: 16px; height: 16px; }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* Why a feature is off: a short cause and what to do, the technical detail behind a Details disclosure. */
+.tech { font-size: 12px; color: var(--text-muted); }
+.tech summary { cursor: pointer; width: max-content; }
+.tech > :not(summary) { margin: 4px 0 0; }
 .chk { display: inline-flex; align-items: center; gap: 6px; min-height: 22px; cursor: pointer; }
 .chk.off { color: var(--text-disabled); cursor: default; }
 .muted { color: var(--text-muted); font-size: 12px; margin: 0; }

@@ -20,6 +20,29 @@ func TestCoresAndScale(t *testing.T) {
 	}
 }
 
+func TestMemArgAndX11(t *testing.T) {
+	if memArg(8192) != "8G" || memArg(1536) != "1536M" {
+		t.Errorf("memArg: 8192 → %s, 1536 → %s", memArg(8192), memArg(1536))
+	}
+	for _, c := range []struct {
+		gdk, wayland, display string
+		want                  bool
+	}{
+		{"", "", ":0", true},           // X11 session
+		{"", "wayland-0", ":0", false}, // GTK picks Wayland
+		{"x11", "wayland-0", ":0", true},
+		{"wayland,x11", "", ":0", false},
+		{"", "", "", false},
+	} {
+		t.Setenv("GDK_BACKEND", c.gdk)
+		t.Setenv("WAYLAND_DISPLAY", c.wayland)
+		t.Setenv("DISPLAY", c.display)
+		if onX11() != c.want {
+			t.Errorf("onX11 with %+v = %v", c, !c.want)
+		}
+	}
+}
+
 func TestDiskFormat(t *testing.T) {
 	dir := t.TempDir()
 	q, r := filepath.Join(dir, "a.img"), filepath.Join(dir, "b.qcow2")

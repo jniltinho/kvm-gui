@@ -32,4 +32,8 @@
   --ctl-radius: 0;
   --win-radius: 0;
   --tile-line: var(--accent);
+  --link: #005a9e;
+  --ctl-border: #767676;
+  --primary: #0067c0;
+  --primary-text: #ffffff;
 }

@@ -214,7 +214,7 @@ func vmStart(ctx context.Context, _ *mcp.CallToolRequest, in vmStartIn) (*mcp.Ca
 	if _, ok := core.FindRun(e); ok {
 		return text(e.DisplayName() + " is already running"), nil, nil
 	}
-	self, err := os.Executable()
+	self, err := core.SelfPath() // the AppImage when the server runs from one
 	if err != nil {
 		return nil, nil, err
 	}

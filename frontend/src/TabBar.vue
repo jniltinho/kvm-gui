@@ -2,12 +2,13 @@
 // The one tab pattern of the app's dialogs (Settings, Preferences, Manager tools): icon tabs joined to the
 // page below, 2 px apart, no accent line on the active tab (bold label on the page colour instead),
 // keyboard access as a WAI-ARIA tablist (←/→/Home/End move and select), a visible focus ring.
-// The page under it uses the `.tab-page` class (border + joining edge).
+// The page under it uses the `.tab-page` class (border + joining edge). With `panel` (the page's id) each tab
+// is `<panel>-tab-<id>` and controls it, so the page can be `role="tabpanel"` labelled by the selected tab.
 import { ref } from "vue";
 
 export type TabItem<K extends string = string> = readonly [K, string, string]; // [id, label, icon]
 
-const props = defineProps<{ tabs: readonly TabItem<T>[]; modelValue: T; size?: "large" | "small" }>();
+const props = defineProps<{ tabs: readonly TabItem<T>[]; modelValue: T; size?: "large" | "small"; panel?: string }>();
 const emit = defineEmits<{ "update:modelValue": [id: T] }>();
 const bar = ref<HTMLDivElement>();
 const icon = (n: string) => `./icons/${n}.svg`;
@@ -27,9 +28,11 @@ function key(e: KeyboardEvent) {
   <div ref="bar" class="tabbar" :class="size ?? 'large'" role="tablist" @keydown="key">
     <button
       v-for="[id, label, ic] in tabs"
+      :id="panel ? `${panel}-tab-${id}` : undefined"
       :key="id"
       type="button"
       role="tab"
+      :aria-controls="panel"
       class="tabbar-tab"
       :class="{ on: id === modelValue }"
       :aria-selected="id === modelValue"

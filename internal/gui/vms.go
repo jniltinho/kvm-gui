@@ -2,6 +2,7 @@ package gui
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -42,7 +43,7 @@ func osName(c core.Config) string {
 				return "macOS " + v.Name
 			}
 		}
-		return "macOS " + c.Version
+		return strings.TrimSpace("macOS " + c.Version) // a reims-ctl VM may not say which
 	}
 	if p, ok := core.ProfileByID(c.Profile); ok {
 		return p.Name
@@ -106,10 +107,11 @@ func diskInfo(path, format, bus string) DiskInfo {
 	return d
 }
 
-// disks are the VM's hard disks with absolute paths: mac_hdd_ng.img for macOS VMs.
+// disks are the VM's hard disks with absolute paths: mac_hdd_ng.img for macOS VMs (a reims-ctl
+// VM's are the ones reims-ctl's command names, in Disks).
 func disks(c core.Config) []DiskInfo {
 	var out []DiskInfo
-	if c.MacOS() {
+	if c.MacOS() && c.Backend != core.BackendReimsCtl {
 		if dir, err := c.WorkspaceDir(); err == nil {
 			out = append(out, diskInfo(filepath.Join(dir, core.DiskFile), "qcow2", "sata"))
 		}
@@ -140,6 +142,9 @@ func (a *App) VM(id string) (VMInfo, error) {
 	e, err := entry(id)
 	if err != nil {
 		return VMInfo{}, err
+	}
+	if r, err := core.RefreshReimsCtlVM(context.Background(), e); err == nil {
+		e = r // a reims-ctl VM shows what reims-ctl has now; when it cannot answer, its stored settings
 	}
 	info := VMInfo{VM: row(e), Config: e.Config, Disks: disks(e.Config), SSHWarn: core.SSHPortWarning(e.Config.SSHPort, e.ID)}
 	if info.Config.Networks == nil {
@@ -176,7 +181,7 @@ func failed(err error) Result {
 // checkHost refuses settings the host cannot give: more memory than it has.
 func checkHost(c core.Config) error {
 	if mem := core.SystemHost().MemTotalMiB(); mem > 0 && c.RAMMiB > mem {
-		return &core.FieldError{Field: "ram", Msg: fmt.Sprintf("the host has %d MiB of memory", mem)}
+		return &core.FieldError{Field: "ram", Msg: fmt.Sprintf("Base memory is more than this host has: use at most %d MiB", mem)}
 	}
 	return nil
 }
@@ -229,6 +234,9 @@ type NewVM struct {
 	Disk     string `json:"disk"`
 	DiskGiB  int    `json:"diskGiB"`
 	DiskPath string `json:"diskPath"`
+	// Backend "reims-ctl": a macOS VM that reims-ctl creates (Offline: from its offline installer).
+	Backend string `json:"backend"`
+	Offline bool   `json:"offline"`
 }
 
 // cores splits vCPUs into cores of two threads when it can (as core.Recommended does).
@@ -321,6 +329,9 @@ func (a *App) CreateVM(n NewVM) Result {
 	if folder == "" {
 		folder = core.VMFolder(n.Name)
 	}
+	if n.Backend == core.BackendReimsCtl {
+		return a.createReimsCtl(n)
+	}
 	if n.Guest == core.GuestMacOS {
 		c := macConfig(n)
 		check := c
@@ -361,13 +372,56 @@ func (a *App) CreateVM(n NewVM) Result {
 	return Result{ID: e.ID, Notice: e.Notice}
 }
 
-// AddVM adds an existing VM from its settings file (an export, or vm.json in its folder).
-func (a *App) AddVM(path string) Result {
-	e, err := core.ImportSettings(path)
-	if err != nil {
+// createReimsCtl is CreateVM through reims-ctl: its output goes to the page line by line as the
+// "reims-create" event.
+func (a *App) createReimsCtl(n NewVM) Result {
+	if n.Guest != core.GuestMacOS {
+		return Result{Field: "guest", Error: "reims-ctl creates macOS VMs only"}
+	}
+	if err := checkHost(core.Config{RAMMiB: n.RAMMiB}); err != nil {
 		return failed(err)
 	}
+	if n.DiskGiB < 1 || n.DiskGiB > 65536 {
+		return Result{Field: "diskGiB", Error: "use a size between 1 and 65536 GiB"}
+	}
+	o := core.ReimsCreate{Name: n.Name, Dir: n.Folder, MacOS: n.Version, Offline: n.Offline, CPUs: n.VCPUs,
+		Memory: memArg(n.RAMMiB), DiskSize: fmt.Sprintf("%dG", n.DiskGiB)}
+	e, err := core.CreateReimsCtlVM(context.Background(), o, func(line string) { a.emit("reims-create", line) })
+	return created(e, err)
+}
+
+// created is the Result of a create or add: a VM registered before a later step failed keeps its id.
+func created(e core.VMEntry, err error) Result {
+	switch {
+	case err != nil && e.ID == "":
+		return failed(err)
+	case err != nil:
+		return Result{ID: e.ID, Error: err.Error()}
+	}
 	return Result{ID: e.ID, Notice: e.Notice}
+}
+
+// memArg is a memory size as reims-ctl takes it: 8G, or 1536M when it is not whole GiB.
+func memArg(mib int) string {
+	if mib%1024 == 0 {
+		return fmt.Sprintf("%dG", mib/1024)
+	}
+	return fmt.Sprintf("%dM", mib)
+}
+
+// ReimsCtlCandidates lists the reims-ctl VMs that are not in the list yet, for Add.
+func (a *App) ReimsCtlCandidates() ([]core.ReimsCtlCandidate, error) {
+	return core.ReimsCtlCandidates(context.Background())
+}
+
+// AddReimsCtl adds reims-ctl's VM name from its configuration folder.
+func (a *App) AddReimsCtl(name, configDir string) Result {
+	return created(core.AddReimsCtlVM(context.Background(), name, configDir))
+}
+
+// AddVM adds an existing VM from its settings file (an export, or vm.json in its folder).
+func (a *App) AddVM(path string) Result {
+	return created(core.ImportSettings(path))
 }
 
 // DeleteVM removes a VM from the list; purge also deletes the files the app created for it.
@@ -412,11 +466,61 @@ func (a *App) ShutDown(id string) error {
 	return q.Execute("system_powerdown")
 }
 
+// Start runs the VM in its own session (core.StartDetached), so it keeps running when this window
+// closes. Normal lets a Reims vGPU VM open its window on X11 for the VM window to take; Headless
+// does not, and Reims vGPU, which always opens its own window, has no Headless.
+func (a *App) Start(id string, headless bool) error {
+	e, err := entry(id)
+	if err != nil {
+		return err
+	}
+	if _, running := core.FindRun(e); running {
+		return errors.New(e.DisplayName() + " is already running")
+	}
+	if headless && e.Config.Graphics == core.GraphicsReims {
+		return errors.New("Reims vGPU always opens its own window, so Headless is not available")
+	}
+	self, err := core.SelfPath()
+	if err != nil {
+		return err
+	}
+	// As MCP's vm_start: the downloads happen here, so the start's wait covers QEMU only.
+	ctx := context.Background()
+	ks, err := core.LoadExtraKexts()
+	if err != nil {
+		return err
+	}
+	if err := core.DownloadExtraKexts(ctx, ks); err != nil {
+		return err
+	}
+	if e.Config.ReimsKext() {
+		if err := core.DownloadReimsKext(ctx); err != nil {
+			return err
+		}
+	}
+	snapshot, err := json.Marshal(ks)
+	if err != nil {
+		return err
+	}
+	_, err = core.StartDetached(ctx, self, e, core.StartOptions{Starter: core.StarterGUI,
+		EmbedX11: !headless && onX11(), KextsSnapshot: string(snapshot)})
+	return err
+}
+
+// onX11 says whether this window is drawn on X11 (XWayland included): GTK takes GDK_BACKEND's
+// first entry, else Wayland when there is a Wayland display.
+func onX11() bool {
+	if b := os.Getenv("GDK_BACKEND"); b != "" {
+		return strings.HasPrefix(b, "x11")
+	}
+	return os.Getenv("WAYLAND_DISPLAY") == "" && os.Getenv("DISPLAY") != ""
+}
+
 // logLimit is how much of a run log the Logs tool shows (its end).
 const logLimit = 256 << 10
 
 // Log is the newest run log of the VM (<state dir>/logs/<id>/*.log), its end when it is long.
-// shortcut: reads the logs MCP and CLI starts write today; the detached GUI runs of task 4.3 add theirs here.
+// The GUI's detached starts write theirs there too (gui-start.log, core.StartDetached).
 func (a *App) Log(id string) (string, error) {
 	dir := filepath.Join(core.StateDir(), "logs", id)
 	files, _ := filepath.Glob(filepath.Join(dir, "*.log"))

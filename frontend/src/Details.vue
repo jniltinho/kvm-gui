@@ -16,10 +16,11 @@ const sections = computed<Section[]>(() => {
   const mac = isMac(c);
   const threads = c.cores ? c.vcpus / c.cores : 1;
   const storage: [string, string][] = v.disks.map((d, i) => [
-    mac ? "SATA Port 0" : `Disk ${i + 1} (${label(d.bus)})`,
+    mac ? `SATA Port ${i}` : `Disk ${i + 1} (${label(d.bus)})`,
     d.missing ? `${base(d.path)} — missing` : `${base(d.path)} (${d.format}, ${size(d.sizeBytes)}, ${size(d.usedBytes)} used)`,
   ]);
-  if (mac) {
+  if (c.backend === "reims-ctl") storage.push(["Boot disk", "As reims-ctl sets it up"]);
+  else if (mac) {
     if (v.recovery) storage.push(["SATA Port 1", `${base(v.recovery)} (${c.version} recovery)`]);
     storage.push(["Boot disk", "OpenCore (built in, read-only)"]);
   } else {
@@ -33,7 +34,8 @@ const sections = computed<Section[]>(() => {
   const shares = c.shared_folders ?? [];
   return [
     { page: "general", title: "General", icon: "general", rows: [
-      ["Name", v.name], ["Operating system", v.os], ["Guest type", guestLabel(v.guest)], ["Folder", c.workspace]] },
+      ["Name", v.name], ["Operating system", v.os], ["Guest type", guestLabel(v.guest)], ["Folder", c.workspace],
+      ...(c.backend === "reims-ctl" ? [["Managed by", "reims-ctl"]] as [string, string][] : [])] },
     { page: "system", title: "System", icon: "system", rows: [
       ["Base memory", `${c.ram_mib} MiB`],
       ["Processors", `${c.vcpus} (${c.cores} cores × ${threads} threads)`],
@@ -87,7 +89,7 @@ const sections = computed<Section[]>(() => {
 .det-main { flex: 1; min-width: 0; }
 .sec { margin-bottom: 6px; border: 1px solid var(--border-subtle); background: var(--surface); }
 .sec-h { margin: 0; font-size: 12px; background: var(--panel); border-bottom: 1px solid var(--border-subtle); }
-.sec-btn { display: flex; align-items: center; gap: 6px; width: 100%; height: 26px; padding: 0 8px; font: inherit; font-weight: 700; color: var(--accent); background: transparent; border: none; text-align: left; cursor: pointer; }
+.sec-btn { display: flex; align-items: center; gap: 6px; width: 100%; height: 26px; padding: 0 8px; font: inherit; font-weight: 700; color: var(--link); background: transparent; border: none; text-align: left; cursor: pointer; }
 .sec-btn:hover { background: var(--hover); text-decoration: underline; }
 .sec-btn.static { color: var(--text); cursor: default; }
 .sec-btn.static:hover { background: transparent; text-decoration: none; }

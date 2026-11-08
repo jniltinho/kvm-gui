@@ -120,3 +120,17 @@ func TestGUIRunsSurviveTheGUI(t *testing.T) {
 		t.Fatal("an MCP start with --embed-x11")
 	}
 }
+
+// A detached run starts from the AppImage when the caller runs from one.
+func TestSelfPath(t *testing.T) {
+	app := filepath.Join(t.TempDir(), "kvm-gui.AppImage")
+	os.WriteFile(app, []byte("x"), 0o755)
+	t.Setenv("APPIMAGE", app)
+	if p, _ := SelfPath(); p != app {
+		t.Fatalf("with APPIMAGE: %s", p)
+	}
+	t.Setenv("APPIMAGE", "relative")
+	if p, _ := SelfPath(); p == "relative" {
+		t.Fatal("a relative APPIMAGE was used")
+	}
+}

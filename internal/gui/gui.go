@@ -79,6 +79,7 @@ func Run(o Options) error {
 		}
 	}
 	app := application.New(opts)
+	svc.send = func(name string, data any) { app.Event.Emit(name, data) }
 	svc.pick = func(title string, folder bool, filters [][2]string) (string, error) {
 		d := app.Dialog.OpenFile().SetTitle(title).CanChooseFiles(!folder).CanChooseDirectories(folder).CanCreateDirectories(folder)
 		for _, f := range filters {

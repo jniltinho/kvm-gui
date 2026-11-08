@@ -283,7 +283,7 @@ func UserReimsCtlConfig() string {
 // ReimsCtlCandidate is a reims-ctl VM the app has not registered yet, in ConfigDir.
 type ReimsCtlCandidate struct {
 	ReimsCtlVM
-	ConfigDir string
+	ConfigDir string `json:"config_dir"`
 }
 
 // ReimsCtlCandidates lists, for the Manager's Add, the VMs of kvm-gui's reims-ctl folders and of

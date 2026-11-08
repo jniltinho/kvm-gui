@@ -106,3 +106,15 @@ func ClaimGUIRun(e VMEntry) (r RunInfo, release func(), err error) {
 	}
 	return r, func() { f.Close() }, nil
 }
+
+// SelfPath is the program a detached run starts: the AppImage itself when this process runs from
+// one (its mounted files vanish when the caller exits, which would end the VM's owner), else this
+// executable.
+func SelfPath() (string, error) {
+	if p := os.Getenv("APPIMAGE"); filepath.IsAbs(p) {
+		if st, err := os.Stat(p); err == nil && st.Mode().IsRegular() {
+			return p, nil
+		}
+	}
+	return os.Executable()
+}
