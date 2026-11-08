@@ -35,9 +35,9 @@ The work is planned in the OpenSpec change [`migrate-gui-to-go-wails`](openspec/
 
 ## Install
 
-**Status:** the Wails GUI is on `main` and not released yet; until its first release, build it with `make dist` (below). The latest release, [v0.13.0](https://github.com/jniltinho/kvm-gui/releases/tag/v0.13.0), is the previous `macos-kvm-gui` (command line and Fyne GUI). The archived Rust app's releases (`reims-gui` 0.1.5 and 0.1.6) are kept, for history only, in the [`archive`](https://github.com/jniltinho/kvm-gui/releases/tag/archive) release.
+Download the files from the [latest release](https://github.com/jniltinho/kvm-gui/releases/latest) ([v0.14.0](https://github.com/jniltinho/kvm-gui/releases/tag/v0.14.0), the first with the Wails GUI). Parts of the VirtualBox-like GUI are still being built (OpenSpec change [`migrate-gui-to-go-wails`](openspec/changes/migrate-gui-to-go-wails/tasks.md), groups 7 and 9). The archived Rust app's builds (`reims-gui` 0.1.5 and 0.1.6) are kept, for history only, in the [`archive`](https://github.com/jniltinho/kvm-gui/releases/tag/archive) release.
 
-Each kvm-gui release has five files: an AppImage, a plain binary, a `.deb`, an `.rpm` and `SHA256SUMS`. Check them first:
+Each release has five files: an AppImage, a plain binary, a `.deb`, an `.rpm` and `SHA256SUMS`. Check them first:
 
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS
@@ -45,8 +45,8 @@ sha256sum -c --ignore-missing SHA256SUMS
 
 | Distribution | Install |
 |---|---|
-| Ubuntu 24.04, 26.04, Debian 13 | `sudo apt install ./kvm-gui_X.Y.Z_amd64.deb` |
-| Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm` (WebKitGTK 6 comes from EPEL) |
+| Ubuntu 24.04, 26.04, Debian 13 | `sudo apt install ./kvm-gui_*_amd64.deb` |
+| Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install ./kvm-gui-*-1.x86_64.rpm` (WebKitGTK 6 comes from EPEL) |
 | AppImage or binary, Ubuntu/Debian | `sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf pkexec`, then `chmod +x` and run the file |
 | AppImage or binary, Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf polkit`, then `chmod +x` and run the file |
 
