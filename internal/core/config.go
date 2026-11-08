@@ -87,18 +87,23 @@ type Config struct {
 	// Guest is the guest type: "" or GuestMacOS (every VM saved before guest types existed),
 	// GuestLinux, GuestWindows or GuestOther. The fields below apply to the last three
 	// (guest.go); macOS VMs keep the fields above.
-	Guest         string         `json:"guest,omitempty"`
-	Profile       string         `json:"profile,omitempty"`  // OS profile id (Profiles)
-	Firmware      string         `json:"firmware,omitempty"` // FirmwareUEFI or FirmwareBIOS
-	SecureBoot    bool           `json:"secure_boot,omitempty"`
-	TPM           bool           `json:"tpm,omitempty"`
-	Disks         []Disk         `json:"disks,omitempty"`
-	Optical       []string       `json:"optical,omitempty"`    // ISO files as CD/DVD drives; "" = an empty drive
-	BootOrder     string         `json:"boot_order,omitempty"` // "cdrom", "disk", or "" (CD first while a medium is in)
-	Serial        string         `json:"serial,omitempty"`     // "", SerialFile or SerialSocket
-	SharedFolders []SharedFolder `json:"shared_folders,omitempty"`
-	USBDevices    []USBDevice    `json:"usb_devices,omitempty"`
-	Description   string         `json:"description,omitempty"`
+	// Backend is "" (the app's own pipeline) or BackendReimsCtl: a macOS VM upstream's reims-ctl
+	// created and keeps, by its name in the configuration folder ReimsCtlConfig (design D19).
+	Backend        string         `json:"backend,omitempty"`
+	ReimsCtlName   string         `json:"reims_ctl_name,omitempty"`
+	ReimsCtlConfig string         `json:"reims_ctl_config,omitempty"`
+	Guest          string         `json:"guest,omitempty"`
+	Profile        string         `json:"profile,omitempty"`  // OS profile id (Profiles)
+	Firmware       string         `json:"firmware,omitempty"` // FirmwareUEFI or FirmwareBIOS
+	SecureBoot     bool           `json:"secure_boot,omitempty"`
+	TPM            bool           `json:"tpm,omitempty"`
+	Disks          []Disk         `json:"disks,omitempty"`
+	Optical        []string       `json:"optical,omitempty"`    // ISO files as CD/DVD drives; "" = an empty drive
+	BootOrder      string         `json:"boot_order,omitempty"` // "cdrom", "disk", or "" (CD first while a medium is in)
+	Serial         string         `json:"serial,omitempty"`     // "", SerialFile or SerialSocket
+	SharedFolders  []SharedFolder `json:"shared_folders,omitempty"`
+	USBDevices     []USBDevice    `json:"usb_devices,omitempty"`
+	Description    string         `json:"description,omitempty"`
 	// DiskGiB is the size of a new VM's first disk (created by CreateVM); never saved.
 	DiskGiB int `json:"-"`
 }
@@ -200,6 +205,13 @@ func (c Config) WorkspaceDir() (string, error) {
 func (c Config) Validate() error {
 	if _, err := c.WorkspaceDir(); err != nil {
 		return err
+	}
+	switch c.Backend {
+	case BackendReimsCtl:
+		return c.validateReimsCtl()
+	case "":
+	default:
+		return &FieldError{"backend", "expected reims-ctl or none"}
 	}
 	if !c.MacOS() {
 		if c.Guest != GuestLinux && c.Guest != GuestWindows && c.Guest != GuestOther {

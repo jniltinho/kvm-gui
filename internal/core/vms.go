@@ -232,12 +232,15 @@ type guestExt struct {
 	SharedFolders []SharedFolder `json:"shared_folders,omitempty"`
 	USBDevices    []USBDevice    `json:"usb_devices,omitempty"`
 	Description   string         `json:"description,omitempty"`
+	Backend       string         `json:"backend,omitempty"`
+	ReimsCtlName  string         `json:"reims_ctl_name,omitempty"`
+	ReimsCtlConf  string         `json:"reims_ctl_config,omitempty"`
 }
 
 func extJSON(c Config) string {
 	x := guestExt{c.Guest, c.Profile, c.Firmware, c.SecureBoot, c.TPM, c.Disks, c.Optical, c.BootOrder,
-		c.Serial, c.SharedFolders, c.USBDevices, c.Description}
-	if x.Guest == "" && x.Description == "" {
+		c.Serial, c.SharedFolders, c.USBDevices, c.Description, c.Backend, c.ReimsCtlName, c.ReimsCtlConfig}
+	if x.Guest == "" && x.Description == "" && x.Backend == "" {
 		return ""
 	}
 	b, _ := json.Marshal(x)
@@ -254,6 +257,7 @@ func applyExt(c *Config, s string) error {
 	}
 	c.Guest, c.Profile, c.Firmware, c.SecureBoot, c.TPM, c.Disks, c.Optical, c.BootOrder = x.Guest, x.Profile, x.Firmware, x.SecureBoot, x.TPM, x.Disks, x.Optical, x.BootOrder
 	c.Serial, c.SharedFolders, c.USBDevices, c.Description = x.Serial, x.SharedFolders, x.USBDevices, x.Description
+	c.Backend, c.ReimsCtlName, c.ReimsCtlConfig = x.Backend, x.ReimsCtlName, x.ReimsCtlConf
 	return nil
 }
 
@@ -587,6 +591,9 @@ var workspaceFiles = []string{DiskFile, MediaFile, mediaMarker, stagingDir, Boot
 // Linux, Windows or Other VM its disks inside the folder, UEFI variables, TPM state and serial log.
 // Disks elsewhere and ISO files are only used, never moved or deleted.
 func ownedFiles(c Config) []string {
+	if c.Backend == BackendReimsCtl {
+		return nil // reims-ctl's files: `reims-ctl delete` removes them
+	}
 	if c.MacOS() {
 		return workspaceFiles
 	}

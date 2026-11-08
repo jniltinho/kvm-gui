@@ -8,6 +8,9 @@ import (
 
 // TestMain keeps every test away from the developer's real settings.yaml and .env.
 func TestMain(m *testing.M) {
+	if filepath.Base(os.Args[0]) == "qemu-system-x86_64" { // the test binary run as QEMU (reims-ctl tests)
+		fakeQEMUMain()
+	}
 	if os.Getenv("FAKE_SWTPM") != "" { // the test binary run as swtpm (TestStartTPM)
 		fakeSwtpm()
 	}

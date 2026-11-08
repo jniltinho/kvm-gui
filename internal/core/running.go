@@ -68,7 +68,7 @@ func diskFiles(c Config) []os.FileInfo {
 		return nil
 	}
 	var paths, disks = []string{}, []os.FileInfo{}
-	if c.MacOS() {
+	if c.MacOS() && c.Backend == "" {
 		paths = append(paths, filepath.Join(dir, DiskFile))
 	}
 	for _, d := range c.Disks {

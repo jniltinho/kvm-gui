@@ -229,6 +229,9 @@ func (v *VM) Start(c Config) error {
 	if err := c.Validate(); err != nil {
 		return err
 	}
+	if c.Backend == BackendReimsCtl {
+		return v.startReimsCtl(c)
+	}
 	if !c.MacOS() {
 		return v.startGuest(c)
 	}
