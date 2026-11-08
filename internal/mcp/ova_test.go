@@ -14,8 +14,8 @@ func TestVMImportOVA(t *testing.T) {
 	if _, err := exec.LookPath("qemu-img"); err != nil {
 		t.Skip("no qemu-img")
 	}
+	cs := session(t)
 	dir := t.TempDir()
-	isolateXDG(t, dir)
 	ovf := `<Envelope xmlns="http://schemas.dmtf.org/ovf/envelope/1" xmlns:ovf="http://schemas.dmtf.org/ovf/envelope/1"
  xmlns:rasd="http://schemas.dmtf.org/wbem/wscim/1/cim-schema/2/CIM_ResourceAllocationSettingData">
  <References><File ovf:id="f1" ovf:href="d.img"/></References>
@@ -34,7 +34,6 @@ func TestVMImportOVA(t *testing.T) {
 	}
 	tw.Close()
 	f.Close()
-	cs := session(t)
 	mustFail(t, cs, "vm_import_ova", map[string]any{"path": "agent.ova"}, "absolute")
 	out := callOut(t, cs, "vm_import_ova", map[string]any{"path": ova, "folder": dir + "/vms/agent"})
 	pv := out["preview"].(map[string]any)
@@ -59,4 +58,16 @@ func anyStrings(v any) []string {
 		out = append(out, x.(string))
 	}
 	return out
+}
+
+// vm_export_ova writes the file and returns the notes; an existing file needs overwrite.
+func TestVMExportOVA(t *testing.T) {
+	if _, err := exec.LookPath("qemu-img"); err != nil {
+		t.Skip("no qemu-img")
+	}
+	cs := session(t) // it isolates the VM list: the VM comes after
+	dir := t.TempDir()
+	e := createVM(t, "Mac", 2300)
+	mustFail(t, cs, "vm_export_ova", map[string]any{"vm": e.ID, "path": dir + "/mac.ova"}, "bundles")
+	mustFail(t, cs, "vm_export_ova", map[string]any{"vm": e.ID, "path": "rel.ova"}, "absolute")
 }

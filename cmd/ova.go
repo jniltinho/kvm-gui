@@ -57,9 +57,7 @@ refused: macOS VMs move between kvm-gui hosts as bundles (vm export --full).`,
 		}
 		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
-		e, err := core.ImportAppliance(ctx, args[0], o, func(done, total int64) {
-			fmt.Fprintf(cmd.ErrOrStderr(), "\rimporting: %.0f%%", float64(done)*100/float64(max(total, 1)))
-		})
+		e, err := core.ImportAppliance(ctx, args[0], o, percent(cmd, "importing"))
 		fmt.Fprintln(cmd.ErrOrStderr())
 		if err != nil {
 			return err
@@ -76,4 +74,62 @@ func init() {
 	f.StringVar(&ovaImport.Bridge, "bridge", "", "a host bridge for the appliance's bridged adapters (default: NAT)")
 	f.BoolVar(&ovaDryRun, "dry-run", false, "show the VM it would create and what is not kept, and create nothing")
 	vmCmd.AddCommand(vmImportOVACmd)
+}
+
+var ovaExport core.ExportOptions
+
+// vm export-ova: a powered-off Linux, Windows or Other VM as an .ova VirtualBox imports.
+var vmExportOVACmd = &cobra.Command{
+	Use:   "export-ova <vm> <file.ova>",
+	Short: "Export a powered-off VM as an OVF appliance (.ova) that VirtualBox imports",
+	Long: `Export a powered-off Linux, Windows or Other VM as an .ova: an OVF 1.0 descriptor, its disks
+as VMDKs and a SHA-256 manifest. Snapshots, TPM state and UEFI variables are not included; a VM
+with a TPM needs --accept-tpm-loss (have the BitLocker recovery key). An existing file is kept
+unless --force. macOS VMs are refused (export them as bundles: vm export --full).`,
+	Example: "  kvm-gui vm export-ova \"Ubuntu lab\" ~/ubuntu-lab.ova",
+	Args:    cobra.ExactArgs(2),
+	RunE: func(cmd *cobra.Command, args []string) error {
+		vms, err := core.ListVMs()
+		if err != nil {
+			return err
+		}
+		e, ok := core.FindVM(vms, args[0])
+		if !ok {
+			return fmt.Errorf("no VM named %q (see `vm list`)", args[0])
+		}
+		dst, err := filepath.Abs(args[1])
+		if err != nil {
+			return err
+		}
+		for _, n := range core.ExportNotes(e) {
+			fmt.Fprintln(cmd.OutOrStdout(), "note:", n)
+		}
+		ctx, stop := signal.NotifyContext(cmd.Context(), syscall.SIGINT, syscall.SIGTERM)
+		defer stop()
+		err = core.ExportAppliance(ctx, e, dst, ovaExport, percent(cmd, "exporting"))
+		fmt.Fprintln(cmd.ErrOrStderr())
+		if err != nil {
+			return err
+		}
+		fmt.Fprintln(cmd.OutOrStdout(), "exported", e.DisplayName(), "to", dst)
+		return nil
+	},
+}
+
+func init() {
+	f := vmExportOVACmd.Flags()
+	f.BoolVar(&ovaExport.Overwrite, "force", false, "replace the file if it exists")
+	f.BoolVar(&ovaExport.AcceptTPMLoss, "accept-tpm-loss", false, "export a VM with a TPM, knowing its sealed secrets (BitLocker) need their recovery key elsewhere")
+	vmCmd.AddCommand(vmExportOVACmd)
+}
+
+// percent prints "label: N%" on stderr each time the whole percentage changes.
+func percent(cmd *cobra.Command, label string) func(done, total int64) {
+	last := -1
+	return func(done, total int64) {
+		if p := int(done * 100 / max(total, 1)); p != last {
+			last = p
+			fmt.Fprintf(cmd.ErrOrStderr(), "\r%s: %d%%", label, p)
+		}
+	}
 }

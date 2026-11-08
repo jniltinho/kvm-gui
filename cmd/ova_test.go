@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 // testOVA writes a small appliance: an Ubuntu VM with EFI, a 1 MiB raw disk and a bridged adapter.
@@ -74,5 +76,34 @@ func TestVMImportOVA(t *testing.T) {
 	}
 	if out, _ := run(t, "vm", "list"); !strings.Contains(out, "Lab") {
 		t.Errorf("vm list: %s", out)
+	}
+}
+
+// vm export-ova writes the .ova, keeps an existing file without --force, and the result imports.
+func TestVMExportOVA(t *testing.T) {
+	if _, err := exec.LookPath("qemu-img"); err != nil {
+		t.Skip("no qemu-img")
+	}
+	dir := t.TempDir()
+	isolateXDG(t, dir)
+	ovaDryRun = false
+	if out, err := run(t, "vm", "import-ova", testOVA(t), "--folder", dir+"/vms/src", "--name", "Src"); err != nil {
+		t.Fatal(err, out)
+	}
+	dst := filepath.Join(dir, "out.ova")
+	out, err := run(t, "vm", "export-ova", "Src", dst)
+	if err != nil || !strings.Contains(out, "exported Src") || !strings.Contains(out, "note: its UEFI variables") {
+		t.Fatalf("export: %v\n%s", err, out)
+	}
+	if _, err := run(t, "vm", "export-ova", "Src", dst); err == nil {
+		t.Error("an existing file was replaced without --force")
+	}
+	ovaExport.Overwrite = false
+	if out, err := run(t, "vm", "export-ova", "Src", dst, "--force"); err != nil {
+		t.Errorf("--force: %v %s", err, out)
+	}
+	ovaExport.Overwrite, ovaImport = false, core.ImportOptions{} // cobra keeps flag values between runs
+	if out, err := run(t, "vm", "import-ova", dst, "--dry-run"); err != nil || !strings.Contains(out, "Src: ubuntu (linux)") {
+		t.Errorf("re-read: %v\n%s", err, out)
 	}
 }

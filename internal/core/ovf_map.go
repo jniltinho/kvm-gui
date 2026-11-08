@@ -15,10 +15,10 @@ type osEntry struct {
 	Aliases         []string // VirtualBox OS type prefixes, lower case
 }
 
-// osTable: the CIM ids follow DMTF's CIM_OperatingSystem.OSType values (Ubuntu 64-Bit 94,
-// Debian 64-Bit 96, RedHat Enterprise Linux 64-Bit 80, Linux 64-Bit 101, Microsoft Windows 10
-// 64-bit 120, Microsoft Windows 11 64-bit 122, Other 64-Bit 102); task 3.0 checks which ones
-// VirtualBox 7.2 maps back to the same OS type.
+// osTable: the CIM ids are DMTF CIM_OperatingSystem.OSType values that VirtualBox 7.2 maps back
+// to the same OS type (task 3.0: 94 Ubuntu_64, 96 Debian_64, 80 RedHat_64, 101 Linux26_64, 120
+// Windows10_64, 102 Other_64); 122 means Other to VirtualBox, so Windows 11 is written as 120 with
+// its vbox:OSType, as VirtualBox does.
 var osTable = []osEntry{
 	{"ubuntu", "Ubuntu_64", 94, []string{"ubuntu", "kubuntu", "lubuntu", "xubuntu"}},
 	{"debian", "Debian_64", 96, []string{"debian"}},
@@ -26,7 +26,7 @@ var osTable = []osEntry{
 	{"rocky", "RedHat_64", 80, []string{"redhat", "oracle", "rocky", "alma", "centos"}},
 	{"arch", "ArchLinux_64", 101, []string{"archlinux"}},
 	{"opensuse", "OpenSUSE_64", 101, []string{"opensuse", "suse"}},
-	{"windows11", "Windows11_64", 122, []string{"windows11", "windows2022", "windows2025"}},
+	{"windows11", "Windows11_64", 120, []string{"windows11", "windows2022", "windows2025"}}, // VirtualBox writes 120 too
 	{"windows10", "Windows10_64", 120, []string{"windows10", "windows2016", "windows2019"}},
 	{"linux", "Linux_64", 101, []string{"linux", "gentoo", "mandriva", "turbolinux", "xandros"}},
 	{"other", "Other_64", 102, []string{"other"}},

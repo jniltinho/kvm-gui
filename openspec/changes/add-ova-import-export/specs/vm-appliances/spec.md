@@ -97,7 +97,7 @@ The system SHALL refuse to export a macOS VM, and SHALL refuse to import an appl
 - **THEN** the export is refused with that reason and no file is written
 
 ### Requirement: Export an appliance
-The system SHALL export a powered-off Linux, Windows or Other VM, with each disk read in its own format (qcow2 or raw), as one `.ova` holding first an OVF 1.0 descriptor, then every hard disk as a streamOptimized VMDK, then a manifest with a digest of the descriptor and of each disk. The VM SHALL stay locked against starting, and its disks against other VMs' starts, while the disks are read. A running VM SHALL be refused.
+The system SHALL export a powered-off Linux, Windows or Other VM, with each disk read in its own format (qcow2 or raw), as one `.ova` holding first an OVF 1.0 descriptor, then every hard disk as a sparse VMDK that VirtualBox 7.2 imports, then a manifest with a digest of the descriptor and of each disk. The VM SHALL stay locked against starting, and its disks against other VMs' starts, while the disks are read. A running VM SHALL be refused.
 
 #### Scenario: VirtualBox imports and boots it
 - **WHEN** a Linux VM with UEFI, 8192 MiB, 4 vCPUs, one disk and one NAT adapter is exported and the file is imported by VirtualBox 7.2
