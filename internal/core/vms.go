@@ -12,6 +12,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite" // pure-Go SQLite driver, registered as "sqlite"
 )
@@ -157,8 +158,17 @@ func openDB() (*sql.DB, error) {
 	if err != nil {
 		return nil, err
 	}
+	// A new database's switch to WAL can return SQLITE_BUSY at once, without the busy timeout,
+	// while another process (or connection) makes the same switch: retry for up to about 5 s.
 	var v int
-	if err := db.QueryRow(`PRAGMA user_version`).Scan(&v); err != nil {
+	for try := 0; ; try++ {
+		err = db.QueryRow(`PRAGMA user_version`).Scan(&v)
+		if err == nil || try == 50 || !strings.Contains(err.Error(), "SQLITE_BUSY") {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("database %s: %w", path, err)
 	}

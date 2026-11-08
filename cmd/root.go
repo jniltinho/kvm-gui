@@ -9,7 +9,6 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/jniltinho/kvm-gui/internal/core"
-	"github.com/jniltinho/kvm-gui/internal/gui"
 	"github.com/jniltinho/kvm-gui/internal/mcp"
 )
 
@@ -20,18 +19,20 @@ var (
 )
 
 var rootCmd = &cobra.Command{
-	Use:   "macos-kvm-gui",
-	Short: "Install and run macOS on Linux KVM (home lab use)",
-	Long: `macOS KVM installs and runs macOS on Linux KVM, with OpenCore and OVMF built in.
-Without a command it opens the desktop app; the commands below automate the same steps.
+	Use:   "kvm-gui",
+	Short: "Create and run macOS and other VMs on Linux KVM (home lab use)",
+	Long: `kvm-gui creates and runs macOS VMs (OpenCore and OVMF built in, Reims vGPU optional) on Linux KVM.
+The commands below create, configure and run VMs; the desktop GUI (Go + Wails) comes with the next release.
 
 For home lab use: macOS's license only allows it on Apple-branded hardware.`,
 	SilenceUsage: true,
 	RunE: func(*cobra.Command, []string) error {
-		gui.Run(version, cfgFile) // "" = the VM list; --config = one VM file
-		return nil
+		return errGUIPending
 	},
 }
+
+// errGUIPending: the Fyne GUI is gone and the Wails GUI lands with the next release.
+var errGUIPending = fmt.Errorf("the desktop GUI comes with the next kvm-gui release; meanwhile use the commands (kvm-gui --help) or the MCP server (kvm-gui mcp)")
 
 // Execute runs the command line; appVersion comes from the build.
 func Execute(appVersion string) {

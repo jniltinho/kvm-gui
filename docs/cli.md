@@ -1,11 +1,10 @@
 # Command line
 
-The same binary is a desktop app and a command line tool. Without a command it opens the GUI; with one it runs the same steps from a terminal, so installs can be scripted. Every command has `--help`.
+`kvm-gui` is a command line tool and an MCP server; the desktop GUI (Go + Wails) comes with the next release, and until then the binary without a command says so. Every step runs from a terminal, so installs can be scripted. Every command has `--help`. The packages also install `macos-kvm-gui` as a link to `kvm-gui`.
 
 ```sh
-macos-kvm-gui                 # opens the desktop app (same as `macos-kvm-gui gui`)
-macos-kvm-gui --help          # all commands
-macos-kvm-gui --vm "Tahoe lab" config show       # act on another VM than the selected one
+kvm-gui --help          # all commands
+kvm-gui --vm "Tahoe lab" config show       # act on another VM than the selected one
 macos-kvm-gui --config ./lab.json config show   # use a standalone settings file
 ```
 
@@ -54,21 +53,21 @@ The command waits while the VM runs. The first **Ctrl+C** asks macOS to shut dow
 #!/usr/bin/env bash
 set -euo pipefail
 
-macos-kvm-gui setup || true            # may need a new login for the kvm group
-macos-kvm-gui check                    # stops the script if the host is not ready
+kvm-gui setup || true            # may need a new login for the kvm group
+kvm-gui check                    # stops the script if the host is not ready
 
-macos-kvm-gui vm create "Sonoma lab" --version sonoma   # recommended CPU/RAM, folder ~/macOS-VMs/sonoma-lab
-macos-kvm-gui config set display=window
+kvm-gui vm create "Sonoma lab" --version sonoma   # recommended CPU/RAM, folder ~/macOS-VMs/sonoma-lab
+kvm-gui config set display=window
 # optional: a second adapter on the host bridge br0 (see troubleshooting.md#bridged-networking)
-macos-kvm-gui config set nic2.enabled=true nic2.mode=bridged nic2.bridge=br0 nic2.model=vmxnet3 nic2.mac=random
-macos-kvm-gui download
-macos-kvm-gui disk create --size 80
+kvm-gui config set nic2.enabled=true nic2.mode=bridged nic2.bridge=br0 nic2.model=vmxnet3 nic2.mac=random
+kvm-gui download
+kvm-gui disk create --size 80
 
 # Install macOS inside the QEMU window (Disk Utility → Erase as APFS → Reinstall macOS).
-macos-kvm-gui vm start
+kvm-gui vm start
 
 # After macOS boots from the disk:
-macos-kvm-gui media remove --yes
+kvm-gui media remove --yes
 ```
 
 The steps inside the VM (erasing the disk and running the installer) stay manual.

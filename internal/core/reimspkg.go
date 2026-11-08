@@ -7,7 +7,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -22,6 +21,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/jniltinho/kvm-gui/reims"
 )
 
 // Installing Reims vGPU's QEMU: a prebuilt package from this repository's Releases (pinned by the
@@ -30,10 +31,8 @@ import (
 // works on this host, so a broken build never replaces a working one.
 
 var (
-	//go:embed reims/Dockerfile
-	reimsDockerfile []byte
-	//go:embed reims/manifest.json
-	reimsManifestJSON []byte
+	reimsDockerfile   = reims.Dockerfile
+	reimsManifestJSON = reims.Manifest
 )
 
 // ReimsReleases are the Ubuntu releases packages and Docker builds exist for.
@@ -421,6 +420,7 @@ var reimsLibPackages = map[string]string{
 	"libpipewire-0.3.so.0":   "libpipewire-0.3-0t64",
 	"libpulse.so.0":          "libpulse0",
 	"libasound.so.2":         "libasound2t64",
+	"libusb-1.0.so.0":        "libusb-1.0-0",
 }
 
 func missingLibsError(missing []string) error {

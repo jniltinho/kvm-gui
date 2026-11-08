@@ -2,12 +2,12 @@
 # Packages Reims vGPU's QEMU for this repository's Releases (.github/workflows/reims-release.yml),
 # and runs the same way locally.
 #
-#   scripts/reims-package.sh pkg <qemu-dir> <release> <out-dir>
-#       <qemu-dir> is a build from internal/core/reims/Dockerfile (share/reims-ctl/qemu/<build>);
+#   reims/package.sh pkg <qemu-dir> <release> <out-dir>
+#       <qemu-dir> is a build from reims/Dockerfile (share/reims-ctl/qemu/<build>);
 #       writes reims-qemu-<commit>-ubuntu<release>-x86_64.tar.gz and its .sha256; a <release>
 #       that does not start with a digit (rocky10, from Dockerfile.rocky) is used as it is:
 #       reims-qemu-<commit>-rocky10-x86_64.tar.gz.
-#   scripts/reims-package.sh src <image> <out-dir>
+#   reims/package.sh src <image> <out-dir>
 #       <image> is the Dockerfile's image (any release); writes reims-vgpu-src-<commit>.tar.gz
 #       and its .sha256: the corresponding source of the packages' binaries (GPL-2.0).
 #
@@ -15,7 +15,7 @@
 set -euo pipefail
 
 here="$(cd "$(dirname "$0")/.." && pwd)"
-dockerfile="$here/internal/core/reims/Dockerfile"
+dockerfile="$here/reims/Dockerfile"
 commit="$(sed -n 's/^ARG REIMS_COMMIT=\([0-9a-f]\{7\}\).*/\1/p' "$dockerfile")"
 [[ -n $commit ]] || { echo "no ARG REIMS_COMMIT in $dockerfile" >&2; exit 1; }
 
@@ -33,8 +33,9 @@ case "${1:-}" in
   pkg)
     [[ $# == 4 ]] || { echo "usage: $0 pkg <qemu-dir> <release> <out-dir>" >&2; exit 2; }
     qemu="$2" rel="$3" out="$4"
-    [[ -x "$qemu/bin/qemu-system-x86_64" && -f "$qemu/share/qemu/ReimsVgpu.rom" ]] ||
-      { echo "$qemu is not a Reims QEMU build" >&2; exit 1; }
+    [[ -x "$qemu/bin/qemu-system-x86_64" && -f "$qemu/share/qemu/ReimsVgpu.rom" &&
+       -x "$qemu/bin/reims-ctl" && -x "$qemu/bin/reims-util" ]] ||
+      { echo "$qemu is not a Reims build with QEMU, reims-ctl and reims-util" >&2; exit 1; }
     case $rel in [0-9]*) rel="ubuntu$rel" ;; esac
     mkdir -p "$out"
     pack "$qemu" "$(cd "$out" && pwd)/reims-qemu-$commit-$rel-x86_64.tar.gz" .
@@ -60,7 +61,13 @@ case "${1:-}" in
         rm -rf subprojects/*/.git
         cd "$d"
         cargo vendor --quiet vendor/cargo > cargo-vendor.toml
-        mkdir -p macos-kvm-gui && cp /Dockerfile macos-kvm-gui/Dockerfile
+        cargo vendor --quiet --manifest-path crates/reims-ctl/Cargo.toml vendor/cargo-reims-ctl > cargo-vendor-reims-ctl.toml
+        # reims-util at the commit reims-ctl installs (crates/reims-ctl/src/reims_util.rs), with its crates.
+        rev=$(grep -o "REV: &str = \"[0-9a-f]*\"" crates/reims-ctl/src/reims_util.rs | grep -o "[0-9a-f]\{40\}")
+        git clone -q https://github.com/steelbrain/reims-util /tmp/reims-util && git -C /tmp/reims-util checkout -q "$rev"
+        mkdir -p reims-util && git -C /tmp/reims-util archive HEAD | tar -x -C reims-util
+        (cd reims-util && cargo vendor --quiet vendor/cargo > cargo-vendor.toml)
+        mkdir -p kvm-gui && cp /Dockerfile kvm-gui/Dockerfile
         {
           echo "Reims vGPU QEMU, corresponding source"
           echo
@@ -75,11 +82,15 @@ case "${1:-}" in
             [[ $type == commit ]] || continue
             echo "    $path $(git -C /src/vendor/qemu config -f .gitmodules --get submodule.$path.url) $sha"
           done
-          echo "vendor/cargo: every Rust crate the build uses (cargo vendor; cargo-vendor.toml holds the"
+          echo "vendor/cargo: every Rust crate the library uses (cargo vendor; cargo-vendor.toml holds the"
           echo "  source replacement for .cargo/config.toml); SDL3 is vendor/cargo/sdl3-src (zlib)"
+          echo "vendor/cargo-reims-ctl: every crate of reims-ctl (crates/reims-ctl, its own workspace;"
+          echo "  cargo-vendor-reims-ctl.toml holds its source replacement)"
+          echo "reims-util: https://github.com/steelbrain/reims-util at $rev, its crates in"
+          echo "  reims-util/vendor/cargo (reims-util/cargo-vendor.toml); license: reims-util/LICENSE*"
           echo
-          echo "Build: macos-kvm-gui/Dockerfile, the recipe the packages were built with: it runs"
-          echo "scripts/install-ctl.sh up to its reims-ctl part, then strips the binaries."
+          echo "Build: kvm-gui/Dockerfile, the recipe the packages were built with: it runs all of"
+          echo "scripts/install-ctl.sh (QEMU, reims-ctl, reims-util), then strips the binaries."
         } > SOURCES.txt
         chown -R "$HOST_UID:$HOST_GID" /out'
     pack "$work" "$(cd "$out" && pwd)/$name.tar.gz" "$name"

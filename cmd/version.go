@@ -12,7 +12,7 @@ var versionCmd = &cobra.Command{
 	Use:   "version",
 	Short: "Show the app version and the built-in boot files",
 	Run: func(cmd *cobra.Command, _ []string) {
-		fmt.Fprintln(cmd.OutOrStdout(), "macos-kvm-gui", version)
+		fmt.Fprintln(cmd.OutOrStdout(), "kvm-gui", version)
 		fmt.Fprintln(cmd.OutOrStdout(), "boot files:", core.AssetVersions())
 	},
 }

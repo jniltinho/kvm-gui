@@ -1,6 +1,6 @@
 # MCP server for AI agents
 
-`macos-kvm-gui mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server. With it, an AI agent such as Claude Code or Codex can see a VM's screen, type and click in it, start and stop it, and install macOS from the offline installer, so you can ask the agent to install or check a VM and watch what it does in the app.
+`kvm-gui mcp` is a [Model Context Protocol](https://modelcontextprotocol.io) server. With it, an AI agent such as Claude Code or Codex can see a VM's screen, type and click in it, start and stop it, and install macOS from the offline installer, so you can ask the agent to install or check a VM and watch what it does in the app.
 
 It talks over standard input and output only and opens no network port. It drives VMs through the same private sockets the app uses, in your user's 0700 runtime directory.
 
@@ -9,8 +9,8 @@ It talks over standard input and output only and opens no network port. It drive
 Register it once in your agent:
 
 ```sh
-claude mcp add macos-kvm -- macos-kvm-gui mcp     # Claude Code
-codex mcp add macos-kvm -- macos-kvm-gui mcp      # Codex
+claude mcp add macos-kvm -- kvm-gui mcp     # Claude Code
+codex mcp add macos-kvm -- kvm-gui mcp      # Codex
 ```
 
 Then ask, for example: "Install Sequoia on my VM offline and tell me when it reaches Setup Assistant."

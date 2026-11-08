@@ -233,7 +233,7 @@ These are limitations, not translated core error messages:
 
 | Message | Action |
 | --- | --- |
-| ``Reims vGPU is not installed (looked for <Workspace>/.reims/qemu/current/bin/qemu-system-x86_64): install it in the Host tab or with `macos-kvm-gui reims install` `` | Click **Install Reims vGPU** in the Host tab or run `macos-kvm-gui reims install` (or build it). The app also looks for upstream's install in `~/.local/share/reims-ctl/qemu/current`. |
+| ``Reims vGPU is not installed (looked for <Workspace>/.reims/qemu/current/bin/qemu-system-x86_64): install it in the Host tab or with `kvm-gui reims install` `` | Click **Install Reims vGPU** in the Host tab or run `kvm-gui reims install` (or build it). The app also looks for upstream's install in `~/.local/share/reims-ctl/qemu/current`. |
 | `reims_qemu in <settings.yaml>: <stat error>` | The path in `reims_qemu` (or `MKG_REIMS_QEMU`) does not exist. Fix or remove it. |
 | `<qemu> does not list the apple-gfx-pci device` (hint: `install or build Reims vGPU again`) | That QEMU is not a Reims vGPU build, for example the system QEMU set in `reims_qemu`. Install or build again, or point `reims_qemu` at the Reims build. |
 | `no Vulkan ICD manifest in /usr/share/vulkan/icd.d or /etc/vulkan/icd.d` | Install the GPU's Vulkan driver: `sudo apt install mesa-vulkan-drivers` (AMD, Intel), or the NVIDIA driver. |

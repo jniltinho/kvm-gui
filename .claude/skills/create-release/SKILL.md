@@ -1,11 +1,18 @@
 ---
 name: create-release
-description: Create a version tag and a GitHub Release for macos-kvm-gui with polished notes. Use when the user asks to release, cut a version, tag a release or publish a new version.
+description: Create a version tag and a GitHub Release for kvm-gui (or a reims-<commit> Reims vGPU release) with polished notes. Use when the user asks to release, cut a version, tag a release or publish a new version.
 ---
 
-# Releasing macos-kvm-gui
+# Releasing kvm-gui
 
-`.github/workflows/go-release.yml` is manual: after pushing a `v*` tag, run `gh workflow run go-release.yml --ref vX.Y.Z`. It tests, builds the binary (with Reims vGPU window embedding, so the runner builds reims-gui's rg-x11 library in Docker) with the tag as its version, packages it and creates the GitHub Release, not marked latest: reims-gui is the recommended app. This skill covers the tag and the release notes.
+Two series live on this repository's releases:
+
+| Series | Tag | Title | Workflow |
+|---|---|---|---|
+| kvm-gui | `vX.Y.Z` | `kvm-gui vX.Y.Z` | `go-release.yml`, manual: `gh workflow run go-release.yml --ref vX.Y.Z`; marks the release **latest** |
+| Reims vGPU's QEMU, `reims-ctl`, `reims-util` | `reims-<7-digit commit>` (must match `ARG REIMS_COMMIT` in `reims/Dockerfile`) | `Reims vGPU QEMU <commit>` | `reims-release.yml`, on the tag push |
+
+`go-release.yml` refuses a commit without the Wails GUI (`frontend/package.json`). Keep the last two releases of each series (`gh release delete <tag> --cleanup-tag -y` for older ones).
 
 ## Before you start
 
@@ -15,30 +22,24 @@ git status                # must be clean
 git fetch origin --tags
 git checkout main
 git pull --ff-only
-make test                 # gofmt, vet and race tests must pass locally
+make test openspec dist   # everything in the build image (Docker); must pass
 ```
 
-## Versioning
+## Versioning (kvm-gui)
 
-Semantic versioning with a `v` prefix: `v0.MINOR.PATCH` until the first stable release.
+Semantic versioning with a `v` prefix.
 
-- `feat:` commits since the last tag → bump MINOR (`v0.1.3` → `v0.2.0`).
-- Only `fix:`, `perf:`, `refactor:`, `ci:`, `docs:` or `chore:` → bump PATCH (`v0.1.3` → `v0.1.4`).
-- Release titles name the app: `macos-kvm-gui (Go) vX.Y.Z` (reims-gui's are `reims-gui (Rust) X.Y.Z`, Reims vGPU's QEMU `Reims vGPU QEMU <commit>`).
+- `feat:` commits since the last tag → bump MINOR.
+- Only `fix:`, `perf:`, `refactor:`, `ci:`, `docs:` or `chore:` → bump PATCH.
 
 ```bash
-LAST=$(git describe --tags --abbrev=0)
+LAST=$(git describe --tags --match 'v[0-9]*' --abbrev=0)
 git log "$LAST"..HEAD --oneline
 ```
 
 ## Process
 
 ### 1. Review and categorize the changes
-
-```bash
-git log "$LAST"..HEAD --oneline
-git log "$LAST"..HEAD --stat
-```
 
 Sections, in this order; omit empty ones:
 
@@ -49,34 +50,27 @@ Sections, in this order; omit empty ones:
 | **🧹 Cleanup** | `chore:`, `cleanup:` |
 | **📚 Documentation** | `docs:`, `doc:` |
 
-### 2. Tag and push
+### 2. Tag, push and run the workflow
 
 ```bash
-NEXT=v0.X.Y
+NEXT=vX.Y.Z
 git tag -a "$NEXT" -m "Release $NEXT"
 git push origin "$NEXT"
-```
-
-### 3. Watch the workflow
-
-```bash
-gh run list --workflow go-release.yml --limit 3
+gh workflow run go-release.yml --ref "$NEXT"
 gh run watch "$(gh run list --workflow go-release.yml --limit 1 --json databaseId --jq '.[0].databaseId')"
-gh release view "$NEXT"
 ```
 
 The workflow attaches:
 
 | Artifact | Notes |
 |---|---|
-| `macos-kvm-gui-vX.Y.Z-linux-amd64.tar.gz` | binary, README, LICENSE, THIRD_PARTY_NOTICES.md |
-| `macos-kvm-gui_X.Y.Z_amd64.deb` | `/usr/bin/macos-kvm-gui`, menu entry, scalable icon; depends on qemu-system-x86, qemu-utils, pkexec |
-| `macos-kvm-gui-X.Y.Z-1.x86_64.rpm` | same files as the `.deb`; requires qemu-system-x86, qemu-img, polkit (Fedora 39+) |
-| `*.sha256` | one per artifact |
+| `kvm-gui_X.Y.Z_amd64.deb` | Ubuntu 24.04, 26.04, Debian 13; `/usr/bin/kvm-gui` and the `macos-kvm-gui` link; replaces `macos-kvm-gui` |
+| `kvm-gui-X.Y.Z-1.x86_64.rpm` | Rocky Linux 10; same files; obsoletes `macos-kvm-gui` |
+| `SHA256SUMS` | both packages |
 
-### 4. Replace the generated notes
+### 3. Replace the generated notes
 
-The workflow publishes GitHub's auto-generated notes. Replace them with the categorized ones. Always keep the home lab notice and say what was validated on real hardware.
+Always keep the home lab notice and say only what was really validated.
 
 ~~~bash
 cat > /tmp/release-notes-$NEXT.md <<'EOF'
@@ -90,41 +84,37 @@ cat > /tmp/release-notes-$NEXT.md <<'EOF'
 
 - ...
 
-## 📚 Documentation
-
-- ...
-
 ## Install
 
 ```sh
-sudo apt install ./macos-kvm-gui_X.Y.Z_amd64.deb   # Ubuntu 24.04+, Debian 13+
-sudo dnf install ./macos-kvm-gui-X.Y.Z-1.x86_64.rpm   # Fedora 39+
-# or
-tar -xzf macos-kvm-gui-vX.Y.Z-linux-amd64.tar.gz && ./macos-kvm-gui-vX.Y.Z-linux-amd64/macos-kvm-gui
+sha256sum -c --ignore-missing SHA256SUMS
+sudo apt install ./kvm-gui_X.Y.Z_amd64.deb      # Ubuntu 24.04, 26.04, Debian 13
+sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm   # Rocky Linux 10
 ```
 
-Requires Linux x86_64 with glibc 2.38+ (Ubuntu 24.04+, Debian 13+, Fedora 39+) and KVM.
-
-**Validated:** <what was booted end to end, e.g. macOS Sonoma 14.8.9 on Ubuntu 24.04 / QEMU 8.2.2>
+**Validated:** <what was really run, e.g. the Nilton VM (Sequoia 15.8.1, Reims vGPU) booted from the GUI on Ubuntu 24.04>
 
 **Full Changelog**: https://github.com/jniltinho/kvm-gui/compare/vPREV...vNEXT
 EOF
-gh release edit "$NEXT" --title "macos-kvm-gui (Go) $NEXT" --notes-file /tmp/release-notes-$NEXT.md
+gh release edit "$NEXT" --title "kvm-gui $NEXT" --notes-file /tmp/release-notes-$NEXT.md
 ~~~
 
-### 5. Verify
+### 4. Verify
 
 ```bash
-gh release view "$NEXT" --json name,assets --jq '.name, (.assets[].name)'
-gh release download "$NEXT" -D /tmp/check-$NEXT && (cd /tmp/check-$NEXT && sha256sum -c *.sha256)
+gh release view "$NEXT" --json name,isLatest,assets --jq '.name, .isLatest, (.assets[].name)'
+gh release download "$NEXT" -D /tmp/check-$NEXT && (cd /tmp/check-$NEXT && sha256sum -c SHA256SUMS)
 ```
 
-Check that:
-- the title is `macos-kvm-gui (Go) $NEXT`;
-- six assets are attached: the `.tar.gz`, the `.deb`, the `.rpm` and one `.sha256` for each;
-- the checksums pass and the binary opens (`./macos-kvm-gui` shows "macOS KVM vX.Y.Z" in the title bar);
-- the Full Changelog link covers the right range.
+Check the title, that it is latest, the three assets, the checksums, and that the packages install in clean containers (`ubuntu:24.04`, `ubuntu:26.04`, `debian:13`, `rockylinux/rockylinux:10`).
+
+## Reims vGPU releases
+
+1. Pin the newest upstream commit in `reims/Dockerfile` and `reims/Dockerfile.rocky`, build and check locally in Docker (AGENTS.md), commit, then tag `reims-<7-digit commit>` on that commit and push the tag.
+2. `reims-release.yml` builds QEMU, `reims-ctl` and `reims-util` for `ubuntu24.04`, `ubuntu26.04`, `debian13` and `rocky10`, checks each in a clean container, and publishes them with `reims-vgpu-src-<commit>.tar.gz`.
+3. Notes: the home lab notice; that it is Reims vGPU's QEMU (with `reims-ctl` and `reims-util`), not an app; that `kvm-gui reims install` downloads the host's package and checks the SHA-256 the app pins; the assets table; **Validated** (what really ran, e.g. the Nilton VM on the 24.04 build). Credit [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu) as the base. Do not mention the archived reims-gui.
+4. Commit `reims/manifest.json` with the published SHA-256 files.
 
 ## Building a release locally
 
-`make package VERSION=v0.X.Y` produces the same files in `dist/` without publishing anything.
+`make dist VERSION=vX.Y.Z` produces the same files in `dist/` without publishing anything.

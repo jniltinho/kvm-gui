@@ -31,7 +31,7 @@ func Serve(ctx context.Context, version string) error {
 }
 
 func newServer(version string) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "macos-kvm-gui", Version: version}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "kvm-gui", Version: version}, nil)
 	yes, no := true, false
 	destructive := &mcp.ToolAnnotations{DestructiveHint: &yes}
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true}
@@ -201,7 +201,7 @@ type vmStartIn struct {
 	VerboseBoot bool   `json:"verbose_boot,omitempty" jsonschema:"show macOS's boot log instead of the Apple logo, for this start only"`
 }
 
-// vmStart runs "macos-kvm-gui vm start" in its own session: that process owns QEMU, so the VM
+// vmStart runs "kvm-gui vm start" in its own session: that process owns QEMU, so the VM
 // outlives this server and the agent.
 func vmStart(ctx context.Context, _ *mcp.CallToolRequest, in vmStartIn) (*mcp.CallToolResult, any, error) {
 	e, err := findVM(in.VM)

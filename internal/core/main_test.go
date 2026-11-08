@@ -24,3 +24,13 @@ func testDefaults() Config {
 	c.SSHPort = FirstSSHPort
 	return c
 }
+
+// needTool skips a test whose tool is missing, or fails it under MKG_REQUIRE_TOOLS=1 (CI and make test),
+// so a check never passes silently because the image lacks a tool.
+func needTool(t *testing.T, why string) {
+	t.Helper()
+	if os.Getenv("MKG_REQUIRE_TOOLS") == "1" {
+		t.Fatal("required tool missing: ", why)
+	}
+	t.Skip(why)
+}

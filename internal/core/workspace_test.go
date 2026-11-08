@@ -113,6 +113,8 @@ func TestOpenCoreConfig(t *testing.T) {
 				t.Errorf("%s: ocvalidate: %v\n%s", name, err, out)
 			}
 		}
+	} else {
+		needTool(t, "testdata/ocvalidate missing (make internal/core/testdata/ocvalidate)")
 	}
 }
 
@@ -134,7 +136,7 @@ func TestConvertProgress(t *testing.T) {
 
 func TestDownloadFailuresPreserveMedia(t *testing.T) {
 	if _, err := exec.LookPath("qemu-img"); err != nil {
-		t.Skip("qemu-img missing")
+		needTool(t, "qemu-img missing")
 	}
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
@@ -169,7 +171,7 @@ func TestDownloadFailuresPreserveMedia(t *testing.T) {
 
 func TestDiskAndMediaRemoval(t *testing.T) {
 	if _, err := exec.LookPath("qemu-img"); err != nil {
-		t.Skip("qemu-img missing")
+		needTool(t, "qemu-img missing")
 	}
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
 	w := readyWorkspace(t)

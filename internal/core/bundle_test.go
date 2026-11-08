@@ -3,6 +3,7 @@ package core
 import (
 	"archive/tar"
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -68,7 +69,7 @@ func qcow2(t *testing.T, path, backing string) {
 		args = append(args, "-b", backing, "-F", "raw")
 	}
 	if out, err := exec.Command("qemu-img", append(args, path, "64M")...).CombinedOutput(); err != nil {
-		t.Skipf("qemu-img unavailable: %v %s", err, out)
+		needTool(t, fmt.Sprintf("qemu-img unavailable: %v %s", err, out))
 	}
 }
 

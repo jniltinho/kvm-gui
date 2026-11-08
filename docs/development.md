@@ -4,36 +4,20 @@
 
 ## Build
 
-Use the Go version declared in [`go.mod`](../go.mod) (**1.27.2**), CGO, Make and Fyne's native build dependencies. Debian/Ubuntu setup:
+Everything builds and runs in one Docker image, `build/linux.Dockerfile` (Ubuntu 24.04, Go from `go.mod`, Node and the OpenSpec CLI, `qemu-utils`, QEMU, Xvfb, `dpkg-dev`, `rpm`). The host needs only Docker and make; do not install Go or build dependencies on it.
 
 ```sh
-sudo apt install make gcc pkg-config libgl1-mesa-dev xorg-dev \
-  libwayland-dev libxkbcommon-dev wayland-protocols qemu-utils \
-  curl unzip
-make build          # dist/macos-kvm-gui (Go, with Reims vGPU window embedding) and dist/reims-gui (Rust, built in Docker)
-make build-go       # only the Go app; make build-rust: only reims-gui
-make run            # build the Go app and launch it
+make image          # build the image (kvm-gui-build:24.04)
+make build          # dist/kvm-gui (CGO_ENABLED=0)
 make build-prod     # stripped, -trimpath, main.version from VERSION
+make dist           # dist/: kvm-gui_<v>_amd64.deb, kvm-gui-<v>-1.x86_64.rpm and SHA256SUMS
 ```
 
-Boot assets are committed; a normal build does not fetch them. An empty Go module cache may still require network access for dependencies. Running the app also needs `qemu-system-x86` and `pkexec`; see [requirements](getting-started.md#requirements).
+Go's build and module caches persist in `~/.cache/kvm-gui-build`. Boot assets are committed; a normal build does not fetch them.
 
-`make package VERSION=v0.X.Y` packages both apps into `dist/`: `make package-rust` copies reims-gui's single `.deb` and `.tar.gz` (built in Docker by `reims-gui/scripts/build.sh`, for Ubuntu 24.04 and 26.04), and `make package-go` builds the Go app's production binary and calls `scripts/package.sh`, producing a Linux-amd64 `.tar.gz`, `.deb`, `.rpm` and one `.sha256` per artifact in `dist/`. Packaging needs `dpkg-deb`, `rpmbuild` (the `rpm` package on Ubuntu), `tar` and `sha256sum`. The `.rpm` is built from the same tree as the `.deb` and requires Fedora's `qemu-system-x86`, `qemu-img` and `polkit`. The tarball includes the binary, README and licenses; the `.deb` installs the binary, desktop entry and SVG icon. It declares glibc 2.38+, desktop runtime libraries and QEMU/pkexec dependencies. This is not a cross-platform package target. `make clean` removes `dist/`.
+`make package` runs `scripts/package.sh` in the image. The `.deb` (Ubuntu 24.04, 26.04, Debian 13) depends on `qemu-system-x86`, `qemu-system-gui`, `qemu-utils`, `ovmf` and `pkexec` and recommends `swtpm`; the `.rpm` (Rocky Linux 10) requires `qemu-kvm`, `qemu-img`, `edk2-ovmf` and `polkit`. Both replace `macos-kvm-gui` and install `/usr/bin/macos-kvm-gui` as a link to `kvm-gui`. After each milestone, `make dist` leaves the milestone's artifacts in `dist/`.
 
-## Embedding Reims vGPU's window
-
-The Go app puts Reims vGPU's window inside its Screen tab through reims-gui's X11 code, `reims-gui/crates/rg-x11`, rather than a second implementation. The pieces:
-
-- **The C ABI.** `reims-gui/crates/rg-x11-ffi` exposes it as a static library, with the hand-written header `rg_x11.h` next to it. A test keeps the header and the exported `rgx_*` functions in step. It is the only crate in the reims-gui workspace with `unsafe`.
-- **The Go side.** `internal/embed` wraps it with cgo under the `reims_embed` build tag; without the tag, a stub reports `ErrUnavailable` and the window stays standalone.
-- **Make targets:**
-  - `make embed-lib` builds `reims-gui/target/rg-x11-ffi/release/librg_x11_ffi.a` in the Ubuntu 24.04 Docker image, the one path cgo links.
-  - `make build-go`, `make build-prod` and `make package-go` depend on it and pass `-tags reims_embed`.
-  - Plain `go build .` and `make test` need neither Docker nor Rust.
-- **Tests:** `make test-embed` builds rg-x11's `sdl_window` test helper and runs `internal/embed`'s cgo test under Xvfb (it needs `Xvfb`, `xdotool` and `xwininfo`).
-- **In the GUI (`internal/gui/embedhost.go`):**
-  - When embedding is built in, the app sets `FYNE_PLATFORM=x11` unless you set it, so its window has an X11 id on Wayland desktops too.
-  - It draws its own File / Machine / Help buttons instead of Fyne's native menu bar: their menus are overlays it can hide the guest under.
+The desktop GUI is being rebuilt in Go + Wails (OpenSpec change `migrate-gui-to-go-wails`); until it lands, the binary is the command line and the MCP server.
 
 ## Tests and validation
 
@@ -41,15 +25,15 @@ The Go app puts Reims vGPU's window inside its Screen tab through reims-gui's X1
 make test
 ```
 
-This first fetches `internal/core/testdata/ocvalidate` if absent, using `scripts/fetch-ocvalidate.sh`, then checks gofmt, runs `go vet ./...` and `go test -race ./...`. Fetching verifies the OpenCore release checksum from `assets.env` with the same environment/repository `.env` overrides. The validator is git-ignored and not embedded. With it already present and Go dependencies cached, the unit-test path needs no downloads.
+In the build image, this first fetches `internal/core/testdata/ocvalidate` if absent, using `scripts/fetch-ocvalidate.sh`, then checks gofmt, runs `go vet ./...` and `go test -race ./...` with `MKG_REQUIRE_TOOLS=1`, so a test that needs `qemu-img` or `ocvalidate` fails instead of skipping. Fetching verifies the OpenCore release checksum from `assets.env` with the same environment/repository `.env` overrides. The validator is git-ignored and not embedded. With it already present and Go dependencies cached, the unit-test path needs no downloads.
 
-Tests cover configuration/profiles, fake host/sysfs checks, reservation scripts, QEMU arguments, QMP with a fake server, recovery with a local HTTP server, real Apple chunklist signature data and synthetic signed-image failures. Disk/media tests use real `qemu-img`; those tests skip when it is missing. They do not download a full macOS installation or exercise physical GPU passthrough.
+Tests cover configuration/profiles, fake host/sysfs checks, reservation scripts, QEMU arguments, QMP with a fake server, recovery with a local HTTP server, real Apple chunklist signature data and synthetic signed-image failures. Disk/media tests use real `qemu-img` from the build image; with `MKG_REQUIRE_TOOLS=1` (as `make test` sets) a missing tool fails the test instead of skipping it. They do not download a full macOS installation or exercise physical GPU passthrough.
 
 `TestOpenCoreConfig` generates install, installed and GPU config variants, invoking `ocvalidate` when the executable exists and requiring `No issues found`. Running bare `go test` without it does **not** validate the schema. To explicitly fetch/refresh it and run that test:
 
 ```sh
-scripts/fetch-ocvalidate.sh
-go test -race -run '^TestOpenCoreConfig$' ./internal/core
+make internal/core/testdata/ocvalidate
+make test
 ```
 
 ### Integration with real QEMU/KVM
@@ -82,10 +66,11 @@ The scripts parse plain `KEY=value` data, never source shell files. Only compone
 For a runtime experiment without rebuilding:
 
 ```sh
-MKG_ASSETS_DIR="$PWD/internal/assets" ./dist/macos-kvm-gui
+make build
+MKG_ASSETS_DIR="$PWD/internal/assets" ./dist/kvm-gui vm start
 ```
 
-This is a complete-tree override, not a per-file overlay. The Install tab reports its versions/source. It is separate from the optional runtime `.env` under the user config directory; see [architecture](architecture.md#settings-and-overrides). Boot files extracted into a workspace are regenerated on every Start, so do not use workspace edits as the development source.
+This is a complete-tree override, not a per-file overlay. `kvm-gui version` reports its versions/source. It is separate from the optional runtime `.env` under the user config directory; see [architecture](architecture.md#settings-and-overrides). Boot files extracted into a workspace are regenerated on every Start, so do not use workspace edits as the development source.
 
 ## OpenSpec workflow
 
@@ -96,9 +81,7 @@ This is a complete-tree override, not a per-file overlay. The Install tab report
 - Validate all changes using the CI-pinned tool:
 
   ```sh
-  npx -y @fission-ai/openspec@1.14.2 validate --all --strict
-  # Or one change:
-  npx -y @fission-ai/openspec@1.14.2 validate embed-boot-assets --strict
+  make openspec   # openspec validate --all --strict, in the build image
   ```
 
 - Use OpenSpec's archive workflow after acceptance; `openspec/changes/archive/` is the archive destination. Validation checks spec structure, not runtime correctness.
@@ -109,8 +92,9 @@ Read changes in context: `add-desktop-gui` describes the original clone/Python d
 
 | Workflow | Trigger and work |
 | --- | --- |
-| [CI](../.github/workflows/go-ci.yml) | Disabled: run by hand from the Actions tab (was pushes to `main` and pull requests). Ubuntu 24.04; Go from `go.mod`; install native headers and `qemu-utils`; `make test`, `make build-prod`. Separate Node 24 job validates OpenSpec 1.14.2 with `--all --strict`. New runs cancel earlier runs for the same ref. |
-| [Release](../.github/workflows/go-release.yml) | Disabled: run by hand from the Actions tab (was pushes of `v*` tags). Ubuntu 24.04, America/Sao_Paulo timezone, Go from `go.mod`, native dependencies, `make test`, then `make package-go VERSION=${GITHUB_REF_NAME}`. Publishes a GitHub Release with generated notes and `.tar.gz`, `.deb`, `.rpm`, `.sha256` attachments. |
+| [CI](../.github/workflows/ci.yml) | Pushes to `main` and pull requests: `make test`, `make openspec` and `make dist`, all in the build image. New runs cancel earlier runs for the same ref. |
+| [Release](../.github/workflows/go-release.yml) | By hand on a `v*` tag. Refuses a commit without the Wails GUI (`frontend/package.json`); then `make test openspec` and `make dist VERSION=<tag>`, and publishes the `.deb`, the `.rpm` and `SHA256SUMS` as the latest release. |
+| [Reims vGPU](../.github/workflows/reims-release.yml) | A `reims-<7-digit commit>` tag matching `reims/Dockerfile`: builds QEMU, `reims-ctl` and `reims-util` for Ubuntu 24.04, 26.04, Debian 13 and Rocky Linux 10, checks each in a clean container, and publishes them with the source archive. |
 
 Neither workflow runs the real-QEMU integration target, a macOS installation or a real-GPU test. Release does not run the separate OpenSpec job. Builds use committed boot assets rather than refetching them; tests may fetch `ocvalidate` on a fresh runner.
 

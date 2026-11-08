@@ -1,6 +1,6 @@
 # Documentation
 
-macos-kvm-gui is a Go + Fyne desktop app for installing and running macOS on Linux KVM/QEMU, with embedded OpenCore and OVMF.
+kvm-gui creates and runs macOS VMs (and, with the Go + Wails desktop GUI being built, ordinary KVM VMs) on Linux KVM/QEMU, with embedded OpenCore and OVMF, from one binary: command line, MCP server and desktop GUI.
 
 **For home lab use.** Check [Apple's macOS license terms](https://www.apple.com/legal/sla/), including the Apple-branded-hardware restrictions. This project is not affiliated with Apple. Only Sonoma has been validated end to end; GPU passthrough is **untested on real hardware**.
 
@@ -11,7 +11,6 @@ macos-kvm-gui is a Go + Fyne desktop app for installing and running macOS on Lin
 - [Architecture](architecture.md): packages, VM lifecycle, workspace, recovery and asset overrides.
 - [GPU passthrough](gpu-passthrough.md): compatibility, reservation, safeguards and recovery.
 - [Reims vGPU](reims-vgpu.md): Metal in macOS through the host's own GPU, without passthrough (experimental): install, host and guest setup, limits.
-- [reims-gui](reims-gui.md): the Rust rewrite (preview) with the Reims vGPU display inside the window: install, embedding, differences from this app and troubleshooting.
 - [Troubleshooting](troubleshooting.md): exact app messages, fixes, network adapters and bridged networking, and display limitations.
 - [Command line](cli.md): every step from a terminal, and an automated install script.
 - [Development](development.md): builds, tests, boot assets, OpenSpec, CI and releases.

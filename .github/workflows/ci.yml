@@ -1,0 +1,28 @@
+# kvm-gui's checks. Everything runs in the build image (build/linux.Dockerfile) through make, so the
+# runner needs only Docker and make. No Rust is built here: the archived reims-gui is not built, and
+# Reims vGPU's QEMU has its own workflow (reims-release.yml).
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_call:
+permissions:
+  contents: read
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  checks:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # the package version comes from the last v* tag
+      - name: Go checks (gofmt, go vet, go test -race with every tool required)
+        run: make test
+      - name: OpenSpec (validate --all --strict)
+        run: make openspec
+      - name: Artifacts (.deb, .rpm, SHA256SUMS)
+        run: make dist

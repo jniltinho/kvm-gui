@@ -1,13 +1,14 @@
 # syntax=docker/dockerfile:1
 # Builds Reims vGPU's QEMU (github.com/steelbrain/reims-vgpu) for one Ubuntu release with
-# upstream's own scripts/install-ctl.sh, at a pinned commit. Used by `macos-kvm-gui reims build`
+# upstream's own scripts/install-ctl.sh, at a pinned commit, with reims-ctl and reims-util. Used by `kvm-gui reims build`
 # and by .github/workflows/reims-release.yml, which publishes the packages `reims install` uses.
 #
 #   docker build --build-arg UBUNTU=24.04 -t reims-build:24.04 - < Dockerfile
 #   docker run --rm -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) -v <dir>:/build reims-build:24.04
 #
-# Output: <dir>/share/reims-ctl/qemu/<date>-<commit>/ (bin/qemu-system-x86_64 and its data,
-# stripped); <dir>/cache keeps the library's and QEMU's builds for the next run.
+# Output: <dir>/share/reims-ctl/qemu/<date>-<commit>/ (bin/qemu-system-x86_64, bin/reims-ctl,
+# bin/reims-util and QEMU's data, stripped): one folder kvm-gui installs and activates as a whole;
+# <dir>/cache keeps the library's and QEMU's builds for the next run.
 # BASE picks another apt-based distribution, e.g. --build-arg BASE=debian:13 (its own build:
 # an Ubuntu build does not run there, the libraries differ).
 ARG UBUNTU=24.04
@@ -21,7 +22,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential git curl ca-certificates pkg-config python3 python3-venv ninja-build \
     flex bison bzip2 cmake clang lld binutils libglib2.0-dev libpixman-1-dev libslirp-dev \
-    zlib1g-dev libfdt-dev libpipewire-0.3-dev libpulse-dev libasound2-dev libvulkan1 \
+    zlib1g-dev libfdt-dev libpipewire-0.3-dev libpulse-dev libasound2-dev libusb-1.0-0-dev libvulkan1 \
     libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxi-dev libxfixes-dev libxss-dev \
     libxtst-dev libxkbcommon-dev libwayland-dev libwayland-bin libdecor-0-dev \
     libegl-dev libgl-dev libdrm-dev libgbm-dev libdbus-1-dev libudev-dev libgtk-3-dev \
@@ -33,21 +34,22 @@ RUN git clone https://github.com/steelbrain/reims-vgpu /src && git -C /src check
     && git -C /src submodule update --init --depth 1 vendor/qemu
 WORKDIR /src
 # Not --locked: the committed Cargo.lock leaves out the git sources, which cargo adds.
-RUN cargo fetch
-# install-ctl.sh up to its reims-ctl part (the app runs QEMU itself and needs neither reims-ctl
-# nor reims-util), with the library's build kept in the mounted cache, then stripped binaries.
+RUN cargo fetch && cargo fetch --manifest-path crates/reims-ctl/Cargo.toml
+# All of install-ctl.sh: the library, QEMU, reims-ctl (cargo install) and, through reims-ctl's
+# __record-install, reims-util at the commit reims-ctl names. Both programs then go into the QEMU
+# build's own bin/, so one folder holds everything and is switched as a whole.
 # Everything in /build is the caller's on any exit, a failed build's too.
 RUN cat > /usr/local/bin/build-reims <<'EOF'
 #!/bin/bash
 set -euo pipefail
 trap 'chown -R "${HOST_UID:-0}:${HOST_GID:-0}" /build' EXIT
 cd /src
-grep -q '^# -* reims-ctl$' scripts/install-ctl.sh || { echo "install-ctl.sh changed: no reims-ctl section" >&2; exit 1; }
-sed '/^# -* reims-ctl$/,$d' scripts/install-ctl.sh > scripts/install-qemu.sh
-mkdir -p /build/share /build/cache
-XDG_DATA_HOME=/build/share XDG_CACHE_HOME=/build/cache CARGO_TARGET_DIR=/build/cache/target \
-  bash scripts/install-qemu.sh --yes
+mkdir -p /build/share /build/cache /build/config /build/tools
+XDG_DATA_HOME=/build/share XDG_CACHE_HOME=/build/cache XDG_CONFIG_HOME=/build/config \
+  CARGO_TARGET_DIR=/build/cache/target CARGO_INSTALL_ROOT=/build/tools \
+  bash scripts/install-ctl.sh --yes
 q="$(readlink -f /build/share/reims-ctl/qemu/current)"
+install -m 0755 /build/tools/bin/reims-ctl /build/tools/bin/reims-util "$q/bin/"
 find "$q/bin" "$q/libexec" -type f -perm -u+x -exec strip --strip-unneeded {} + 2>/dev/null || true
 echo "Built $q"
 EOF

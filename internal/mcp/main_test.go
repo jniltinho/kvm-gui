@@ -24,3 +24,12 @@ func TestMain(m *testing.M) {
 	os.RemoveAll(dir)
 	os.Exit(code)
 }
+
+// needTool skips a test whose tool is missing, or fails it under MKG_REQUIRE_TOOLS=1.
+func needTool(t *testing.T, why string) {
+	t.Helper()
+	if os.Getenv("MKG_REQUIRE_TOOLS") == "1" {
+		t.Fatal("required tool missing: ", why)
+	}
+	t.Skip(why)
+}

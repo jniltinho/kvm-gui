@@ -64,13 +64,13 @@
 - [x] 4.4 App-owned menu bar (design D6): while embedding is available, File, Machine and Help become buttons that open `widget.PopUpMenu` overlays with the same items and Alt shortcuts; otherwise the native `SetMainMenu` stays. — done: File menu over the embedded guest fully visible (guest hidden), dialogs too; confirmed by the user.
 
   Verify: a test that the menu items match the old main menu, and by hand that the File menu over an embedded guest is fully visible and clickable.
-- [ ] 4.5 Leave VMs started by the CLI or MCP, and VMs found running at startup, as they are.
+- [x] 4.5 (Superseded: moved to `migrate-gui-to-go-wails` task 6.4, which re-targets embedding to the Wails VM window; the Fyne GUI was deleted.) Leave VMs started by the CLI or MCP, and VMs found running at startup, as they are.
 
   Verify: with `macos-kvm-gui vm start` while the GUI is open, the window stays on the desktop and the tab shows the notice (screenshot).
 
 ## 5. Release on exit
 
-- [ ] 5.1 In GUI mode, handle SIGTERM, SIGINT and SIGHUP: stop the ticker, release the embedding on the UI goroutine, then quit, with a 2 s fallback `os.Exit(143)`. The close-while-running refusal stays, and QEMU still stops with the app (`Pdeathsig`).
+- [x] 5.1 (Superseded: moved to `migrate-gui-to-go-wails` task 6.4 and its `screen-embedding` spec; the Fyne GUI was deleted.) In GUI mode, handle SIGTERM, SIGINT and SIGHUP: stop the ticker, release the embedding on the UI goroutine, then quit, with a 2 s fallback `os.Exit(143)`. The close-while-running refusal stays, and QEMU still stops with the app (`Pdeathsig`).
 
   Verify: `kill -TERM` of the GUI with a guest embedded makes `xwininfo -tree` show QEMU's window under the root before QEMU exits, and the X server and the desktop stay up.
 

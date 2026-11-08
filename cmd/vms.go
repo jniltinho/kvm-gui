@@ -45,7 +45,7 @@ var vmListCmd = &cobra.Command{
 var vmCreateCmd = &cobra.Command{
 	Use:     "create <name>",
 	Short:   "Create a VM with CPU and RAM recommended for this host, select it and prepare its folder",
-	Example: "  macos-kvm-gui vm create \"Tahoe lab\" --version tahoe --folder ~/macOS-VMs/tahoe",
+	Example: "  kvm-gui vm create \"Tahoe lab\" --version tahoe --folder ~/macOS-VMs/tahoe",
 	Args:    cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		e, err := core.CreateVMWithDefaults(cmd.Context(), args[0], createVersion, createWorkspace, createSSHPort)
@@ -111,7 +111,7 @@ var exportFull bool
 var vmExportCmd = &cobra.Command{
 	Use:     "export <name> [file]",
 	Short:   "Write a VM's settings as JSON, or with --full a .tar bundle with everything it needs",
-	Example: "  macos-kvm-gui vm export \"macOS Sonoma\" sonoma.json\n  macos-kvm-gui vm export \"macOS Sonoma\" sonoma.tar --full",
+	Example: "  kvm-gui vm export \"macOS Sonoma\" sonoma.json\n  kvm-gui vm export \"macOS Sonoma\" sonoma.tar --full",
 	Args:    cobra.RangeArgs(1, 2),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		vms, err := core.ListVMs()

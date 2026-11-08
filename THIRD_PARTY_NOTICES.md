@@ -19,7 +19,7 @@ The apple-smc key string passed to QEMU (`isa-applesmc,osk=…`) and the macOS r
 
 ## Reims vGPU
 
-Not embedded and not part of the app's packages. `macos-kvm-gui reims install` downloads, from this repository's separate `reims-<commit>` releases, a build of [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu)'s QEMU for the host's Ubuntu release (`reims-qemu-<commit>-ubuntu<release>-x86_64.tar.gz`, made by `.github/workflows/reims-release.yml` from `internal/core/reims/Dockerfile`), checked against the SHA-256 in `internal/core/reims/manifest.json`; `macos-kvm-gui reims build` builds the same thing from source on the user's machine instead. Each package holds:
+Not embedded and not part of the app's packages. `kvm-gui reims install` downloads, from this repository's separate `reims-<commit>` releases, a build of [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu)'s QEMU for the host's platform (`reims-qemu-<commit>-<platform>-x86_64.tar.gz` for `ubuntu24.04`, `ubuntu26.04`, `debian13` or `rocky10`, made by `.github/workflows/reims-release.yml` from `reims/Dockerfile` or `reims/Dockerfile.rocky`), checked against the SHA-256 in `reims/manifest.json`; `kvm-gui reims build` builds the same thing from source on the user's machine instead. From the release after `reims-c099dd5`, a package also holds upstream's `reims-ctl` and [steelbrain/reims-util](https://github.com/steelbrain/reims-util)'s `reims-util` (both GPL-2.0-or-later OR LGPL-3.0-or-later), and the source archive adds their crates and reims-util's source. Each package holds:
 
 | Component | Source | License |
 |---|---|---|

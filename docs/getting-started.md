@@ -13,7 +13,7 @@
   sudo apt install qemu-system-x86 qemu-utils pkexec
   ```
 
-- A graphical desktop and the OpenGL/window-system libraries needed by Fyne. Release packages require **glibc 2.38+** (Ubuntu 24.04+, Debian 13+, Fedora 39+); the `.deb` and `.rpm` declare their runtime dependencies.
+- Ubuntu 24.04, Ubuntu 26.04, Debian 13 or Rocky Linux 10; the `.deb` and `.rpm` declare their runtime dependencies. On Rocky Linux 10, only Reims vGPU VMs run for now: Rocky's QEMU is `/usr/libexec/qemu-kvm`, which the app does not look up yet (planned), and it has no `vmware-svga`. The desktop GUI (Go + Wails) is being rebuilt; meanwhile use the [command line](cli.md) or the [MCP server](mcp.md).
 - At least **4096 MiB guest RAM**; the default is 8192 MiB. Leave resources for the host. Ventura and later require host SSE4.1 and AVX2.
 - A writable workspace with room for recovery and macOS. Recovery preparation checks for at least **4 GiB free**, but downloads, conversion and the installed system need additional space. The virtual disk minimum is **40 GiB**, with **80 GiB** prefilled in the UI; it grows on the host as used.
 - Internet access for Apple's recovery download and the installer inside macOS.
@@ -22,40 +22,21 @@ No OSX-KVM clone, Git or Python is needed at runtime. OpenCore, its kexts and OV
 
 ## Install a release
 
-Download a `.deb`, `.rpm` or `.tar.gz` and its matching `.sha256` from [GitHub Releases](https://github.com/jniltinho/kvm-gui/releases). Replace `X.Y.Z` below with the release version. Check the selected artifact before installing:
+kvm-gui's first release comes with the Go + Wails desktop GUI. Until then, the last published apps (`macos-kvm-gui` v0.13.0, `reims-gui` v0.1.6) stay on [GitHub Releases](https://github.com/jniltinho/kvm-gui/releases) and read the same VMs.
+
+A kvm-gui release has a `.deb` (Ubuntu 24.04, Ubuntu 26.04, Debian 13), an `.rpm` (Rocky Linux 10) and `SHA256SUMS`. Check and install:
 
 ```sh
-sha256sum -c macos-kvm-gui_X.Y.Z_amd64.deb.sha256
-# Or, for the RPM or the tarball:
-sha256sum -c macos-kvm-gui-X.Y.Z-1.x86_64.rpm.sha256
-sha256sum -c macos-kvm-gui-vX.Y.Z-linux-amd64.tar.gz.sha256
+sha256sum -c --ignore-missing SHA256SUMS
+sudo apt install ./kvm-gui_X.Y.Z_amd64.deb          # Ubuntu, Debian
+sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm       # Rocky Linux 10
 ```
 
-**Debian package:**
+Both replace an installed `macos-kvm-gui` and keep `macos-kvm-gui` as a command name. Do not run the app as root: only host fixes and GPU reservation request elevation through `pkexec`.
 
-```sh
-sudo apt install ./macos-kvm-gui_X.Y.Z_amd64.deb
-macos-kvm-gui
-```
+## Built from this branch
 
-**RPM package (Fedora 39+):**
-
-```sh
-sudo dnf install ./macos-kvm-gui-X.Y.Z-1.x86_64.rpm
-macos-kvm-gui
-```
-
-It pulls in `qemu-system-x86`, `qemu-img` and `polkit`. RHEL, Rocky and AlmaLinux ship only `qemu-kvm`, without `qemu-system-x86_64`, so `dnf` refuses the package there.
-
-The menu entry is **macOS KVM**. Do not run the app as root: only host fixes and GPU reservation request elevation through `pkexec`.
-
-**Standalone tarball:** install the runtime dependencies above and your distribution's OpenGL/desktop runtime libraries, then:
-
-```sh
-tar -xzf macos-kvm-gui-vX.Y.Z-linux-amd64.tar.gz
-cd macos-kvm-gui-vX.Y.Z-linux-amd64
-./macos-kvm-gui
-```
+`make dist` (Docker only, see [development](development.md)) leaves the same packages in `dist/`. On this branch the binary is the [command line](cli.md) and the [MCP server](mcp.md); the steps below describe the previous GUI and will be rewritten for the Wails GUI.
 
 ## First run through the tabs
 

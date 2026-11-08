@@ -13,7 +13,7 @@ type KeyCode struct {
 	Scancode uint32
 }
 
-// keyCodes maps Fyne key names (fyne.KeyName and desktop key names) to key codes.
+// keyCodes maps key names (X11 keysym names, as the MCP tools take them) to key codes.
 var keyCodes = map[string]KeyCode{
 	"Escape": {0xff1b, 0x01}, "Return": {0xff0d, 0x1c}, "Tab": {0xff09, 0x0f}, "BackSpace": {0xff08, 0x0e},
 	"Insert": {0xff63, 0xd2}, "Delete": {0xffff, 0xd3}, "Home": {0xff50, 0xc7}, "End": {0xff57, 0xcf},

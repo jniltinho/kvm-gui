@@ -98,6 +98,8 @@ func TestRootPatchConfig(t *testing.T) {
 				t.Errorf("%s: ocvalidate: %v\n%s", name, err, out)
 			}
 		}
+	} else {
+		needTool(t, "testdata/ocvalidate missing (make internal/core/testdata/ocvalidate)")
 	}
 }
 

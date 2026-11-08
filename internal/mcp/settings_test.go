@@ -145,7 +145,7 @@ func TestVMConfigSetReloads(t *testing.T) {
 
 func TestVMCreate(t *testing.T) {
 	if _, err := exec.LookPath("qemu-img"); err != nil {
-		t.Skip("qemu-img unavailable")
+		needTool(t, "qemu-img unavailable")
 	}
 	cs := session(t)
 	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
