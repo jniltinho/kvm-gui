@@ -8,6 +8,7 @@ import (
 	"errors"
 	"io/fs"
 	"log/slog"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -115,25 +116,48 @@ func Run(o Options) error {
 		})
 		defer timer.Stop()
 	}
-	// The app's page loads only once the navigation guard is on.
-	winOpts.URL, winOpts.HTML = guardedStart()
-	winOpts.Zoom = zoomOf(core.Preference("ui_scale")) // File › Preferences › Display, from the first paint
-	win = app.Window.NewWithOptions(winOpts)
-	svc.zoom = func(f float64) { win.SetZoom(f) }
-	var once sync.Once
-	win.OnWindowEvent(events.Common.WindowShow, func(*application.WindowEvent) {
-		once.Do(func() {
-			if err := guardNavigation(win); err != nil {
-				app.Logger.Error(err.Error())
-				app.Dialog.Error().SetTitle("kvm-gui").SetMessage("The app cannot start safely: " + err.Error()).Show()
-				app.Quit()
-				return
-			}
-			if winOpts.URL == "" {
-				win.SetURL("/")
-			}
+	// Every window loads the app's page (at path) only once its navigation guard is on.
+	open := func(o application.WebviewWindowOptions, path string) *application.WebviewWindow {
+		o.URL, o.HTML = guardedStart()
+		o.Zoom = zoomOf(core.Preference("ui_scale")) // File › Preferences › Display, from the first paint
+		w := app.Window.NewWithOptions(o)
+		var once sync.Once
+		w.OnWindowEvent(events.Common.WindowShow, func(*application.WindowEvent) {
+			once.Do(func() {
+				if err := guardNavigation(w); err != nil {
+					app.Logger.Error(err.Error())
+					app.Dialog.Error().SetTitle("kvm-gui").SetMessage("The app cannot start safely: " + err.Error()).Show()
+					app.Quit()
+					return
+				}
+				if o.URL == "" {
+					w.SetURL(path)
+				}
+			})
 		})
-	})
+		return w
+	}
+	win = open(winOpts, "/")
+	svc.zoom = func(f float64) {
+		for _, w := range app.Window.GetAll() {
+			w.SetZoom(f)
+		}
+	}
+	// A window per VM, named after it: Show and Normal start open it or bring it to the front.
+	var showMu sync.Mutex
+	svc.show = func(id, title string) {
+		showMu.Lock()
+		defer showMu.Unlock()
+		if w, ok := app.Window.GetByName("vm:" + id); ok {
+			w.Restore()
+			w.Show()
+			w.Focus()
+			return
+		}
+		o := winOpts
+		o.Name, o.Title, o.Width, o.Height, o.MinWidth, o.MinHeight = "vm:"+id, title, 1280, 860, 480, 320
+		open(o, "/#/vm/"+url.PathEscape(id))
+	}
 	if err := app.Run(); err != nil {
 		return err
 	}

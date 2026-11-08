@@ -502,9 +502,37 @@ func (a *App) Start(id string, headless bool) error {
 	if err != nil {
 		return err
 	}
-	_, err = core.StartDetached(ctx, self, e, core.StartOptions{Starter: core.StarterGUI,
-		EmbedX11: !headless && onX11(), KextsSnapshot: string(snapshot)})
-	return err
+	if _, err = core.StartDetached(ctx, self, e, core.StartOptions{Starter: core.StarterGUI,
+		EmbedX11: !headless && onX11(), KextsSnapshot: string(snapshot)}); err != nil {
+		return err
+	}
+	if !headless && a.show != nil {
+		a.show(e.ID, vmTitle(e.DisplayName(), true))
+	}
+	return nil
+}
+
+// Show opens the VM's window, or brings it to the front when it is open. Closing it leaves the VM running.
+func (a *App) Show(id string) error {
+	e, err := entry(id)
+	if err != nil {
+		return err
+	}
+	if a.show == nil {
+		return errors.New("no window")
+	}
+	_, running := core.FindRun(e)
+	a.show(e.ID, vmTitle(e.DisplayName(), running))
+	return nil
+}
+
+// vmTitle is a VM window's title; the page keeps it current.
+func vmTitle(name string, running bool) string {
+	state := "Powered Off"
+	if running {
+		state = "Running"
+	}
+	return name + " [" + state + "] — kvm-gui"
 }
 
 // onX11 says whether this window is drawn on X11 (XWayland included): GTK takes GDK_BACKEND's
