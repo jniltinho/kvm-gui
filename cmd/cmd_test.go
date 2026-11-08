@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 func run(t *testing.T, args ...string) (string, error) {

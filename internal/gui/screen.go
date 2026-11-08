@@ -17,7 +17,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 // screen shows the VM's display (over VNC) and sends keyboard and mouse to it while focused.

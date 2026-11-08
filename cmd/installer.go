@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 var installerCmd = &cobra.Command{Use: "installer", Short: "Manage the cached full macOS installers (download them with download --full)"}

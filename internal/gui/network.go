@@ -12,7 +12,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 // Settings › Network, like VirtualBox's: one tab per adapter (Adapter 1–4) with Enable,

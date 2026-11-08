@@ -6,7 +6,7 @@
 
 ## Install
 
-Take the package from the [Releases](https://github.com/jniltinho/macos-kvm-gui/releases) tagged `reims-gui-v*`: the `.deb` for Ubuntu 24.04, 26.04 and Debian 13, the `.rpm` for Rocky Linux 10 (RHEL 10 family) and Fedora 40+:
+Take the package from the [Releases](https://github.com/jniltinho/kvm-gui/releases) tagged `reims-gui-v*`: the `.deb` for Ubuntu 24.04, 26.04 and Debian 13, the `.rpm` for Rocky Linux 10 (RHEL 10 family) and Fedora 40+:
 
 ```sh
 sudo apt install ./reims-gui_<version>_amd64.deb

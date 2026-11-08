@@ -16,7 +16,7 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 // settingsDialog is VirtualBox's machine Settings window: categories on the left, the page on

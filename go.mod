@@ -1,4 +1,4 @@
-module github.com/jniltinho/macos-kvm-gui
+module github.com/jniltinho/kvm-gui
 
 go 1.27.2
 

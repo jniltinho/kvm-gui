@@ -1,7 +1,7 @@
 # reims-gui
 
 Manage macOS virtual machines on QEMU/KVM with Reims vGPU: the GUI, the CLI and the MCP server
-in one binary. Project: https://github.com/jniltinho/macos-kvm-gui
+in one binary. Project: https://github.com/jniltinho/kvm-gui
 
 ## Run
 

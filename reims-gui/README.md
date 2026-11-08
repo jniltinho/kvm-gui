@@ -40,7 +40,7 @@ More in [docs/screenshots](../docs/screenshots/README.md).
 
 ## Install
 
-Download from the project's [GitHub Releases](https://github.com/jniltinho/macos-kvm-gui/releases)
+Download from the project's [GitHub Releases](https://github.com/jniltinho/kvm-gui/releases)
 (tags `reims-gui-v*`) the package for your system, and check it against its `.sha256`:
 
 ```sh

@@ -7,7 +7,7 @@ version = "0.1.6"
 edition = "2024"
 rust-version = "1.99"
 license = "GPL-2.0-or-later OR LGPL-3.0-or-later"
-repository = "https://github.com/jniltinho/macos-kvm-gui"
+repository = "https://github.com/jniltinho/kvm-gui"
 publish = false
 
 [workspace.lints.rust]

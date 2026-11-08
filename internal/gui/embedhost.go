@@ -15,8 +15,8 @@ import (
 	"fyne.io/fyne/v2/driver/desktop"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
-	"github.com/jniltinho/macos-kvm-gui/internal/embed"
+	"github.com/jniltinho/kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/embed"
 )
 
 // reimsEmbed hosts Reims vGPU's window in the Screen tab (openspec embed-reims-window-go, design

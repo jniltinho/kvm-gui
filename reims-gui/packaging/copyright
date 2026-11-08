@@ -1,6 +1,6 @@
 Format: https://www.debian.org/doc/packaging-manuals/copyright-format/1.0/
 Upstream-Name: reims-gui
-Source: https://github.com/jniltinho/macos-kvm-gui
+Source: https://github.com/jniltinho/kvm-gui
 
 Files: *
 Copyright: macos-kvm-gui contributors

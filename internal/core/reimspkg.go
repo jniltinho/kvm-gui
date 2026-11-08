@@ -52,7 +52,7 @@ func reimsSuffix(key string) string {
 }
 
 // reimsReleaseURL is where the manifest's tag is published (a var for tests).
-var reimsReleaseURL = "https://github.com/jniltinho/macos-kvm-gui/releases/download/"
+var reimsReleaseURL = "https://github.com/jniltinho/kvm-gui/releases/download/"
 
 var (
 	osReleaseFile = "/etc/os-release" // vars for tests

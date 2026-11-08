@@ -18,8 +18,8 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/assets"
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/assets"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 // VirtualBox-style layout: a toolbar on top, the VM list on the left, tabs on the right
@@ -99,9 +99,9 @@ func (u *ui) mainMenu() *fyne.MainMenu {
 			}
 		})
 	}
-	docs := link("Online Documentation", "https://github.com/jniltinho/macos-kvm-gui/tree/main/docs")
-	site := link("Web Site", "https://github.com/jniltinho/macos-kvm-gui")
-	issues := link("Bug Tracker", "https://github.com/jniltinho/macos-kvm-gui/issues")
+	docs := link("Online Documentation", "https://github.com/jniltinho/kvm-gui/tree/main/docs")
+	site := link("Web Site", "https://github.com/jniltinho/kvm-gui")
+	issues := link("Bug Tracker", "https://github.com/jniltinho/kvm-gui/issues")
 	about := fyne.NewMenuItem("About macOS KVM", func() {
 		dialog.ShowInformation("About macOS KVM", "macOS KVM "+version+"\n\nBoot files: "+core.AssetVersions()+"\n\n"+homeLab, u.win)
 	})

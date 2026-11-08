@@ -63,7 +63,7 @@ Depends: $depends
 Recommends: mesa-vulkan-drivers
 Section: admin
 Priority: optional
-Homepage: https://github.com/jniltinho/macos-kvm-gui
+Homepage: https://github.com/jniltinho/kvm-gui
 Description: macOS virtual machines on QEMU/KVM with Reims vGPU
  reims-gui creates, runs and shows macOS virtual machines on QEMU/KVM, with the
  Reims vGPU display. One binary holds the GUI, the CLI and the MCP server.
@@ -84,7 +84,7 @@ Version:        $version
 Release:        1
 Summary:        macOS virtual machines on QEMU/KVM with Reims vGPU
 License:        GPL-3.0-or-later
-URL:            https://github.com/jniltinho/macos-kvm-gui
+URL:            https://github.com/jniltinho/kvm-gui
 BuildArch:      x86_64
 AutoReqProv:    no
 Requires:       glibc >= 2.39, libgcc, libX11, libX11-xcb, libXcursor, libXi, libXrandr, libxkbcommon, libxkbcommon-x11, libwayland-client, libwayland-cursor, vulkan-loader, mesa-libEGL, mesa-libGL, qemu-img

@@ -40,7 +40,7 @@ pub const DOCKERFILE: &str = include_str!("../reims/Dockerfile");
 const MANIFEST_JSON: &str = include_str!("../reims/manifest.json");
 
 /// Where the manifest's tag is published.
-const RELEASE_URL: &str = "https://github.com/jniltinho/macos-kvm-gui/releases/download/";
+const RELEASE_URL: &str = "https://github.com/jniltinho/kvm-gui/releases/download/";
 /// Package limits: a size over a limit fails the install, nothing is ever truncated.
 const MAX_PACKAGE: u64 = 512 << 20;
 const MAX_ENTRIES: usize = 20000;

@@ -10,7 +10,7 @@ import (
 	"fyne.io/fyne/v2/test"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 // Settings › Network with two VMs on 2222: the warning names the other VM, and "Use a free port"

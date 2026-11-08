@@ -21,9 +21,9 @@ import (
 	"fyne.io/fyne/v2/theme"
 	"fyne.io/fyne/v2/widget"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/assets"
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
-	"github.com/jniltinho/macos-kvm-gui/internal/embed"
+	"github.com/jniltinho/kvm-gui/internal/assets"
+	"github.com/jniltinho/kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/embed"
 )
 
 var logo = fyne.NewStaticResource("logo.svg", assets.Logo)

@@ -14,7 +14,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/assets"
+	"github.com/jniltinho/kvm-gui/internal/assets"
 )
 
 // Boot files the app extracts into the workspace.

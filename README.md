@@ -10,13 +10,13 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/jniltinho/macos-kvm-gui/actions/workflows/reims-gui-ci.yml"><img src="https://github.com/jniltinho/macos-kvm-gui/actions/workflows/reims-gui-ci.yml/badge.svg" alt="reims-gui CI"></a>
-  <a href="https://github.com/jniltinho/macos-kvm-gui/actions/workflows/reims-gui-release.yml"><img src="https://github.com/jniltinho/macos-kvm-gui/actions/workflows/reims-gui-release.yml/badge.svg" alt="reims-gui release"></a>
-  <a href="https://github.com/jniltinho/macos-kvm-gui/releases/latest"><img src="https://img.shields.io/github/v/release/jniltinho/macos-kvm-gui?color=blue" alt="Latest release"></a>
-  <a href="https://github.com/jniltinho/macos-kvm-gui/releases"><img src="https://img.shields.io/github/downloads/jniltinho/macos-kvm-gui/total?color=blue" alt="Downloads"></a>
+  <a href="https://github.com/jniltinho/kvm-gui/actions/workflows/reims-gui-ci.yml"><img src="https://github.com/jniltinho/kvm-gui/actions/workflows/reims-gui-ci.yml/badge.svg" alt="reims-gui CI"></a>
+  <a href="https://github.com/jniltinho/kvm-gui/actions/workflows/reims-gui-release.yml"><img src="https://github.com/jniltinho/kvm-gui/actions/workflows/reims-gui-release.yml/badge.svg" alt="reims-gui release"></a>
+  <a href="https://github.com/jniltinho/kvm-gui/releases/latest"><img src="https://img.shields.io/github/v/release/jniltinho/kvm-gui?color=blue" alt="Latest release"></a>
+  <a href="https://github.com/jniltinho/kvm-gui/releases"><img src="https://img.shields.io/github/downloads/jniltinho/kvm-gui/total?color=blue" alt="Downloads"></a>
   <a href="https://www.rust-lang.org/"><img src="https://img.shields.io/badge/rust-1.99-blue" alt="Rust 1.99"></a>
-  <a href="LICENSE"><img src="https://img.shields.io/github/license/jniltinho/macos-kvm-gui?color=blue" alt="License"></a>
-  <a href="https://github.com/jniltinho/macos-kvm-gui/stargazers"><img src="https://img.shields.io/github/stars/jniltinho/macos-kvm-gui?style=social" alt="Stars"></a>
+  <a href="LICENSE"><img src="https://img.shields.io/github/license/jniltinho/kvm-gui?color=blue" alt="License"></a>
+  <a href="https://github.com/jniltinho/kvm-gui/stargazers"><img src="https://img.shields.io/github/stars/jniltinho/kvm-gui?style=social" alt="Stars"></a>
 </p>
 
 <p align="center">
@@ -24,7 +24,7 @@
 </p>
 
 <p align="center">
-  <b><a href="https://github.com/jniltinho/macos-kvm-gui/releases/latest">⬇ Download reims-gui (latest release)</a></b>
+  <b><a href="https://github.com/jniltinho/kvm-gui/releases/latest">⬇ Download reims-gui (latest release)</a></b>
 </p>
 
 > **For home lab use.** macOS is Apple's software, and its license only allows it on Apple-branded hardware. Make sure your use complies with Apple's macOS license terms. This project is not affiliated with Apple.
@@ -33,12 +33,12 @@ This repository has two apps that read the same VMs and settings:
 
 | App | Language | Releases | Status |
 |---|---|---|---|
-| **[reims-gui](reims-gui/README.md)** | Rust (egui) | [`reims-gui-v*`](https://github.com/jniltinho/macos-kvm-gui/releases?q=reims-gui&expanded=true) | **Recommended.** Reims vGPU's Metal display inside the window; `.deb` for Ubuntu 24.04, 26.04 and Debian 13, `.rpm` for Rocky Linux 10 and Fedora 40+, `.tar.gz` |
-| macos-kvm-gui | Go (Fyne) | [`v*`](https://github.com/jniltinho/macos-kvm-gui/releases?q=macos-kvm-gui&expanded=true) | The first app; also embeds Reims vGPU's window since v0.11.0; `.deb`, `.rpm` (Fedora 39+), `.tar.gz` |
+| **[reims-gui](reims-gui/README.md)** | Rust (egui) | [`reims-gui-v*`](https://github.com/jniltinho/kvm-gui/releases?q=reims-gui&expanded=true) | **Recommended.** Reims vGPU's Metal display inside the window; `.deb` for Ubuntu 24.04, 26.04 and Debian 13, `.rpm` for Rocky Linux 10 and Fedora 40+, `.tar.gz` |
+| macos-kvm-gui | Go (Fyne) | [`v*`](https://github.com/jniltinho/kvm-gui/releases?q=macos-kvm-gui&expanded=true) | The first app; also embeds Reims vGPU's window since v0.11.0; `.deb`, `.rpm` (Fedora 39+), `.tar.gz` |
 
 ## Download and install reims-gui
 
-From the [latest release](https://github.com/jniltinho/macos-kvm-gui/releases/latest), take the package for your system and check it:
+From the [latest release](https://github.com/jniltinho/kvm-gui/releases/latest), take the package for your system and check it:
 
 ```sh
 sha256sum -c reims-gui_0.1.6_amd64.deb.sha256
@@ -78,7 +78,7 @@ More in the [screenshots](docs/screenshots/README.md).
 
 ## macos-kvm-gui (Go, previous app)
 
-The Go app is still in this repository, with [its own releases](https://github.com/jniltinho/macos-kvm-gui/releases?q=macos-kvm-gui&expanded=true) (`.deb` for Ubuntu 24.04+ and Debian 13+, `.rpm` for Fedora 39+, `.tar.gz`). Since v0.11.0 it also shows Reims vGPU's window inside its Screen tab. Its guide: [getting started](docs/getting-started.md).
+The Go app is still in this repository, with [its own releases](https://github.com/jniltinho/kvm-gui/releases?q=macos-kvm-gui&expanded=true) (`.deb` for Ubuntu 24.04+ and Debian 13+, `.rpm` for Fedora 39+, `.tar.gz`). Since v0.11.0 it also shows Reims vGPU's window inside its Screen tab. Its guide: [getting started](docs/getting-started.md).
 
 ## Documentation
 

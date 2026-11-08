@@ -1280,9 +1280,9 @@ pub fn smbios_model(short: &str) -> &'static str {
     }
 }
 
-pub const DOCS: &str = "https://github.com/jniltinho/macos-kvm-gui/tree/main/docs";
-pub const SITE: &str = "https://github.com/jniltinho/macos-kvm-gui";
-pub const ISSUES: &str = "https://github.com/jniltinho/macos-kvm-gui/issues";
+pub const DOCS: &str = "https://github.com/jniltinho/kvm-gui/tree/main/docs";
+pub const SITE: &str = "https://github.com/jniltinho/kvm-gui";
+pub const ISSUES: &str = "https://github.com/jniltinho/kvm-gui/issues";
 pub const HOME_LAB: &str = "For home lab use. macOS is Apple's software: its license only allows it on Apple-branded hardware, so make sure your use complies with it.";
 const CLOSE_NOTE: &str =
     "Shut down the VM before closing the app: a VM started here stops with the app.";

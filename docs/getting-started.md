@@ -22,7 +22,7 @@ No OSX-KVM clone, Git or Python is needed at runtime. OpenCore, its kexts and OV
 
 ## Install a release
 
-Download a `.deb`, `.rpm` or `.tar.gz` and its matching `.sha256` from [GitHub Releases](https://github.com/jniltinho/macos-kvm-gui/releases). Replace `X.Y.Z` below with the release version. Check the selected artifact before installing:
+Download a `.deb`, `.rpm` or `.tar.gz` and its matching `.sha256` from [GitHub Releases](https://github.com/jniltinho/kvm-gui/releases). Replace `X.Y.Z` below with the release version. Check the selected artifact before installing:
 
 ```sh
 sha256sum -c macos-kvm-gui_X.Y.Z_amd64.deb.sha256

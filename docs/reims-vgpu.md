@@ -105,7 +105,7 @@ docker run --rm -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) -v ~/reims-debian:/bui
 sudo apt install libglib2.0-0t64 libpixman-1-0 libslirp0 libfdt1 libgtk-3-0t64 libpipewire-0.3-0t64 libpulse0 libasound2t64 libvulkan1 libgbm1
 ```
 
-Then point `reims_qemu` at `~/reims-debian/share/reims-ctl/qemu/current/bin/qemu-system-x86_64`. Or skip the build: the [`reims-c099dd5`](https://github.com/jniltinho/macos-kvm-gui/releases/tag/reims-c099dd5) release has `reims-qemu-c099dd5-debian13-x86_64.tar.gz`; unpack it and point `reims_qemu` at its `bin/qemu-system-x86_64`.
+Then point `reims_qemu` at `~/reims-debian/share/reims-ctl/qemu/current/bin/qemu-system-x86_64`. Or skip the build: the [`reims-c099dd5`](https://github.com/jniltinho/kvm-gui/releases/tag/reims-c099dd5) release has `reims-qemu-c099dd5-debian13-x86_64.tar.gz`; unpack it and point `reims_qemu` at its `bin/qemu-system-x86_64`.
 
 ### Rocky Linux (RHEL family)
 
@@ -125,7 +125,7 @@ On the Rocky host, QEMU needs these runtime packages (BaseOS and AppStream only,
 sudo dnf install glib2 pixman libslirp libfdt gtk3 pipewire-libs pulseaudio-libs alsa-lib vulkan-loader mesa-libgbm
 ```
 
-Then point `reims_qemu` at `~/reims-rocky/share/reims-ctl/qemu/current/bin/qemu-system-x86_64` (see the list above) and check it with `qemu-system-x86_64 -device help | grep apple-gfx-pci`. Or skip the build: [`reims-c099dd5`](https://github.com/jniltinho/macos-kvm-gui/releases/tag/reims-c099dd5) has `reims-qemu-c099dd5-rocky10-x86_64.tar.gz` (built from this Dockerfile and checked in a clean Rocky Linux 10); `.github/workflows/reims-release.yml` builds it for later `reims-<commit>` releases too.
+Then point `reims_qemu` at `~/reims-rocky/share/reims-ctl/qemu/current/bin/qemu-system-x86_64` (see the list above) and check it with `qemu-system-x86_64 -device help | grep apple-gfx-pci`. Or skip the build: [`reims-c099dd5`](https://github.com/jniltinho/kvm-gui/releases/tag/reims-c099dd5) has `reims-qemu-c099dd5-rocky10-x86_64.tar.gz` (built from this Dockerfile and checked in a clean Rocky Linux 10); `.github/workflows/reims-release.yml` builds it for later `reims-<commit>` releases too.
 
 ## Turn it on for a VM
 

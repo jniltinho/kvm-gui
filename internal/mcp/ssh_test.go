@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/core"
 )
 
 func TestSSHArgs(t *testing.T) {

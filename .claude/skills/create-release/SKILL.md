@@ -107,7 +107,7 @@ Requires Linux x86_64 with glibc 2.38+ (Ubuntu 24.04+, Debian 13+, Fedora 39+) a
 
 **Validated:** <what was booted end to end, e.g. macOS Sonoma 14.8.9 on Ubuntu 24.04 / QEMU 8.2.2>
 
-**Full Changelog**: https://github.com/jniltinho/macos-kvm-gui/compare/vPREV...vNEXT
+**Full Changelog**: https://github.com/jniltinho/kvm-gui/compare/vPREV...vNEXT
 EOF
 gh release edit "$NEXT" --title "macos-kvm-gui (Go) $NEXT" --notes-file /tmp/release-notes-$NEXT.md
 ~~~

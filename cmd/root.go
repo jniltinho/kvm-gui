@@ -8,9 +8,9 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/jniltinho/macos-kvm-gui/internal/core"
-	"github.com/jniltinho/macos-kvm-gui/internal/gui"
-	"github.com/jniltinho/macos-kvm-gui/internal/mcp"
+	"github.com/jniltinho/kvm-gui/internal/core"
+	"github.com/jniltinho/kvm-gui/internal/gui"
+	"github.com/jniltinho/kvm-gui/internal/mcp"
 )
 
 var (

@@ -46,7 +46,7 @@ Priority: optional
 Architecture: amd64
 Depends: libc6 (>= 2.38), libgl1, libx11-6, libwayland-client0, qemu-system-x86, qemu-utils, pkexec
 Maintainer: Nilton OS <jniltinho@gmail.com>
-Homepage: https://github.com/jniltinho/macos-kvm-gui
+Homepage: https://github.com/jniltinho/kvm-gui
 Description: Desktop app to install and run macOS on KVM (home lab use)
  Single binary with built-in OpenCore and OVMF: checks the host, downloads
  and verifies the macOS recovery from Apple, creates the disk and controls
@@ -67,7 +67,7 @@ Version:        $RPMVER
 Release:        1
 Summary:        Desktop app to install and run macOS on KVM (home lab use)
 License:        BSD-3-Clause
-URL:            https://github.com/jniltinho/macos-kvm-gui
+URL:            https://github.com/jniltinho/kvm-gui
 BuildArch:      x86_64
 Requires:       glibc >= 2.38, mesa-libGL, libX11, libwayland-client, qemu-system-x86, qemu-img, polkit
 AutoReqProv:    no
