@@ -105,7 +105,7 @@ func runningIn(proc string, c Config) (RunInfo, bool) {
 		}
 		args := strings.Split(strings.TrimRight(string(raw), "\x00"), "\x00")
 		cwd, _ := os.Readlink(filepath.Join(base, "cwd"))
-		if !slices.ContainsFunc(disks, func(d os.FileInfo) bool { return usesDisk(args, d, cwd) }) {
+		if !slices.ContainsFunc(disks, func(d os.FileInfo) bool { return usesDisk(args, d, cwd) }) && !opensDisk(base, disks) {
 			continue
 		}
 		return processInfo(proc, pid)
@@ -168,11 +168,24 @@ func processInfo(proc string, pid int) (RunInfo, bool) {
 		}
 	}
 	if runDir != "" && filepath.Base(filepath.Dir(runDir)) == appDirName {
-		if rec, ok := readRunRecord(proc, filepath.Base(runDir)); ok && rec.PID == pid {
+		if rec, ok := readRunRecordAt(proc, runDir); ok && rec.PID == pid {
 			info.VMID, info.Starter = rec.VMID, rec.Starter
 		}
 	}
 	return info, true
+}
+
+// opensDisk reports whether the process has one of disks open (a -blockdev filename=, a hot-plugged
+// drive): its /proc/<pid>/fd entries, by device and inode.
+func opensDisk(base string, disks []os.FileInfo) bool {
+	fds, _ := os.ReadDir(filepath.Join(base, "fd"))
+	for _, fd := range fds {
+		st, err := os.Stat(filepath.Join(base, "fd", fd.Name()))
+		if err == nil && st.Mode().IsRegular() && slices.ContainsFunc(disks, func(d os.FileInfo) bool { return os.SameFile(d, st) }) {
+			return true
+		}
+	}
+	return false
 }
 
 // usesDisk reports whether a QEMU command line opens disk, written absolute (with QEMU's

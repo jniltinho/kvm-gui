@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeStat writes /proc/<pid>/stat with start time ticks (field 22).
@@ -123,4 +125,55 @@ func TestImageLocks(t *testing.T) {
 		t.Fatalf("after the first VM's locks are released: %v", err)
 	}
 	unlock()
+}
+
+// A QEMU on the VM's disk without a valid record of that VM gives no sockets; long ids get a short
+// run directory; each --config file is its own run identity (Codex group 4 review).
+func TestRunIdentity(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
+	proc, root := t.TempDir(), t.TempDir()
+	e := VMEntry{ID: "b", Config: testDefaults()}
+	e.Config.Workspace = filepath.Join(root, "b")
+	write(t, filepath.Join(e.Config.Workspace, DiskFile), "")
+	fakeProc(t, proc, "700", "qemu-system-x86", "", "qemu-system-x86_64", "-drive", "file="+filepath.Join(e.Config.Workspace, DiskFile),
+		"-qmp", "unix:/run/user/1000/macos-kvm-gui-x/qmp-control.sock,server=on,wait=off", "-vnc", "unix:/run/user/1000/macos-kvm-gui-x/vnc.sock")
+	if r, ok := findRunIn(proc, e); !ok || r.Control != "" || r.VNCSocket != "" || r.GUI != "" {
+		t.Fatalf("a run without a record: %+v %v", r, ok)
+	}
+	long := strings.Repeat("a-very-long-vm-name-", 5)
+	if d := RunDir(long); len(filepath.Join(d, "qmp-control.sock")) > 100 || !strings.HasPrefix(filepath.Base(d), long[:12]) || RunDir(long) != d {
+		t.Fatalf("run dir for a long id: %s", d)
+	}
+	if ConfigFileID("/a/vm.json") == ConfigFileID("/b/vm.json") || ConfigFileID("/a/vm.json") != ConfigFileID("/a/../a/vm.json") {
+		t.Fatal("config file identities")
+	}
+}
+
+// A QEMU that opened the disk without naming it as file= (-blockdev, hot-plug) is found through
+// its open files.
+func TestRunningByOpenFile(t *testing.T) {
+	sh, err := os.ReadFile("/bin/sh")
+	if err != nil {
+		t.Skip(err)
+	}
+	e := VMEntry{ID: "x", Config: testDefaults()}
+	e.Config.Workspace = t.TempDir()
+	disk := filepath.Join(e.Config.Workspace, DiskFile)
+	write(t, disk, "")
+	fake := filepath.Join(t.TempDir(), "qemu-system-x86_64")
+	os.WriteFile(fake, sh, 0o755)
+	// The disk is opened on fd 3 and named only as a blockdev's filename.
+	q := exec.Command(fake, "-c", "exec 3<\"$1\"; sleep 30", "q", disk)
+	q.Args = append(q.Args, "-blockdev", "driver=file,node-name=f0,filename=/elsewhere")
+	if err := q.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { q.Process.Kill(); q.Wait() })
+	for range 100 {
+		if r, ok := FindRun(e); ok && r.PID == q.Process.Pid {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatal("a QEMU with the disk open was not found")
 }

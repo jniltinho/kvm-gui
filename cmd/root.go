@@ -50,7 +50,7 @@ func init() {
 func currentVM() (core.VMEntry, error) {
 	if cfgFile != "" {
 		c, err := core.LoadConfig(cfgFile)
-		return core.VMEntry{ID: "config", Path: cfgFile, Config: c}, err
+		return core.VMEntry{ID: core.ConfigFileID(cfgFile), Path: cfgFile, Config: c}, err
 	}
 	vms, err := core.ListVMs()
 	if err != nil {

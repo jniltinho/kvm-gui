@@ -55,13 +55,18 @@ func ExportBundle(ctx context.Context, e VMEntry, dst string, progress func(done
 	if err != nil {
 		return err
 	}
+	unlock, err := (&VM{ID: e.ID}).lockRun(w, e.Config) // no start while the disks are read
+	if err != nil {
+		return fmt.Errorf("cannot export it: %w", err)
+	}
+	defer unlock()
 	if !e.Config.MacOS() || len(snaps) > 0 {
-		return w.withLock(func() error { return exportV2(ctx, e, dir, snaps, dst, progress) })
+		return exportV2(ctx, e, dir, snaps, dst, progress)
 	}
 	if !w.HasDisk() {
 		return fmt.Errorf("%s has no disk yet: nothing to export", e.DisplayName())
 	}
-	return w.withLock(func() error {
+	return func() error {
 		var files []string
 		var total int64
 		for _, f := range bundleFiles {
@@ -104,7 +109,7 @@ func ExportBundle(ctx context.Context, e VMEntry, dst string, progress func(done
 		}
 		ok = true
 		return os.Rename(tmp, dst)
-	})
+	}()
 }
 
 func addFile(ctx context.Context, tw *tar.Writer, path, name string, done *int64, total int64, progress func(int64, int64)) error {

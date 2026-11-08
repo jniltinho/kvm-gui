@@ -48,28 +48,30 @@ With display=app there is no window: the screen is on the printed private VNC so
 		}
 		c.VerboseBoot = vmBootLog
 		out := cmd.OutOrStdout()
-		var ks core.ExtraKexts
-		if vmKextsSnapshot != "" { // the MCP server's start, which already downloaded them
-			err = json.Unmarshal([]byte(vmKextsSnapshot), &ks)
-		} else {
-			ks, err = core.LoadExtraKexts()
-		}
-		if err != nil {
-			return err
-		}
-		if !ks.Ready() {
-			fmt.Fprintln(out, "vm: downloading the kexts listed in", core.SettingsFile())
-			if err := core.DownloadExtraKexts(cmd.Context(), ks); err != nil {
+		if c.Backend != core.BackendReimsCtl { // reims-ctl VMs boot reims-ctl's OpenCore: no kexts of the app
+			var ks core.ExtraKexts
+			if vmKextsSnapshot != "" { // the MCP server's start, which already downloaded them
+				err = json.Unmarshal([]byte(vmKextsSnapshot), &ks)
+			} else {
+				ks, err = core.LoadExtraKexts()
+			}
+			if err != nil {
 				return err
 			}
-		}
-		if c.ReimsKext() && !core.ReimsKextReady() {
-			fmt.Fprintln(out, "vm: downloading ReimsVgpu.kext (Reims vGPU on Tahoe)")
-			if err := core.DownloadReimsKext(cmd.Context()); err != nil {
-				return err
+			if !ks.Ready() {
+				fmt.Fprintln(out, "vm: downloading the kexts listed in", core.SettingsFile())
+				if err := core.DownloadExtraKexts(cmd.Context(), ks); err != nil {
+					return err
+				}
 			}
+			if c.ReimsKext() && !core.ReimsKextReady() {
+				fmt.Fprintln(out, "vm: downloading ReimsVgpu.kext (Reims vGPU on Tahoe)")
+				if err := core.DownloadReimsKext(cmd.Context()); err != nil {
+					return err
+				}
+			}
+			c.Extras = &ks
 		}
-		c.Extras = &ks
 		stopped := make(chan string, 1)
 		vm := &core.VM{
 			ID: e.ID, Starter: starter, EmbedX11: vmEmbedX11,
@@ -82,7 +84,7 @@ With display=app there is no window: the screen is on the printed private VNC so
 				}
 			},
 		}
-		if vmVerbose {
+		if vmVerbose || starter != core.StarterCLI { // a detached run's output is its start log
 			vm.OnLog = func(s string) { fmt.Fprintln(out, s) }
 		}
 		if err := vm.Start(c); err != nil {

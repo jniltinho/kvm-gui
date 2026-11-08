@@ -428,7 +428,8 @@ func (c ReimsCommand) driveFiles() []string {
 // path in kvm-gui's run folder.
 func (c ReimsCommand) check(vmDir string) error {
 	pidfiles := 0
-	runs := filepath.Join(runBase(), appDirName) + string(filepath.Separator)
+	runs := filepath.Join(runBase(), appDirName)
+	runsReal := resolvePath(runs)
 	for i, a := range c.Args {
 		switch option(a) {
 		case "-daemonize", "-runas", "-chroot", "-run-with", "-vnc":
@@ -439,11 +440,49 @@ func (c ReimsCommand) check(vmDir string) error {
 				return errors.New("reims-ctl's command has a -pidfile other than the VM's own qemu.pid: remove it from the VM's extra_args with reims-ctl set")
 			}
 		}
-		if strings.Contains(a, runs) {
-			return fmt.Errorf("reims-ctl's command uses a path in the app's run folder (%s)", runs)
+		for _, p := range argPaths(a) {
+			if r := resolvePath(p); within(r, runs) || within(r, runsReal) {
+				return fmt.Errorf("reims-ctl's command uses a path in the app's run folder (%s)", runs)
+			}
 		}
 	}
 	return nil
+}
+
+// argPaths are the absolute paths in a QEMU argument: the argument itself, or a=/path and
+// unix:/path parts of an option string.
+func argPaths(a string) []string {
+	var out []string
+	for _, part := range strings.Split(strings.ReplaceAll(a, ",,", "\x01"), ",") {
+		part = strings.ReplaceAll(part, "\x01", ",")
+		if _, v, ok := strings.Cut(part, "="); ok {
+			part = v
+		}
+		part = strings.TrimPrefix(part, "unix:")
+		part = strings.TrimPrefix(part, "file:")
+		if strings.HasPrefix(part, "/") {
+			out = append(out, part)
+		}
+	}
+	return out
+}
+
+// resolvePath cleans p and resolves the links of its longest existing prefix.
+func resolvePath(p string) string {
+	p = filepath.Clean(p)
+	for d := p; ; d = filepath.Dir(d) {
+		if r, err := filepath.EvalSymlinks(d); err == nil {
+			rest, _ := filepath.Rel(d, p)
+			return filepath.Join(r, rest)
+		}
+		if d == filepath.Dir(d) {
+			return p
+		}
+	}
+}
+
+func within(p, dir string) bool {
+	return p == dir || strings.HasPrefix(p, dir+string(filepath.Separator))
 }
 
 // qmpSocket is upstream's own QMP socket from the command ("" without one).
@@ -535,10 +574,7 @@ func (v *VM) startReimsCtl(c Config) error {
 		return err
 	}
 	if v.ID != "" { // the port inventory sees what reims-ctl has now
-		if db, err := openDB(); err == nil {
-			updateVM(db, v.ID, c)
-			db.Close()
-		}
+		storeReimsFields(v.ID, c)
 	}
 	if err := checkSSHPort(c); err != nil {
 		return err

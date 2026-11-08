@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"syscall"
 )
 
 type Compat int
@@ -291,6 +292,21 @@ func (h Host) initramfsTool() (string, error) {
 	return "", errors.New("GPU reservation supports Ubuntu, Debian and Rocky Linux only: nothing was changed")
 }
 
+// gpuLock serializes the GPU checks of starts and Release: the check and the run record (or the
+// release) happen under it, so two starts cannot both pass, and Release cannot pass while a start
+// is taking the GPU.
+func gpuLock() (func(), error) {
+	f, err := os.OpenFile(filepath.Join(runBase(), "kvm-gui-gpu.lock"), os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX|syscall.LOCK_NB); err != nil {
+		f.Close()
+		return nil, fmt.Errorf("another GPU start or a GPU release is in progress: try again in a moment: %w", ErrBusy)
+	}
+	return func() { f.Close() }, nil
+}
+
 // findRunFn is FindRun; tests replace it.
 var findRunFn = FindRun
 
@@ -369,6 +385,11 @@ func (h Host) ReserveGPU(g GPU) error {
 
 // ReleaseGPU removes the reservation; the GPU gets its normal driver back after a reboot.
 func (h Host) ReleaseGPU() error {
+	unlock, err := gpuLock()
+	if err != nil {
+		return err
+	}
+	defer unlock()
 	if name, ok := gpuRunner("", ""); ok {
 		return fmt.Errorf("%s is running with the GPU passed through: shut it down before releasing the GPU", name)
 	}

@@ -3,6 +3,7 @@ package core
 import (
 	"cmp"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -41,8 +42,30 @@ func runBase() string {
 	return os.TempDir()
 }
 
-// RunDir is a VM's private run directory: $XDG_RUNTIME_DIR/kvm-gui/<vm id>.
-func RunDir(vmID string) string { return filepath.Join(runBase(), appDirName, vmID) }
+// RunDir is a VM's private run directory: $XDG_RUNTIME_DIR/kvm-gui/<key>, the key being the id
+// when it is short, else a prefix and a hash, so QEMU's socket paths stay under the 108-byte
+// limit for any VM name. run.json keeps the full id.
+func RunDir(vmID string) string { return filepath.Join(runBase(), appDirName, runKey(vmID)) }
+
+func runKey(id string) string {
+	if len(id) <= 24 {
+		return id
+	}
+	sum := sha256.Sum256([]byte(id))
+	return id[:12] + "-" + hex.EncodeToString(sum[:6])
+}
+
+// ConfigFileID is the run identity of a VM run from a --config settings file: one per file.
+func ConfigFileID(path string) string {
+	abs, err := filepath.Abs(path)
+	if err == nil {
+		if r, err := filepath.EvalSymlinks(abs); err == nil {
+			abs = r
+		}
+	}
+	sum := sha256.Sum256([]byte(abs))
+	return "config-" + hex.EncodeToString(sum[:8])
+}
 
 // makeRunDir creates the VM's run directory (and its parent) 0700, owned by this user, and
 // empties what a previous run left there.
@@ -111,7 +134,12 @@ func writeRunRecord(dir, vmID, starter string, pid int) error {
 // readRunRecord reads a VM's run.json and checks that its process still runs with the same start
 // time; a stale or foreign record gives ok false.
 func readRunRecord(proc, vmID string) (RunRecord, bool) {
-	dir := RunDir(vmID)
+	r, ok := readRunRecordAt(proc, RunDir(vmID))
+	return r, ok && r.VMID == vmID
+}
+
+// readRunRecordAt reads the run.json in dir, checked against /proc.
+func readRunRecordAt(proc, dir string) (RunRecord, bool) {
 	if privateDir(dir) != nil {
 		return RunRecord{}, false
 	}
@@ -120,7 +148,7 @@ func readRunRecord(proc, vmID string) (RunRecord, bool) {
 		return RunRecord{}, false
 	}
 	var r RunRecord
-	if json.Unmarshal(data, &r) != nil || r.VMID != vmID || r.PID <= 0 {
+	if json.Unmarshal(data, &r) != nil || r.VMID == "" || filepath.Base(dir) != runKey(r.VMID) || r.PID <= 0 {
 		return RunRecord{}, false
 	}
 	if t, ok := startTicks(proc, r.PID); !ok || t != r.StartTicks {
@@ -152,8 +180,10 @@ func findRunIn(proc string, e VMEntry) (RunInfo, bool) {
 	if !ok {
 		return RunInfo{}, false
 	}
-	if r.VMID != "" && r.VMID != e.ID {
-		return RunInfo{PID: r.PID, Started: r.Started, OtherVM: r.VMID}, true
+	if r.VMID != e.ID {
+		// Another VM's run, or a QEMU without a valid record (started outside the app, or by an
+		// older version): the VM is busy, but nothing of that run is this VM's to control.
+		return RunInfo{PID: r.PID, Started: r.Started, OtherVM: r.VMID, ByApp: r.ByApp, Reims: r.Reims, SSHPort: r.SSHPort}, true
 	}
 	return r, true
 }

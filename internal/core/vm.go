@@ -270,10 +270,14 @@ func (v *VM) Start(c Config) error {
 	}
 	var gpuFuncs []string
 	if c.GPU != "" {
+		unlockGPU, err := gpuLock() // held until the run's record is written (launch returns)
+		if err != nil {
+			return err
+		}
+		defer unlockGPU()
 		if name, ok := gpuRunner(c.GPU, v.ID); ok {
 			return fmt.Errorf("GPU %s is passed through to %s, which is running: shut it down first", c.GPU, name)
 		}
-		var err error
 		if gpuFuncs, err = SystemHost().GPUReady(c, memlockLimit()); err != nil {
 			return err
 		}
@@ -390,8 +394,13 @@ func (v *VM) launch(l launchSpec) error {
 			return
 		}
 		if v.ID != "" {
+			// Without its record the run could be controlled by no one: it does not start.
 			if err := writeRunRecord(l.qmpDir, v.ID, v.Starter, cmd.Process.Pid); err != nil {
-				v.log("warning: could not write run.json: " + err.Error())
+				cmd.Process.Kill()
+				pw.Close()
+				cmd.Wait()
+				started <- fmt.Errorf("could not write run.json: %w", err)
+				return
 			}
 		}
 		v.mu.Lock()

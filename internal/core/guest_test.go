@@ -377,8 +377,10 @@ func TestGuestOwnedFiles(t *testing.T) {
 	}
 	// A relative path leaving the folder is refused.
 	bad := testGuest(t, "ubuntu")
-	bad.Disks = []Disk{{Path: "../other.qcow2", Format: "qcow2", Bus: BusVirtio}}
-	if err := bad.Validate(); err == nil {
-		t.Fatal("../ accepted")
+	for _, p := range []string{"../other.qcow2", "linked/disk.qcow2"} {
+		bad.Disks = []Disk{{Path: p, Format: "qcow2", Bus: BusVirtio}}
+		if err := bad.Validate(); err == nil {
+			t.Fatalf("%s accepted", p)
+		}
 	}
 }

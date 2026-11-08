@@ -633,11 +633,17 @@ func DeleteVM(e VMEntry, purge bool) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := checkNotShared(e, "delete its files"); err != nil {
-			return nil, err
-		}
 		w := NewWorkspace(dir)
-		err = w.withLock(func() error {
+		// The locks a start takes (folder and every image), and the checks again under them.
+		unlock, err := (&VM{ID: e.ID}).lockRun(w, e.Config)
+		if err != nil {
+			return nil, fmt.Errorf("cannot delete its files: %w", err)
+		}
+		err = func() error {
+			defer unlock()
+			if err := checkNotShared(e, "delete its files"); err != nil {
+				return err
+			}
 			for _, f := range ownedFiles(e.Config) {
 				p := w.Path(f)
 				if !exists(p) {
@@ -652,7 +658,7 @@ func DeleteVM(e VMEntry, purge bool) ([]string, error) {
 				removed = append(removed, w.Dir)
 			}
 			return nil
-		})
+		}()
 		if err != nil {
 			return removed, err
 		}
@@ -794,9 +800,6 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 	if _, ok := FindRun(e); ok {
 		return e, errors.New("shut down the VM before moving it")
 	}
-	if err := checkNotShared(e, "move it"); err != nil {
-		return e, err
-	}
 	c := e.Config
 	c.Workspace = strings.TrimSpace(dst)
 	to, err := c.WorkspaceDir()
@@ -814,7 +817,15 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 		return e, errors.New("the new folder cannot be inside the current one")
 	}
 	src := NewWorkspace(from)
-	err = src.withLock(func() error {
+	unlockSrc, err := (&VM{ID: e.ID}).lockRun(src, e.Config)
+	if err != nil {
+		return e, fmt.Errorf("cannot move it: %w", err)
+	}
+	defer unlockSrc()
+	if err := checkNotShared(e, "move it"); err != nil {
+		return e, err
+	}
+	err = func() error {
 		return NewWorkspace(to).withLock(func() error {
 			if err := requireEmpty(to); err != nil {
 				return err
@@ -859,7 +870,7 @@ func MoveVM(e VMEntry, dst string) (VMEntry, error) {
 			os.Remove(from) // only when nothing else is left there
 			return nil
 		})
-	})
+	}()
 	if err != nil {
 		return e, err
 	}

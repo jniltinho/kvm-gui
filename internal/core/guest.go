@@ -209,8 +209,9 @@ func (c Config) validateGuest() error {
 		if d.Path == "" || (d.Format != "qcow2" && d.Format != "raw") {
 			return &FieldError{f, "needs a path and a format (qcow2 or raw)"}
 		}
-		if !filepath.IsAbs(d.Path) && !filepath.IsLocal(d.Path) {
-			return &FieldError{f, "a relative disk path stays inside the VM folder: use an absolute path for an image elsewhere"}
+		if !filepath.IsAbs(d.Path) && (filepath.Base(d.Path) != d.Path || !filepath.IsLocal(d.Path)) {
+			// A subfolder could be a link to elsewhere, and delete --purge would then remove that image.
+			return &FieldError{f, "a relative disk path is a file name in the VM folder: use an absolute path for an image elsewhere"}
 		}
 		if d.Bus != BusVirtio && d.Bus != BusSATA && d.Bus != BusNVMe {
 			return &FieldError{f, "bus must be virtio, sata or nvme"}

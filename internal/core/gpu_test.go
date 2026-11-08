@@ -437,3 +437,23 @@ func TestReserveScriptsAsRoot(t *testing.T) {
 		t.Fatal("another initramfs tool was accepted")
 	}
 }
+
+// While one GPU start or release holds the GPU lock, another is refused (Codex group 4 review).
+func TestGPULock(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	unlock, err := gpuLock()
+	if err != nil {
+		t.Fatal(err)
+	}
+	h := fakeSysfs(t, referenceHost)
+	h.Run = func(string, ...string) error { t.Fatal("must not elevate while a GPU start runs"); return nil }
+	if err := h.ReleaseGPU(); !errors.Is(err, ErrBusy) {
+		t.Fatalf("release during a start: %v", err)
+	}
+	unlock()
+	if u, err := gpuLock(); err != nil {
+		t.Fatal(err)
+	} else {
+		u()
+	}
+}

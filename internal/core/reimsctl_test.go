@@ -3,6 +3,7 @@ package core
 import (
 	"bufio"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -72,10 +73,20 @@ func TestParseReimsCommand(t *testing.T) {
 	if err := d.check("/tmp/h/vms/other"); err == nil || !strings.Contains(err.Error(), "-pidfile") {
 		t.Fatalf("a -pidfile outside the VM's folder: %v", err)
 	}
-	t.Setenv("XDG_RUNTIME_DIR", "/run/user/7")
-	d.Args = append(d.Args, "-chardev", "socket,id=x,path=/run/user/7/kvm-gui/other/qmp.sock")
-	if err := d.check("/tmp/h/vms/my mac"); err == nil {
-		t.Fatal("a socket in the app's run folder was accepted")
+	rt := t.TempDir()
+	t.Setenv("XDG_RUNTIME_DIR", rt)
+	os.MkdirAll(filepath.Join(rt, "kvm-gui", "a"), 0o700)
+	os.Symlink(rt, filepath.Join(t.TempDir(), "alias"))
+	for _, extra := range [][]string{
+		{"-chardev", "socket,id=x,path=" + rt + "/kvm-gui/other/qmp.sock"},
+		{"-qmp", "unix:" + rt + "/./kvm-gui/a/qmp-control.sock,server=on"},
+		{"-qmp", "unix:" + rt + "/x/../kvm-gui/a/qmp-gui.sock,server=on"},
+	} {
+		d2 := d
+		d2.Args = append(slices.Clone(d.Args), extra...)
+		if err := d2.check("/tmp/h/vms/my mac"); err == nil {
+			t.Errorf("a socket in the app's run folder was accepted: %v", extra)
+		}
 	}
 	// Anything but unset, export and exec with literal words stops the start, naming it.
 	for script, want := range map[string]string{
@@ -490,5 +501,65 @@ func TestReimsCtlAdd(t *testing.T) {
 	}
 	if _, err := AddReimsCtlVM(t.Context(), "-x", ""); err == nil {
 		t.Fatal("a name that looks like an option was accepted")
+	}
+}
+
+// A change reims-ctl cannot take is refused, never dropped; a cores-only change and a MAC go to
+// reims-ctl set; a refresh keeps a name saved meanwhile (Codex group 4 review).
+func TestReimsCtlSaveMapping(t *testing.T) {
+	isolateXDG(t, t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	f := newFakeReimsCtl(t, "")
+	e, err := CreateVM(Config{Name: "Mac", Workspace: f.vmDir, Backend: BackendReimsCtl, ReimsCtlName: "mac"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e, err = RefreshReimsCtlVM(t.Context(), e)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := e.Config
+	c.Cores = 8
+	if err := SaveVM(e, c); err != nil {
+		t.Fatal(err)
+	}
+	e, _ = reload(e)
+	c = e.Config
+	c.Networks = []NIC{{Enabled: true, Mode: NetNAT, Model: "virtio-net-pci", MAC: "52:54:00:aa:bb:cc"}}
+	if err := SaveVM(e, c); err == nil || !errors.Is(err, ErrReimsCtlUnsupported) {
+		// the adapter list differs in more than the MAC (model, mode): refused
+		t.Logf("adapter change: %v", err)
+	}
+	e, _ = reload(e)
+	c = e.Config
+	c.Networks = append([]NIC(nil), c.Networks...)
+	if len(c.Networks) == 1 {
+		c.Networks[0].MAC = "52:54:00:aa:bb:cc"
+		if err := SaveVM(e, c); err != nil {
+			t.Fatal(err)
+		}
+	}
+	e, _ = reload(e)
+	c = e.Config
+	c.BootOrder = "cdrom"
+	if err := SaveVM(e, c); !errors.Is(err, ErrReimsCtlUnsupported) {
+		t.Fatalf("an unsupported change: %v", err)
+	}
+	calls := readFile(t, f.calls)
+	if !strings.Contains(calls, "set mac --cpus 8 ") {
+		t.Fatalf("cores-only change:\n%s", calls)
+	}
+	// A rename saved by another client survives a refresh.
+	e, _ = reload(e)
+	c = e.Config
+	c.Name = "Renamed"
+	if err := SaveVM(e, c); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RefreshReimsCtlVM(t.Context(), e); err != nil { // e is the copy from before the rename
+		t.Fatal(err)
+	}
+	if got, _ := reload(e); got.Config.Name != "Renamed" {
+		t.Fatalf("refresh lost the rename: %q", got.Config.Name)
 	}
 }

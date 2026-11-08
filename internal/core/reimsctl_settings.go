@@ -1,7 +1,10 @@
 package core
 
 import (
+	"bytes"
 	"context"
+	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -102,16 +105,29 @@ func RefreshReimsCtlVM(ctx context.Context, e VMEntry) (VMEntry, error) {
 	if err := refreshReimsCtl(ctx, r, &c); err != nil {
 		return e, err
 	}
-	db, err := openDB()
-	if err != nil {
-		return e, err
-	}
-	defer db.Close()
-	if err := updateVM(db, e.ID, c); err != nil {
-		return e, err
-	}
-	e.Config = c
-	return e, nil
+	return storeReimsFields(e.ID, c)
+}
+
+// storeReimsFields stores the fields that are reims-ctl's (folder, disks, CPUs, memory, screen,
+// SSH port) over the current row, in one transaction: the app's own fields (name, description,
+// current snapshot) saved meanwhile by another client are kept.
+func storeReimsFields(id string, c Config) (VMEntry, error) {
+	var e VMEntry
+	err := inTx(func(tx *sql.Tx) error {
+		cur, err := scanVM(tx.QueryRow(`SELECT `+vmColumns+` FROM vms WHERE id = ?`, id))
+		if err != nil {
+			return err
+		}
+		n := cur.Config
+		n.Workspace, n.Disks, n.RAMMiB, n.VCPUs, n.Cores = c.Workspace, c.Disks, c.RAMMiB, c.VCPUs, c.Cores
+		n.Resolution, n.SSHPort, n.Graphics, n.Display = c.Resolution, c.SSHPort, c.Graphics, c.Display
+		if err := updateVM(tx, id, n); err != nil {
+			return err
+		}
+		cur.Config, e = n, cur
+		return nil
+	})
+	return e, err
 }
 
 // refreshAllReimsCtl refreshes every reims-ctl VM before ports are counted; one that reims-ctl
@@ -208,12 +224,27 @@ func saveReimsCtl(e VMEntry, c Config) error {
 	if c.Workspace != old.Workspace {
 		return refuseReimsCtl(c, "moving its folder")
 	}
-	if c.Graphics != old.Graphics || c.Display != old.Display || c.Version != old.Version || c.RootPatch != old.RootPatch {
-		return refuseReimsCtl(c, "changing the graphics, screen, version or root-patch mode")
-	}
+	// Only these go to reims-ctl; any other change is refused, never silently dropped.
 	var s ReimsSet
-	if c.VCPUs != old.VCPUs {
-		s.CPUs = c.VCPUs
+	cpus := c.VCPUs
+	if c.Cores != old.Cores && c.VCPUs == old.VCPUs {
+		cpus = c.Cores
+	}
+	if cpus != old.VCPUs {
+		s.CPUs = cpus
+	}
+	if len(c.Networks) == 1 && len(old.Networks) == 1 && c.Networks[0].MAC != old.Networks[0].MAC {
+		s.MAC = c.Networks[0].MAC
+	}
+	rest, prev := c, old
+	rest.Name, rest.Description, rest.VCPUs, rest.Cores, rest.RAMMiB, rest.Resolution, rest.SSHPort = prev.Name, prev.Description, prev.VCPUs, prev.Cores, prev.RAMMiB, prev.Resolution, prev.SSHPort
+	if s.MAC != "" {
+		rest.Networks = prev.Networks
+	}
+	a, _ := json.Marshal(rest)
+	b, _ := json.Marshal(prev)
+	if !bytes.Equal(a, b) {
+		return refuseReimsCtl(c, "this setting (only the name, description, CPUs, memory, resolution, SSH port and MAC change here; the rest with reims-ctl set)")
 	}
 	if c.RAMMiB != old.RAMMiB {
 		s.MemoryMiB = c.RAMMiB
@@ -225,17 +256,18 @@ func saveReimsCtl(e VMEntry, c Config) error {
 		s.SSHPort = c.SSHPort
 	}
 	ctx := context.Background()
-	e2, err := SetReimsCtl(ctx, e, s)
-	if err != nil {
+	if _, err := SetReimsCtl(ctx, e, s); err != nil {
 		return err
 	}
-	e2.Config.Name, e2.Config.Description = c.Name, c.Description
-	db, err := openDB()
-	if err != nil {
-		return err
-	}
-	defer db.Close()
-	return updateVM(db, e.ID, e2.Config)
+	return inTx(func(tx *sql.Tx) error {
+		cur, err := scanVM(tx.QueryRow(`SELECT `+vmColumns+` FROM vms WHERE id = ?`, e.ID))
+		if err != nil {
+			return err
+		}
+		n := cur.Config
+		n.Name, n.Description = c.Name, c.Description
+		return updateVM(tx, e.ID, n)
+	})
 }
 
 // UserReimsCtlConfig is the user's own reims-ctl configuration folder ($XDG_CONFIG_HOME/reims-ctl).
