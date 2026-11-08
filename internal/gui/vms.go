@@ -442,29 +442,46 @@ func (a *App) SelectVM(id string) error { return core.SelectVM(id) }
 
 // ShutDown presses the VM's power button through its control socket (as MCP's vm_shutdown).
 func (a *App) ShutDown(id string) error {
-	e, err := entry(id)
-	if err != nil {
-		return err
-	}
-	r, ok := core.FindRun(e)
-	if !ok {
-		return errors.New(e.DisplayName() + " is not running")
-	}
-	if r.OtherVM != "" {
-		return errors.New(e.DisplayName() + "'s disk is open in VM " + r.OtherVM + "'s run: that run is not this VM's to control")
-	}
-	if r.Control == "" {
-		return errors.New("this VM was started without a control socket: shut it down from inside the guest")
-	}
-	if err := core.CheckRunDir(r.Control); err != nil {
-		return err
-	}
-	q, err := core.DialQMP(r.Control, nil, nil)
+	q, err := control(id)
 	if err != nil {
 		return err
 	}
 	defer q.Close()
 	return q.Execute("system_powerdown")
+}
+
+// PowerOff stops the VM at once, like pulling the plug (as MCP's vm_force_stop): for a guest that
+// ignores the shutdown signal or hangs. The guest loses what it has not saved; the page asks first.
+func (a *App) PowerOff(id string) error {
+	q, err := control(id)
+	if err != nil {
+		return err
+	}
+	defer q.Close()
+	q.Execute("quit") // QEMU exits before it replies
+	return nil
+}
+
+// control connects to a running VM's control socket, if the run is this VM's to control.
+func control(id string) (*core.QMP, error) {
+	e, err := entry(id)
+	if err != nil {
+		return nil, err
+	}
+	r, ok := core.FindRun(e)
+	if !ok {
+		return nil, errors.New(e.DisplayName() + " is not running")
+	}
+	if r.OtherVM != "" {
+		return nil, errors.New(e.DisplayName() + "'s disk is open in VM " + r.OtherVM + "'s run: that run is not this VM's to control")
+	}
+	if r.Control == "" {
+		return nil, errors.New("this VM was started without a control socket: stop it from inside the guest")
+	}
+	if err := core.CheckRunDir(r.Control); err != nil {
+		return nil, err
+	}
+	return core.DialQMP(r.Control, nil, nil)
 }
 
 // Start runs the VM in its own session (core.StartDetached), so it keeps running when this window

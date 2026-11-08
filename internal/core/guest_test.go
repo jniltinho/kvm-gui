@@ -87,6 +87,8 @@ func TestGuestValidation(t *testing.T) {
 
 // guestArgs for each profile (task 3.4).
 func TestGuestArgs(t *testing.T) {
+	defer func(f func() bool) { amdHost = f }(amdHost)
+	amdHost = func() bool { return false } // the host's CPU must not change the expected arguments
 	fw := Firmware{Code: "/fw/CODE.fd", Vars: "/fw/VARS.fd"}
 	w11 := testGuest(t, "windows11")
 	a, err := guestArgs(w11, w11.Workspace, fw, "/run/x/qmp.sock", "/run/x/swtpm.sock")
@@ -381,6 +383,29 @@ func TestGuestOwnedFiles(t *testing.T) {
 		bad.Disks = []Disk{{Path: p, Format: "qcow2", Bus: BusVirtio}}
 		if err := bad.Validate(); err == nil {
 			t.Fatalf("%s accepted", p)
+		}
+	}
+}
+
+// Threads per core on an AMD host need topoext, or the guest sees an impossible topology (QEMU:
+// "This family of AMD CPU doesn't support hyperthreading"); one thread per core, or Intel, never.
+func TestGuestTopoext(t *testing.T) {
+	defer func(f func() bool) { amdHost = f }(amdHost)
+	ub := testGuest(t, "ubuntu")
+	ub.VCPUs, ub.Cores = 2, 1
+	for _, c := range []struct {
+		amd          bool
+		vcpus, cores int
+		want         string
+	}{{true, 2, 1, "-cpu host,topoext=on -m"}, {true, 2, 2, "-cpu host -m"}, {false, 2, 1, "-cpu host -m"}} {
+		amdHost = func() bool { return c.amd }
+		ub.VCPUs, ub.Cores = c.vcpus, c.cores
+		a, err := guestArgs(ub, ub.Workspace, Firmware{}, "/run/x/qmp.sock", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(argPairs(a), c.want) {
+			t.Errorf("AMD %v, %d vCPUs on %d cores: no %q in %v", c.amd, c.vcpus, c.cores, c.want, argPairs(a))
 		}
 	}
 }

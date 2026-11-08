@@ -120,6 +120,7 @@ export const AddVM = (path: string) => call<Result>("AddVM", path);
 export const DeleteVM =(id: string, purge: boolean) => call<string[]>("DeleteVM", id, purge);
 export const SelectVM = (id: string) => call<void>("SelectVM", id);
 export const ShutDown = (id: string) => call<void>("ShutDown", id);
+export const PowerOff = (id: string) => call<void>("PowerOff", id);
 /** Starts the VM detached: it keeps running when the app closes. */
 export const Start = (id: string, headless: boolean) => call<void>("Start", id, headless);
 export const ReimsCtlCandidates = () => call<ReimsCandidate[] | null>("ReimsCtlCandidates");

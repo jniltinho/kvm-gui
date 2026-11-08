@@ -2,11 +2,13 @@ package core
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strconv"
 	"strings"
+	"sync"
 )
 
 // Guest types. A VM with an empty Guest is a macOS VM (every VM saved before guest types existed).
@@ -293,6 +295,11 @@ func guestArgs(c Config, dir string, fw Firmware, qmpSocket, tpmSock string) ([]
 		machine += ",smm=on"
 	}
 	cpu := "host"
+	if c.Cores > 0 && c.VCPUs/c.Cores > 1 && amdHost() {
+		// AMD reports threads per core through topoext: without it the guest sees threads its CPU
+		// family cannot have (QEMU warns "doesn't support hyperthreading").
+		cpu += ",topoext=on"
+	}
 	if p.HyperV {
 		cpu += ",hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time"
 	}
@@ -398,3 +405,9 @@ func guestArgs(c Config, dir string, fw Firmware, qmpSocket, tpmSock string) ([]
 	args = append(args, moreNICs...)
 	return append(args, runArgs(c, qmpSocket)...), nil
 }
+
+// amdHost: the host's CPU is AMD's (tests replace it).
+var amdHost = sync.OnceValue(func() bool {
+	b, _ := os.ReadFile("/proc/cpuinfo")
+	return strings.Contains(string(b), "AuthenticAMD")
+})

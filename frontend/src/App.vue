@@ -4,7 +4,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Application } from "@wailsio/runtime";
 import {
-  DeleteVM, GetLog, GetPrefs, GetVM, Ready, SelectVM, Show, ShutDown, Start, Theme, Version, VMs,
+  DeleteVM, GetLog, GetPrefs, GetVM, Ready, SelectVM, Show, ShutDown, PowerOff, Start, Theme, Version, VMs,
   type VM, type VMInfo,
 } from "./api";
 import { applySkin } from "./themes";
@@ -147,6 +147,13 @@ async function shutDown() {
   if (!vm?.running) return;
   if (!(await askConfirm("Shut down", `Send the shutdown signal to ${vm.name}? The guest shuts down by itself, or asks on its screen.`, "Shut down"))) return;
   try { await ShutDown(vm.id); status.value = `Shutdown signal sent to ${vm.name}.`; } catch (e) { void showInfo("Shut down", String(e)); }
+}
+// Power off: for a guest that ignores the shutdown signal or hangs (VirtualBox's Power Off).
+async function powerOff() {
+  const vm = selected.value;
+  if (!vm?.running) return;
+  if (!(await askConfirm("Power off", `Power off ${vm.name} now, like pulling the plug? The guest loses everything it has not saved.`, "Power off"))) return;
+  try { await PowerOff(vm.id); status.value = `${vm.name} was powered off.`; await refresh(); } catch (e) { void showInfo("Power off", String(e)); }
 }
 
 // Start runs the VM detached (core.StartDetached): it keeps running when this window closes.
@@ -312,6 +319,7 @@ onBeforeUnmount(() => {
           <button type="button" class="menu-i" role="menuitem" :disabled="!canStart || reimsGPU" :title="reimsGPU ? headlessNote : undefined" @click="start(true)"><img src="/icons/start.svg" alt="" /> Start (Headless)</button>
           <button type="button" class="menu-i" role="menuitem" :disabled="!selected?.running" @click="show"><img src="/icons/window.svg" alt="" /> Show</button>
           <button type="button" class="menu-i" role="menuitem" :disabled="!selected?.running" @click="run(shutDown)"><img src="/icons/shutdown.svg" alt="" /> Shut down</button>
+          <button type="button" class="menu-i" role="menuitem" :disabled="!selected?.running" @click="run(powerOff)"><img src="/icons/forcestop.svg" alt="" /> Power off…</button>
           <div class="menu-sep" role="separator"></div>
           <button type="button" class="menu-i" role="menuitem" :disabled="!selected" @click="run(() => tool = 'logs')"><img src="/icons/log.svg" alt="" /> Show log</button>
           <button type="button" class="menu-i" role="menuitem" @click="run(refresh)"><span class="ico"></span> Refresh</button>
@@ -338,6 +346,7 @@ onBeforeUnmount(() => {
       </div>
       <button type="button" class="tb" aria-label="Show" title="Open the window of the running VM" :disabled="!selected?.running" @click="show"><img src="/icons/window.svg" alt="" /><span>Show</span></button>
       <button type="button" class="tb" aria-label="Shut down" title="Send the shutdown signal (ACPI)" :disabled="!selected?.running" @click="shutDown"><img src="/icons/shutdown.svg" alt="" /><span>Shut down</span></button>
+      <button type="button" class="tb" aria-label="Power off" title="Stop the VM at once, like pulling the plug: for a guest that ignores the shutdown signal" :disabled="!selected?.running" @click="powerOff"><img src="/icons/forcestop.svg" alt="" /><span>Power off</span></button>
     </div>
 
     <p v-if="error" role="alert" class="note bad err">{{ error }}</p>
