@@ -106,8 +106,9 @@ icons are copied (design D2; kvm-gui is BSD-3-Clause).
 
 | VirtualBox element | Reference | kvm-gui | Status |
 | --- | --- | --- | --- |
-| Import appliance | `…/wizards/importappliance/UIWizardImportApp.cpp`; vb-41 | — | open: Export/Import dialogs on `core.ExportBundle` / `ImportBundle` (task 7.7) |
-| Export appliance | `…/wizards/exportappliance/UIWizardExportApp.cpp` | — | open: task 7.7 |
+| Import appliance | `…/wizards/importappliance/UIWizardImportApp.cpp`; vb-41 | File › Import Appliance…: `.ova`/`.ovf` (OVF 1.0 and 2.0), a preview of the VM it creates with every setting it cannot keep, name, folder and a host bridge, progress with Cancel; `vm import-ova`, MCP `vm_import_ova` (OpenSpec `add-ova-import-export`) | adapted: Linux, Windows and Other VMs (macOS VMs move as bundles); VirtualBox's appliance-settings table is the preview. Evidence: a VirtualBox 7.2.10 `.ova` imported with an identical disk; GUI flow under Xvfb (`docs/screenshots/import-appliance.png`) |
+| Export appliance | `…/wizards/exportappliance/UIWizardExportApp.cpp` | File › Export Appliance… for a powered-off VM: the notes on what is not carried, the TPM/BitLocker acknowledgment, overwrite confirmation, progress with Cancel; `vm export-ova`, MCP `vm_export_ova` | adapted: OVF 1.0 with a SHA-256 manifest and streamOptimized disks only (no OCI, OPC or format choice). Evidence: Ubuntu and Windows 11 VMs imported by VirtualBox 7.2.10 with OS type, EFI, CPUs, memory, disks (identical), NAT and TPM; GUI flow under Xvfb (`docs/screenshots/export-appliance.png`) |
+| Bundle export and import (kvm-gui's own) | — | `vm export --full`, `vm import` (macOS, snapshots and TPM state included) | open: GUI dialogs, task 7.7 of `migrate-gui-to-go-wails` |
 
 ## VM window
 

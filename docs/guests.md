@@ -86,8 +86,24 @@ manifest that must match when present, and disks that stand alone (a VMDK that i
 qcow2 without a backing file) whose real size is the one declared; kvm-gui reads each disk's header
 itself before `qemu-img` opens it. A refused or failed import leaves nothing behind.
 
+## Export to VirtualBox
+
+`kvm-gui vm export-ova "Ubuntu lab" ~/ubuntu-lab.ova` (File › Export Appliance…, or the MCP tool
+`vm_export_ova`) writes a powered-off Linux, Windows or Other VM as an `.ova` that VirtualBox 7
+imports: an OVF 1.0 descriptor with VirtualBox's OS type, the VM's processors, memory, firmware
+(EFI included), TPM 2.0 and adapters, its disks on a SATA controller as streamOptimized VMDKs, and
+a SHA-256 manifest. It does not carry snapshots (only each disk's current state), TPM contents (a
+VM with a TPM needs `--accept-tpm-loss`: have the BitLocker recovery key), UEFI boot entries, or
+Secure Boot (turn it on again in VirtualBox). A disk on virtio or NVMe here goes on SATA there,
+so the guest needs its AHCI driver at boot, which the usual distributions and Windows have. An
+existing file is replaced only with `--force`.
+
 ## Validated
 
+- Appliances with VirtualBox 7.2.10 on the reference host (in an isolated VirtualBox configuration):
+  Ubuntu and Windows 11 VMs exported by `vm export-ova` imported with their OS type, EFI, CPUs,
+  memory, SATA disk, NAT adapter and TPM, the disks identical to the source; VirtualBox's own
+  `.ova` imported by `vm import-ova` with an identical disk.
 - 3D acceleration on the reference host (Ubuntu 24.04, QEMU 8.2.2, virglrenderer 1.0): the
   Kubuntu 24.04.2 live ISO started from `kvm-gui vm start` with `graphics=virtio-vga-gl` showed its
   welcome screen at 1920×1080 over the VNC socket, QEMU drawing on the RX 6700 XT's render node.

@@ -14,6 +14,8 @@ import AskDialog from "./AskDialog.vue";
 import Details from "./Details.vue";
 import GuestIcon from "./GuestIcon.vue";
 import MediaManager from "./MediaManager.vue";
+import ApplianceImport from "./ApplianceImport.vue";
+import ApplianceExport from "./ApplianceExport.vue";
 import Modal from "./Modal.vue";
 import NewVMWizard from "./NewVMWizard.vue";
 import Preferences from "./Preferences.vue";
@@ -35,7 +37,7 @@ const running = computed(() => vms.value.filter((v) => v.running).length);
 const shownInfo = computed(() => (info.value?.id === selectedId.value ? info.value : null));
 
 // Dialogs: one at a time. Settings and Remove keep the VM they were opened for, whatever the list does meanwhile.
-const dialog = ref<"" | "new" | "add" | "settings" | "prefs" | "media" | "about" | "remove">("");
+const dialog = ref<"" | "new" | "add" | "settings" | "prefs" | "media" | "about" | "remove" | "import-ova" | "export-ova">("");
 const settingsPage = ref("general");
 const editing = ref<VMInfo | null>(null);
 const removing = ref<VM | null>(null);
@@ -186,6 +188,11 @@ async function show() {
   try { await Show(vm.id); } catch (e) { void showInfo(`Show ${vm.name}`, String(e)); }
 }
 
+// File › Export Appliance…: a powered-off Linux, Windows or Other VM (macOS VMs move as bundles).
+const canExportOVA = computed(() => !!selected.value && !selected.value.running && selected.value.guest !== "macos");
+const exportOVANote = computed(() => selected.value?.guest === "macos" ? "macOS VMs are not exported as appliances: move them as kvm-gui bundles"
+  : selected.value?.running ? "Shut the VM down to export it" : undefined);
+
 // Exit closes the Manager only: VMs keep running (vm-manager-ui › Close dialog).
 const quit = () => void Application.Quit();
 async function created(id: string, notice: string) {
@@ -303,6 +310,9 @@ onBeforeUnmount(() => {
         <div v-if="menu === 'file'" class="menu menu-d" role="menu" aria-label="File">
           <button type="button" class="menu-i" role="menuitem" @click="run(() => dialog = 'prefs')"><img src="/icons/settings.svg" alt="" /> Preferences…</button>
           <button type="button" class="menu-i" role="menuitem" @click="run(() => dialog = 'media')"><img src="/icons/storage.svg" alt="" /> Media manager…</button>
+          <div class="menu-sep" role="separator"></div>
+          <button type="button" class="menu-i" role="menuitem" @click="run(() => dialog = 'import-ova')"><img src="/icons/import.svg" alt="" /> Import Appliance…</button>
+          <button type="button" class="menu-i" role="menuitem" :disabled="!canExportOVA" :title="exportOVANote" @click="run(() => dialog = 'export-ova')"><img src="/icons/export.svg" alt="" /> Export Appliance…</button>
           <div class="menu-sep" role="separator"></div>
           <button type="button" class="menu-i" role="menuitem" @click="run(quit)"><span class="ico"></span> Exit</button>
         </div>
@@ -435,6 +445,8 @@ onBeforeUnmount(() => {
   <VMSettings v-if="dialog === 'settings' && editing" :vm="editing" :page="settingsPage" @close="dialog = ''; editing = null" @saved="saved" />
   <Preferences v-if="dialog === 'prefs'" @close="dialog = ''" />
   <MediaManager v-if="dialog === 'media'" @close="dialog = ''" />
+  <ApplianceImport v-if="dialog === 'import-ova'" @close="dialog = ''" @imported="created" />
+  <ApplianceExport v-if="dialog === 'export-ova' && selected" :vm="selected" :tpm="!!shownInfo?.config.tpm" @close="dialog = ''" @exported="(n: string) => { dialog = ''; status = n; }" />
   <Modal v-if="dialog === 'remove' && removing" title="Remove VM" :width="460" @close="dialog = ''; removing = null">
     <div class="pad col">
       <p>Remove <b>{{ removing.name }}</b> from the list?</p>

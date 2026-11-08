@@ -20,6 +20,7 @@ type App struct {
 	// Set by Run once the window exists: the interface scale and the native file choosers.
 	zoom func(float64)
 	pick func(title string, folder bool, filters [][2]string) (string, error)
+	save func(title, name string, filters [][2]string) (string, error)
 	send func(name string, data any) // an event to the page
 	show func(id, title string)      // opens or focuses the VM's window
 	// vmWindow is id's open VM window, nil when it is closed.
@@ -130,6 +131,8 @@ func (a *App) PickFile(title, kind string) (string, error) {
 		f = [][2]string{{"Disk images (*.qcow2, *.img, *.raw)", "*.qcow2;*.img;*.raw"}}
 	case "json":
 		f = [][2]string{{"VM settings (*.json)", "*.json"}}
+	case "ova":
+		f = [][2]string{{"Appliances (*.ova, *.ovf)", "*.ova;*.OVA;*.ovf;*.OVF"}}
 	}
 	return a.pick(title, false, f)
 }

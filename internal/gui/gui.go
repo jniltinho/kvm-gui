@@ -109,6 +109,16 @@ func Run(o Options) error {
 		}
 		return d.PromptForSingleSelection()
 	}
+	svc.save = func(title, name string, filters [][2]string) (string, error) {
+		d := app.Dialog.SaveFile().SetFilename(name).CanCreateDirectories(true)
+		for _, f := range filters {
+			d.AddFilter(f[0], f[1])
+		}
+		if home, err := os.UserHomeDir(); err == nil {
+			d.SetDirectory(home)
+		}
+		return d.PromptForSingleSelection()
+	}
 	// --self-test: readiness and the timeout race for one result; the first one wins and quits.
 	result := make(chan error, 1)
 	if o.SelfTest {

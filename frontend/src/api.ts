@@ -135,6 +135,14 @@ export const SetWorkspace = (p: string) => call<void>("SetWorkspace", p);
 /** Native file chooser; "" when cancelled. kind: "iso", "disk" or "". */
 export const PickFile = (title: string, kind = "") => call<string>("PickFile", title, kind);
 export const PickFolder = (title: string) => call<string>("PickFolder", title);
+export interface ImportPreview { config: Config; folder: string; notes: string[]; disks: string[]; needBytes: number }
+export interface ApplianceOptions { name: string; folder: string; bridge: string }
+export const PlanAppliance = (path: string, o: ApplianceOptions) => call<ImportPreview>("PlanAppliance", path, o);
+export const ImportAppliance = (path: string, o: ApplianceOptions) => call<Result>("ImportAppliance", path, o);
+export const ApplianceExportNotes = (id: string) => call<string[]>("ApplianceExportNotes", id);
+export const ExportAppliance = (id: string, path: string, overwrite: boolean, acceptTPM: boolean) => call<Result>("ExportAppliance", id, path, overwrite, acceptTPM);
+export const CancelAppliance = () => call<void>("CancelAppliance");
+export const PickSaveAppliance = (name: string) => call<string>("PickSaveAppliance", name);
 /** Opens the VM's window, or brings it to the front. */
 export const Show = (id: string) => call<void>("Show", id);
 /** Where the page connects for a running VM's screen (internal/gui/screen.go); rejects when it is not running. */

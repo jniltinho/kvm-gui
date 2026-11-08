@@ -34,6 +34,14 @@ File › Preferences: the Workspace (where new VMs get their folder), input, dis
 
 File › Media manager: the hard disks and optical discs the VMs use, with their size on disk and the VM each is attached to.
 
+![File › Import Appliance](import-appliance.png)
+
+File › Import Appliance…: an `.ova` or `.ovf` (as VirtualBox exports it). Before anything is written it shows the VM it creates, with a free name and folder, its disks and controllers, and what it cannot keep; bridged adapters become NAT unless a bridge of this host is picked.
+
+![File › Export Appliance with a TPM](export-appliance.png)
+
+File › Export Appliance… for a Windows 11 VM: what the appliance does not carry (TPM state, UEFI variables, Secure Boot), and the BitLocker acknowledgment that a VM with a TPM needs before Export is enabled.
+
 ### Updating these screenshots
 
 Run the app in the build image, never on your own desktop session: Xvfb, openbox, a throwaway home (a tmpfs, so no personal path or VM shows) and VMs made with the command line, then `import -window <id>` of the app's window (`xdotool search --name kvm-gui`). `KVM_GUI_THEME=dark` for the dark ones. For example:

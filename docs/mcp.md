@@ -37,6 +37,7 @@ Then ask, for example: "Install Sequoia on my VM offline and tell me when it rea
 | `snapshot_restore`, `snapshot_delete` | Return a powered-off VM to a snapshot (its current state is lost unless saved first), or delete one. Both need `confirm: true`. |
 | `vm_clone` | A full, independent copy of a powered-off VM, as `vm clone` does (`new_tpm`, `keep_macs`). |
 | `vm_import_ova` | Imports an OVF appliance (`.ova`/`.ovf`, absolute `path`) as a new Linux, Windows or Other VM, like `vm import-ova`: without `confirm` it returns the VM it would create and the notes on what is not kept; with `confirm: true` it imports it (not started). |
+| `vm_export_ova` | Writes a powered-off Linux, Windows or Other VM as an `.ova` VirtualBox imports (absolute `path`), like `vm export-ova`; `overwrite` replaces an existing file (then destructive), `accept_tpm_loss` after the user agreed for a VM with a TPM. Returns the notes. |
 
 Screen and input need **Display: In the app** (the default); a VM in QEMU's own window has no screen socket. A VM on [Reims vGPU](reims-vgpu.md) always has the socket: its screen is Reims vGPU's own window, and `screen_capture` and input work as for any VM (capture is slower). `vm_start` runs its host checks first and returns their error, such as a low `vm.max_map_count`.
 

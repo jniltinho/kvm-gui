@@ -70,6 +70,10 @@ Captions for each screen are in [screenshots/README.md](screenshots/README.md).
 
 ![File › Media manager](screenshots/media-manager.png)
 
+### Import and export appliances (VirtualBox)
+
+![File › Import Appliance](screenshots/import-appliance.png)
+
 ### Dark skin
 
 ![The Manager, dark skin](screenshots/manager-dark.png)

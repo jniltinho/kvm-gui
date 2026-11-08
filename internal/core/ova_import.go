@@ -52,11 +52,16 @@ func planAppliance(src string, o ImportOptions) (*applianceSource, ImportPreview
 	if err != nil {
 		return nil, pv, err
 	}
+	p.Config.Name = freeName(p.Config.Name) // the name it will really get, shown in the preview
 	folder := o.Folder
 	if folder == "" {
-		folder = freeFolder(VMFolder(p.Config.Name))
-	} else if folder, err = (Config{Workspace: folder}).WorkspaceDir(); err != nil { // "~" expanded, absolute only
+		folder = VMFolder(p.Config.Name) // under the workspace, often "~/KVM-VMs"
+	}
+	if folder, err = (Config{Workspace: folder}).WorkspaceDir(); err != nil { // "~" expanded, absolute only
 		return nil, pv, err
+	}
+	if o.Folder == "" {
+		folder = freeFolder(folder)
 	} else if _, err := os.Stat(folder); err == nil {
 		return nil, pv, fmt.Errorf("%s already exists: choose another folder", folder)
 	}
@@ -80,6 +85,36 @@ func planAppliance(src string, o ImportOptions) (*applianceSource, ImportPreview
 			float64(pv.NeedBytes)/(1<<30), parent, float64(free)/(1<<30))
 	}
 	return s, pv, nil
+}
+
+// freeName is name, or the first free "name (imported)", "name (imported 2)"... as
+// createImported names a copy, so the preview shows the name the VM gets.
+func freeName(name string) string {
+	vms, err := ListVMs()
+	if err != nil {
+		return name
+	}
+	used := func(n string) bool { // names are unique without regard to case, as in the VM list
+		for _, e := range vms {
+			if strings.EqualFold(e.Config.Name, n) {
+				return true
+			}
+		}
+		return false
+	}
+	for i := 0; i < 100; i++ {
+		n := name
+		switch {
+		case i == 1:
+			n = name + " (imported)"
+		case i > 1:
+			n = fmt.Sprintf("%s (imported %d)", name, i)
+		}
+		if !used(n) {
+			return n
+		}
+	}
+	return name
 }
 
 // freeFolder is dir, or dir-2, dir-3... the first that does not exist.

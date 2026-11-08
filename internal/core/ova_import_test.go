@@ -120,6 +120,9 @@ func TestImportAppliance(t *testing.T) {
 			t.Errorf("%s was left in the VM folder", left)
 		}
 	}
+	if pv2, _ := PlanImport(ova, ImportOptions{}); pv2.Config.Name != "lab (imported)" {
+		t.Errorf("the second preview names it %q", pv2.Config.Name)
+	}
 	e2, err := ImportAppliance(t.Context(), ova, ImportOptions{}, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -193,5 +196,32 @@ func TestImportApplianceRefusals(t *testing.T) {
 	ova = ovaWith(t, diskOVF("d.img", "http://example.com/raw", uint64(st.Size())), "d.img", trap, false)
 	if _, err := ImportAppliance(t.Context(), ova, ImportOptions{}, nil); err != nil {
 		t.Errorf("raw data with a qcow2 header: %v", err)
+	}
+}
+
+// A workspace given as "~/..." (the default) is expanded: the preview's folder is absolute and the
+// import lands there.
+func TestImportApplianceHomeWorkspace(t *testing.T) {
+	needQemuImg(t)
+	dir := t.TempDir()
+	isolateXDG(t, dir)
+	t.Setenv("HOME", dir)
+	if err := SetWorkspaceRoot("~/KVM-VMs"); err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := rawDisk(t)
+	ova := ovaWith(t, diskOVF("d.img", "http://example.com/raw", 2<<20), "d.img", raw, false)
+	pv, err := PlanImport(ova, ImportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pv.Folder != filepath.Join(dir, "KVM-VMs", "lab") {
+		t.Errorf("folder %q", pv.Folder)
+	}
+	if _, err := ImportAppliance(t.Context(), ova, ImportOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "KVM-VMs", "lab", "disk0.qcow2")); err != nil {
+		t.Error(err)
 	}
 }

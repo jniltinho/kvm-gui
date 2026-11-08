@@ -103,7 +103,7 @@ func TestVMExportOVA(t *testing.T) {
 		t.Errorf("--force: %v %s", err, out)
 	}
 	ovaExport.Overwrite, ovaImport = false, core.ImportOptions{} // cobra keeps flag values between runs
-	if out, err := run(t, "vm", "import-ova", dst, "--dry-run"); err != nil || !strings.Contains(out, "Src: ubuntu (linux)") {
+	if out, err := run(t, "vm", "import-ova", dst, "--dry-run"); err != nil || !strings.Contains(out, "Src (imported): ubuntu (linux)") {
 		t.Errorf("re-read: %v\n%s", err, out)
 	}
 }
