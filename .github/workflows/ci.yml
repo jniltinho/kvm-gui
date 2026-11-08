@@ -20,6 +20,8 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0 # the package version comes from the last v* tag
+      - name: Let WebKit's sandbox create user namespaces (Ubuntu 24.04 runners restrict them)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Go checks (gofmt, go vet, go test -race with every tool required)
         run: make test
       - name: Layering and skin tokens
@@ -60,6 +62,8 @@ jobs:
         with:
           name: dist
           path: dist
+      - name: Let WebKit's sandbox create user namespaces (Ubuntu 24.04 runners restrict them)
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Clean ${{ matrix.dist }}
         env:
           GH_TOKEN: ${{ github.token }}
