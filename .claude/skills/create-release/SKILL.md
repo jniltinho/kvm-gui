@@ -9,10 +9,10 @@ Two series live on this repository's releases:
 
 | Series | Tag | Title | Workflow |
 |---|---|---|---|
-| kvm-gui | `vX.Y.Z` | `kvm-gui vX.Y.Z` | `go-release.yml`, manual: `gh workflow run go-release.yml --ref vX.Y.Z`; marks the release **latest** |
+| kvm-gui | `vX.Y.Z` (one series: the old `macos-kvm-gui` releases continue in it) | `kvm-gui vX.Y.Z` | `go-release.yml`, manual: `gh workflow run go-release.yml --ref vX.Y.Z`; runs `ci.yml` (with the four clean-distribution checks) on the exact commit first, then publishes and marks the release **latest** |
 | Reims vGPU's QEMU, `reims-ctl`, `reims-util` | `reims-<7-digit commit>` (must match `ARG REIMS_COMMIT` in `reims/Dockerfile`) | `Reims vGPU QEMU <commit>` | `reims-release.yml`, on the tag push |
 
-`go-release.yml` refuses a commit without the Wails GUI (`frontend/package.json`). Keep the last two releases of each series (`gh release delete <tag> --cleanup-tag -y` for older ones).
+Keep the last two releases of each series (`gh release delete <tag> --cleanup-tag -y` for older ones). To try the release build without publishing, run it on any ref with `-f publish=false`: the five files come back as the run's `kvm-gui-release` artifact.
 
 ## Before you start
 
@@ -64,9 +64,11 @@ The workflow attaches:
 
 | Artifact | Notes |
 |---|---|
+| `kvm-gui-vX.Y.Z-x86_64.AppImage` | any of the four distributions with GTK 4 and WebKitGTK 6 installed (the AppImage does not bundle them) |
+| `kvm-gui-vX.Y.Z-linux-amd64` | the plain binary, same libraries |
 | `kvm-gui_X.Y.Z_amd64.deb` | Ubuntu 24.04, 26.04, Debian 13; `/usr/bin/kvm-gui` and the `macos-kvm-gui` link; replaces `macos-kvm-gui` |
-| `kvm-gui-X.Y.Z-1.x86_64.rpm` | Rocky Linux 10; same files; obsoletes `macos-kvm-gui` |
-| `SHA256SUMS` | both packages |
+| `kvm-gui-X.Y.Z-1.x86_64.rpm` | Rocky Linux 10 (enable EPEL first: WebKitGTK 6 comes from it); same files; obsoletes `macos-kvm-gui` |
+| `SHA256SUMS` | all four files |
 
 ### 3. Replace the generated notes
 
@@ -89,7 +91,8 @@ cat > /tmp/release-notes-$NEXT.md <<'EOF'
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS
 sudo apt install ./kvm-gui_X.Y.Z_amd64.deb      # Ubuntu 24.04, 26.04, Debian 13
-sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm   # Rocky Linux 10
+sudo dnf install epel-release && sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm   # Rocky Linux 10
+chmod +x kvm-gui-vX.Y.Z-x86_64.AppImage && ./kvm-gui-vX.Y.Z-x86_64.AppImage     # or the plain binary
 ```
 
 **Validated:** <what was really run, e.g. the Nilton VM (Sequoia 15.8.1, Reims vGPU) booted from the GUI on Ubuntu 24.04>
@@ -106,7 +109,7 @@ gh release view "$NEXT" --json name,isLatest,assets --jq '.name, .isLatest, (.as
 gh release download "$NEXT" -D /tmp/check-$NEXT && (cd /tmp/check-$NEXT && sha256sum -c SHA256SUMS)
 ```
 
-Check the title, that it is latest, the three assets, the checksums, and that the packages install in clean containers (`ubuntu:24.04`, `ubuntu:26.04`, `debian:13`, `rockylinux/rockylinux:10`).
+Check the title, that it is latest, the five assets, the checksums, and that `scripts/check-dist.sh <dist> all` passes for `ubuntu24.04`, `ubuntu26.04`, `debian13` and `rocky10` on the downloaded files (CI already ran it on the commit).
 
 ## Reims vGPU releases
 
