@@ -42,6 +42,10 @@ layers: image embed-stub
 RUN_GUI := $(subst --rm,--rm --init --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
            --security-opt systempaths=unconfined -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro,$(RUN))
 
+# THIRD_PARTY_LICENSES.txt: every bundled component's license text (committed; CI checks it is current).
+licenses: image frontend
+	$(RUN) scripts/licenses.sh
+
 # Embedding of a VM's X11 window (internal/embed) under Xvfb, with an X client of the test binary.
 test-embed: image
 	$(RUN) sh -c 'Xvfb :58 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; DISPLAY=:58 MKG_REQUIRE_X=1 go test -race -count=1 -v ./internal/embed'
@@ -90,6 +94,7 @@ appimage: build-prod
 	  install -D -m 0755 $(BIN) $$app/usr/bin/kvm-gui; \
 	  install -D -m 0644 LICENSE $$app/usr/share/doc/kvm-gui/LICENSE; \
 	  install -D -m 0644 THIRD_PARTY_NOTICES.md $$app/usr/share/doc/kvm-gui/THIRD_PARTY_NOTICES.md; \
+	  install -D -m 0644 THIRD_PARTY_LICENSES.txt $$app/usr/share/doc/kvm-gui/THIRD_PARTY_LICENSES.txt; \
 	  install -D -m 0644 internal/assets/logo/logo.svg $$app/usr/share/icons/hicolor/scalable/apps/kvm-gui.svg; \
 	  cp internal/assets/logo/logo.svg $$app/kvm-gui.svg; \
 	  install -m 0755 build/linux/AppRun $$app/AppRun; cp build/linux/kvm-gui.desktop $$app/; \

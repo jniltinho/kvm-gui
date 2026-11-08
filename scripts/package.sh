@@ -19,6 +19,7 @@ install -D -m 0644 "$ROOT/internal/assets/logo/logo.svg" "$PKG/usr/share/icons/h
 install -D -m 0644 "$ROOT/build/linux/kvm-gui.desktop" "$PKG/usr/share/applications/kvm-gui.desktop"
 install -D -m 0644 "$ROOT/LICENSE" "$PKG/usr/share/doc/kvm-gui/copyright"
 install -D -m 0644 "$ROOT/THIRD_PARTY_NOTICES.md" "$PKG/usr/share/doc/kvm-gui/THIRD_PARTY_NOTICES.md"
+install -D -m 0644 "$ROOT/THIRD_PARTY_LICENSES.txt" "$PKG/usr/share/doc/kvm-gui/THIRD_PARTY_LICENSES.txt"
 
 mkdir -p "$PKG/DEBIAN"
 cat >"$PKG/DEBIAN/control" <<EOF
@@ -75,6 +76,7 @@ cp -a "$PKG"/. %{buildroot}/
 /usr/share/icons/hicolor/scalable/apps/kvm-gui.svg
 /usr/share/applications/kvm-gui.desktop
 /usr/share/doc/kvm-gui/THIRD_PARTY_NOTICES.md
+%license /usr/share/doc/kvm-gui/THIRD_PARTY_LICENSES.txt
 EOF
 rpmbuild --quiet -bb --define "_topdir $TOP" --define "_build_id_links none" --define "__strip /bin/true" \
   "$TOP/SPECS/kvm-gui.spec" >/dev/null

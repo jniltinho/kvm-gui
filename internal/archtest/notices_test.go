@@ -3,6 +3,7 @@ package archtest
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -42,5 +43,31 @@ func TestNoticesCoverDependencies(t *testing.T) {
 		if !strings.Contains(string(notices), "`"+d+"`") {
 			t.Errorf("THIRD_PARTY_NOTICES.md has no row for %s", d)
 		}
+	}
+}
+
+// Every Go module compiled into the binary has its license text, at its version, in
+// THIRD_PARTY_LICENSES.txt, which every package and the binary ship (Codex group 8 review).
+func TestLicenseTextsCoverModules(t *testing.T) {
+	texts, err := os.ReadFile("../../THIRD_PARTY_LICENSES.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, err := exec.Command("go", "list", "-tags", "production", "-deps", "-f", "{{with .Module}}{{.Path}} {{.Version}}{{end}}", "../..").Output()
+	if err != nil {
+		t.Skip("go list:", err) // the GUI package needs GTK's headers: run in the build image
+	}
+	n := 0
+	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if line == "" || strings.Fields(line)[0] == "github.com/jniltinho/kvm-gui" {
+			continue
+		}
+		n++
+		if !strings.Contains(string(texts), "\n======== "+line+"\n") {
+			t.Errorf("THIRD_PARTY_LICENSES.txt lacks %s: run make licenses", line)
+		}
+	}
+	if n < 10 {
+		t.Fatalf("only %d modules listed", n)
 	}
 }

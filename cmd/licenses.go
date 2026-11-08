@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 )
 
-// licenses is the project's LICENSE and THIRD_PARTY_NOTICES.md, embedded by main.
+// licenses is the project's LICENSE, THIRD_PARTY_NOTICES.md and THIRD_PARTY_LICENSES.txt, embedded by main.
 var licenses string
 
 var licensesCmd = &cobra.Command{

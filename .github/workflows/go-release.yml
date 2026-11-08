@@ -2,7 +2,8 @@ name: kvm-gui release
 
 # Manual: gh workflow run go-release.yml --ref vX.Y.Z publishes the release; with -f publish=false
 # (on any ref) it builds and uploads the five files as workflow artifacts and publishes nothing.
-# The release job needs ci.yml green on this exact commit: it runs it first.
+# The release job needs ci.yml green on this exact commit: it runs it first, then publishes the
+# very files CI built and checked (its dist artifact), never a rebuild.
 on:
   workflow_dispatch:
     inputs:
@@ -29,14 +30,19 @@ jobs:
         run: |
           case "$GITHUB_REF" in refs/tags/v*) ;; *) echo "publish needs a v* tag (got $GITHUB_REF); use publish=false to try a build"; exit 1;; esac
 
-      - name: Checkout Repository
-        uses: actions/checkout@v4
+      # The files CI built and checked on the four distributions, byte for byte: no rebuild.
+      - name: The artifacts CI checked
+        uses: actions/download-artifact@v4
         with:
-          fetch-depth: 0
+          name: dist
+          path: dist
 
-      - name: Build and Package
-        run: | # a tag names the version; another ref gets git describe's (no slash in file names)
-          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then make dist VERSION="$GITHUB_REF_NAME"; else make dist; fi
+      - name: Verify them
+        run: |
+          cd dist && sha256sum -c SHA256SUMS
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            ls kvm-gui-"$GITHUB_REF_NAME"-linux-amd64 || { echo "CI built another version than $GITHUB_REF_NAME"; exit 1; }
+          fi
 
       - name: Keep the files (publish=false)
         if: ${{ !inputs.publish }}

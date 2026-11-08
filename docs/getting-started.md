@@ -34,8 +34,8 @@ sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm       # Rocky Linux 10
 The AppImage and the binary need the same libraries and QEMU, without a package:
 
 ```sh
-sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf                            # Ubuntu, Debian
-sudo dnf install epel-release && sudo dnf install gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf          # Rocky Linux 10
+sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf pkexec                     # Ubuntu, Debian
+sudo dnf install epel-release && sudo dnf install gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf polkit   # Rocky Linux 10
 chmod +x kvm-gui-vX.Y.Z-x86_64.AppImage && ./kvm-gui-vX.Y.Z-x86_64.AppImage
 ```
 

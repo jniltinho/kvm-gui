@@ -24,6 +24,8 @@ jobs:
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - name: Go checks (gofmt, go vet, go test -race with every tool required)
         run: make test
+      - name: THIRD_PARTY_LICENSES.txt is current
+        run: make licenses && git diff --exit-code THIRD_PARTY_LICENSES.txt
       - name: Layering and skin tokens
         run: make layers
       - name: OpenSpec (validate --all --strict)

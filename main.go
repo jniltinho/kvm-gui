@@ -17,6 +17,8 @@ var (
 	license string
 	//go:embed THIRD_PARTY_NOTICES.md
 	notices string
+	//go:embed THIRD_PARTY_LICENSES.txt
+	licenseTexts string
 )
 
-func main() { cmd.Execute(version, license+"\n"+notices) }
+func main() { cmd.Execute(version, license+"\n"+notices+"\n"+licenseTexts) }

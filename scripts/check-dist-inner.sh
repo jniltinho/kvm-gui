@@ -42,7 +42,8 @@ package)
 libs)
 	epel
 	# exactly the README's commands for the AppImage and the binary
-	if $apt; then pkgs libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf; else pkgs gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf; fi
+	if $apt; then pkgs libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf pkexec; else pkgs gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf polkit; fi
+	command -v pkexec >/dev/null || { echo "FAIL: no pkexec for Set up host" >&2; exit 1; }
 	x11
 	cp /dist/kvm-gui-*-x86_64.AppImage /dist/kvm-gui-v*-linux-amd64 /usr/local/bin/
 	chmod 755 /usr/local/bin/kvm-gui-*
@@ -61,7 +62,11 @@ norecommends)
 		dnf install -y -q --setopt=install_weak_deps=False /dist/kvm-gui-*.x86_64.rpm >/dev/null
 		qemu=/usr/libexec/qemu-kvm
 	fi
-	! rpm -q swtpm >/dev/null 2>&1 && ! dpkg -s swtpm >/dev/null 2>&1 && echo "ok: swtpm not installed (recommended only)"
+	if rpm -q swtpm >/dev/null 2>&1 || dpkg -s swtpm 2>/dev/null | grep -q "^Status: install ok installed"; then
+		echo "FAIL: swtpm was installed without recommended packages" >&2
+		exit 1
+	fi
+	echo "ok: swtpm not installed (recommended only)"
 	# A short headless VM: TCG (no /dev/kvm in the container), no disk, stopped by the timeout.
 	set +e
 	timeout 5 $qemu -nodefaults -display none -machine q35 -accel tcg -m 128 -serial none -monitor none

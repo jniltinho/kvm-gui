@@ -105,11 +105,13 @@ gh release edit "$NEXT" --title "kvm-gui $NEXT" --notes-file /tmp/release-notes-
 ### 4. Verify
 
 ```bash
-gh release view "$NEXT" --json name,isLatest,assets --jq '.name, .isLatest, (.assets[].name)'
+gh api repos/jniltinho/kvm-gui/releases/latest --jq .tag_name    # must print $NEXT
+gh release view "$NEXT" --json name,assets --jq '.name, (.assets[].name)'
 gh release download "$NEXT" -D /tmp/check-$NEXT && (cd /tmp/check-$NEXT && sha256sum -c SHA256SUMS)
+for d in ubuntu24.04 ubuntu26.04 debian13 rocky10; do scripts/check-dist.sh "$d" all /tmp/check-$NEXT; done
 ```
 
-Check the title, that it is latest, the five assets, the checksums, and that `scripts/check-dist.sh <dist> all` passes for `ubuntu24.04`, `ubuntu26.04`, `debian13` and `rocky10` on the downloaded files (CI already ran it on the commit).
+Check the title, that it is latest, the five assets and the checksums; `check-dist.sh` then installs and runs the downloaded files themselves on the four distributions (CI checked the same bytes before publishing them).
 
 ## Reims vGPU releases
 

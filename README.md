@@ -41,8 +41,8 @@ sha256sum -c --ignore-missing SHA256SUMS
 |---|---|
 | Ubuntu 24.04, 26.04, Debian 13 | `sudo apt install ./kvm-gui_X.Y.Z_amd64.deb` |
 | Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm` (WebKitGTK 6 comes from EPEL) |
-| AppImage or binary, Ubuntu/Debian | `sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf`, then `chmod +x` and run the file |
-| AppImage or binary, Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf`, then `chmod +x` and run the file |
+| AppImage or binary, Ubuntu/Debian | `sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf pkexec`, then `chmod +x` and run the file |
+| AppImage or binary, Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf polkit`, then `chmod +x` and run the file |
 
 The packages replace `macos-kvm-gui` and keep `macos-kvm-gui` as a command name. Each install command above runs in a clean container of its distribution on every CI run (`scripts/check-dist.sh`).
 
