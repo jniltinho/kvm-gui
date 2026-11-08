@@ -40,6 +40,9 @@ func Run(o Options) error {
 	if err != nil {
 		return err
 	}
+	if err := core.RecoverSnapshots(); err != nil {
+		slog.Warn("interrupted snapshot operations", "error", err)
+	}
 	svc := &App{version: o.Version}
 	opts := application.Options{
 		Name:        "kvm-gui",

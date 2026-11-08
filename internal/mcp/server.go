@@ -25,6 +25,7 @@ import (
 // Serve runs the server on stdin and stdout until the client disconnects. Nothing else may
 // write to stdout.
 func Serve(ctx context.Context, version string) error {
+	core.RecoverSnapshots() // an operation interrupted earlier is finished or undone before any tool runs
 	return newServer(version).Run(ctx, &mcp.StdioTransport{})
 }
 

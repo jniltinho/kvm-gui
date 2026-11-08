@@ -66,12 +66,12 @@ func currentVM() (core.VMEntry, error) {
 	}
 	if vmName != "" {
 		if e, ok := core.FindVM(vms, vmName); ok {
-			return e, nil
+			return recovered(e)
 		}
 		return core.VMEntry{}, fmt.Errorf("no VM named %q (see `vm list`)", vmName)
 	}
 	e, _ := core.SelectedVM(vms)
-	return e, nil
+	return recovered(e)
 }
 
 // loadConfig returns the current VM's settings and the file they live in.
@@ -87,4 +87,19 @@ func loadWorkspace() (core.Config, core.Workspace, error) {
 	}
 	dir, err := c.WorkspaceDir()
 	return c, core.NewWorkspace(dir), err
+}
+
+// recovered finishes or undoes e's interrupted snapshot operation before a command uses it.
+func recovered(e core.VMEntry) (core.VMEntry, error) {
+	if err := core.RecoverVM(e); err != nil {
+		return e, fmt.Errorf("an interrupted snapshot operation of %s could not be completed: %w", e.DisplayName(), err)
+	}
+	vms, err := core.ListVMs()
+	if err != nil {
+		return e, err
+	}
+	if cur, ok := core.FindVM(vms, e.ID); ok {
+		return cur, nil
+	}
+	return e, nil
 }

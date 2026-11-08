@@ -873,6 +873,9 @@ func findSnapshotAny(vmID, id string) (Snapshot, error) {
 	return Snapshot{}, fmt.Errorf("no snapshot %s", id)
 }
 
+// RecoverVM finishes or undoes e's interrupted snapshot operations.
+func RecoverVM(e VMEntry) error { return recoverSnapshotOps(e) }
+
 // RecoverSnapshots runs recoverSnapshotOps for every VM; the GUI, the CLI and the MCP server
 // call it when they open.
 func RecoverSnapshots() error {
