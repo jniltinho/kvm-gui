@@ -37,13 +37,14 @@ layers: image embed-stub
 	$(RUN) go test ./internal/archtest
 
 # The GUI in a container: Xvfb, a session bus, and WebKit's own sandbox (bubblewrap), which needs
-# user namespaces and an unmasked /proc inside the container.
+# user namespaces and an unmasked /proc inside the container. The session bus needs this user's
+# passwd entry (CI runs as uid 1001, unknown to the image) and a runtime folder of its own.
 RUN_GUI := $(subst --rm,--rm --init --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
-           --security-opt systempaths=unconfined -e XDG_RUNTIME_DIR=/tmp,$(RUN))
+           --security-opt systempaths=unconfined -v /etc/passwd:/etc/passwd:ro -v /etc/group:/etc/group:ro,$(RUN))
 
 # The Manager opens, loads the VM list and exits 0.
 self-test: build
-	$(RUN_GUI) sh -c 'Xvfb :57 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; \
+	$(RUN_GUI) sh -c 'export XDG_RUNTIME_DIR=$$(mktemp -d); Xvfb :57 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; \
 	  DISPLAY=:57 dbus-run-session timeout 120 ./$(BIN) --self-test >/tmp/self-test.log 2>&1 || { tail -40 /tmp/self-test.log; exit 1; }'
 
 # OpenCore's validator for the config.plist tests; downloaded once, never committed.
