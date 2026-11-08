@@ -66,16 +66,19 @@ func ensureVars(dir string, fw Firmware) error {
 	vars := filepath.Join(dir, GuestVarsFile)
 	kindFile := filepath.Join(dir, GuestVarsKind)
 	if exists(vars) {
+		// A missing marker (an interrupted first start) is refused too: plain variables must
+		// never pass for Secure Boot ones.
 		k, err := os.ReadFile(kindFile)
-		if err == nil && strings.TrimSpace(string(k)) != varsKind(fw.Secure) {
+		if err != nil || strings.TrimSpace(string(k)) != varsKind(fw.Secure) {
 			return ErrVarsTemplate
 		}
 		return nil
 	}
-	if err := copyFileAtomic(fw.Vars, vars, 0o644); err != nil {
+	// The marker first: variables without one are refused, never taken for the other kind.
+	if err := writeFileAtomic(kindFile, []byte(varsKind(fw.Secure)+"\n"), 0o644); err != nil {
 		return err
 	}
-	return writeFileAtomic(kindFile, []byte(varsKind(fw.Secure)+"\n"), 0o644)
+	return copyFileAtomic(fw.Vars, vars, 0o644)
 }
 
 // ResetVars replaces a powered-off VM's UEFI variables with a fresh copy of the template that
@@ -83,9 +86,6 @@ func ensureVars(dir string, fw Firmware) error {
 func ResetVars(c Config) error {
 	if c.MacOS() || c.Firmware != FirmwareUEFI {
 		return errors.New("only UEFI Linux, Windows and Other VMs have resettable variables")
-	}
-	if _, running := FindRunning(c); running {
-		return errors.New("power the VM off first")
 	}
 	dir, err := c.WorkspaceDir()
 	if err != nil {
@@ -95,6 +95,15 @@ func ResetVars(c Config) error {
 	if err != nil {
 		return err
 	}
+	unlock, err := NewWorkspace(dir).Lock() // the lock a start takes: no start meanwhile
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	if _, running := FindRunning(c); running {
+		return errors.New("power the VM off first")
+	}
+	os.Remove(filepath.Join(dir, GuestVarsKind))
 	os.Remove(filepath.Join(dir, GuestVarsFile))
 	return ensureVars(dir, fw)
 }

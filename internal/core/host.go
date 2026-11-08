@@ -444,10 +444,8 @@ func (h Host) SetupHost(user string) (string, error) {
 	}
 	pm := h.PackageManager()
 	if pm == "" {
-		if len(pkgs) > 0 {
-			return "", fmt.Errorf("this distribution is not one kvm-gui installs packages on (Ubuntu, Debian, Rocky Linux): install QEMU and qemu-img (%s) with your package manager, then run the setup again", strings.Join(pkgs, ", "))
-		}
-		pm = "apt" // nothing to install: the package manager is not used
+		return "", fmt.Errorf("Set up host supports Ubuntu, Debian and Rocky Linux only; nothing was changed. On this distribution: install QEMU, qemu-img, OVMF and swtpm, add yourself to the kvm group, and enable kvm ignore_msrs (see docs/troubleshooting.md)%s",
+			map[bool]string{true: " (missing here: " + strings.Join(pkgs, ", ") + ")", false: ""}[len(pkgs) > 0])
 	}
 	err := h.Run("pkexec", "/bin/sh", "-c", setupScript, "sh", user, module, strings.Join(pkgs, " "), pm)
 	if pkexecCancelled(err) {

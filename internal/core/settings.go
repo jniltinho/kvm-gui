@@ -30,6 +30,7 @@ func SettingsFile() string { return filepath.Join(ConfigDir(), "settings.yaml") 
 // loadSettingsFile reads settings.yaml, creating it from the commented default first.
 func loadSettingsFile() (fileSettings, error) {
 	var fs fileSettings
+	ensureMigrated() // before a default settings.yaml could hide macos-kvm-gui's
 	data, err := os.ReadFile(SettingsFile())
 	if errors.Is(err, os.ErrNotExist) && SettingsFile() != "" {
 		data, err = defaultSettingsYAML, nil
@@ -69,6 +70,12 @@ func envFile() string { return filepath.Join(ConfigDir(), ".env") }
 // Setting returns key from the environment, then settings.yaml, then the older local .env file.
 // The file holds plain KEY=value lines; # starts a comment and quotes around values are dropped.
 func Setting(key string) string {
+	// KVM_GUI_THEME, KVM_GUI_ASSETS_DIR and KVM_GUI_REIMS_QEMU win over their MKG_ names.
+	if name, ok := strings.CutPrefix(key, "MKG_"); ok {
+		if v, ok := os.LookupEnv("KVM_GUI_" + name); ok {
+			return v
+		}
+	}
 	if v, ok := os.LookupEnv(key); ok {
 		return v
 	}

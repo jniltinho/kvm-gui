@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+
+	"gopkg.in/yaml.v3"
 )
 
 // kvm-gui keeps its files in the XDG base directories (spec file-layout):
@@ -124,16 +126,22 @@ func migrateLegacy(newDB string) error {
 	defer old.Close()
 	tmp := newDB + ".migrating"
 	os.Remove(tmp)
+	defer os.Remove(tmp)
 	if _, err := old.Exec(`VACUUM INTO ?`, tmp); err != nil {
-		os.Remove(tmp)
 		return fmt.Errorf("copying %s: %w", oldDB, err)
 	}
-	if err := os.Rename(tmp, newDB); err != nil {
+	// Finished on the copy, then published by one rename: an interrupted migration leaves no
+	// database, so the next start migrates again.
+	if err := normalizeMigrated(tmp); err != nil {
 		return err
 	}
-	// The old default Workspace gives way to ~/KVM-VMs for new VMs; one the user chose stays.
-	// Either way the old one is remembered for its shared files (installers, kexts, Reims).
-	db, err := sql.Open("sqlite", "file:"+newDB+"?_pragma=busy_timeout(5000)")
+	return os.Rename(tmp, newDB)
+}
+
+// normalizeMigrated: the old default Workspace gives way to ~/KVM-VMs for new VMs, one the user
+// chose stays, and either way the old one is remembered for its shared files.
+func normalizeMigrated(path string) error {
+	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(5000)")
 	if err != nil {
 		return err
 	}
@@ -148,28 +156,46 @@ func migrateLegacy(newDB string) error {
 		return err
 	}
 	if ws == "" || ws == legacyDefaultWorkspace {
-		_, err = db.Exec(`DELETE FROM settings WHERE key = 'workspace'`)
+		if _, err := db.Exec(`DELETE FROM settings WHERE key = 'workspace'`); err != nil {
+			return err
+		}
 	}
-	return err
+	return db.Close()
+}
+
+// ensureMigrated runs migrateLegacy before anything reads or creates kvm-gui's own files.
+func ensureMigrated() {
+	if path, err := DBPath(); err == nil {
+		migrateLegacy(path) // an error shows again when the database opens
+	}
 }
 
 // absoluteSettings rewrites relative reims_qemu and assets_dir values of settings.yaml as absolute
-// paths under base, the folder they were relative to.
-func absoluteSettings(yaml, base string) string {
-	lines := strings.Split(yaml, "\n")
-	for i, l := range lines {
-		for _, key := range []string{"reims_qemu:", "assets_dir:"} {
-			rest, ok := strings.CutPrefix(l, key)
-			if !ok {
-				continue
-			}
-			v := strings.Trim(strings.TrimSpace(rest), `"'`)
-			if v != "" && !filepath.IsAbs(v) && !strings.HasPrefix(v, "~") {
-				lines[i] = key + " " + filepath.Join(base, v)
-			}
+// paths under base, the folder they were relative to. It edits the parsed YAML, so quoting and
+// comments keep their meaning; a file it cannot parse is copied as it is.
+func absoluteSettings(text, base string) string {
+	var doc yaml.Node
+	if err := yaml.Unmarshal([]byte(text), &doc); err != nil || len(doc.Content) == 0 || doc.Content[0].Kind != yaml.MappingNode {
+		return text
+	}
+	m := doc.Content[0]
+	changed := false
+	for i := 0; i+1 < len(m.Content); i += 2 {
+		k, v := m.Content[i], m.Content[i+1]
+		if (k.Value == "reims_qemu" || k.Value == "assets_dir") && v.Kind == yaml.ScalarNode &&
+			v.Value != "" && !filepath.IsAbs(v.Value) && !strings.HasPrefix(v.Value, "~") {
+			v.Value = filepath.Join(base, v.Value)
+			changed = true
 		}
 	}
-	return strings.Join(lines, "\n")
+	if !changed {
+		return text
+	}
+	out, err := yaml.Marshal(&doc)
+	if err != nil {
+		return text
+	}
+	return string(out)
 }
 
 // firstExisting is the first path that exists, or the first one.

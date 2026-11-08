@@ -297,7 +297,7 @@ func guestArgs(c Config, dir string, fw Firmware, qmpSocket, tpmSock string) ([]
 		name = p.Name
 	}
 	args := []string{
-		"-name", strings.ReplaceAll(name, ",", ",,"),
+		"-name", "guest=" + qemuPath(name), // guest=: a name like "process=x" stays a name
 		"-enable-kvm", "-machine", machine, "-cpu", cpu, "-m", strconv.Itoa(c.RAMMiB),
 		"-smp", fmt.Sprintf("%d,sockets=1,cores=%d,threads=%d", c.VCPUs, c.Cores, c.VCPUs/c.Cores),
 		"-device", "qemu-xhci,id=xhci",
@@ -318,7 +318,9 @@ func guestArgs(c Config, dir string, fw Firmware, qmpSocket, tpmSock string) ([]
 	port := 0
 	cds := func() {
 		for i, iso := range c.Optical {
-			drive := fmt.Sprintf("id=cd%d,if=none,media=cdrom,readonly=on", i)
+			// format=raw: an untrusted "ISO" is never probed as qcow2, whose backing file could
+			// name a host file.
+			drive := fmt.Sprintf("id=cd%d,if=none,media=cdrom,readonly=on,format=raw", i)
 			if iso != "" {
 				drive += ",file=" + qemuPath(iso)
 			}

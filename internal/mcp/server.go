@@ -211,10 +211,6 @@ func vmStart(ctx context.Context, _ *mcp.CallToolRequest, in vmStartIn) (*mcp.Ca
 	if _, ok := core.FindRunning(e.Config); ok {
 		return text(e.DisplayName() + " is already running"), nil, nil
 	}
-	dir, err := e.Config.WorkspaceDir()
-	if err != nil {
-		return nil, nil, err
-	}
 	self, err := os.Executable()
 	if err != nil {
 		return nil, nil, err
@@ -236,7 +232,11 @@ func vmStart(ctx context.Context, _ *mcp.CallToolRequest, in vmStartIn) (*mcp.Ca
 	if err != nil {
 		return nil, nil, err
 	}
-	logPath := filepath.Join(dir, "macos-kvm-gui", "mcp-start.log")
+	logDir := filepath.Join(core.StateDir(), "logs", e.ID)
+	if err := os.MkdirAll(logDir, 0o755); err != nil {
+		return nil, nil, err
+	}
+	logPath := filepath.Join(logDir, "mcp-start.log")
 	log, err := os.Create(logPath)
 	if err != nil {
 		return nil, nil, err

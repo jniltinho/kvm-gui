@@ -102,7 +102,7 @@ func TestMigrateLegacy(t *testing.T) {
 	db.Exec(`INSERT INTO settings (key, value) VALUES ('workspace', '~/macOS-VMs'), ('theme', 'dark')`)
 	db.Exec(`PRAGMA user_version = 5`)
 	db.Close()
-	write(t, filepath.Join(old, "settings.yaml"), "theme: light\nreims_qemu: reims/bin/qemu-system-x86_64\nassets_dir: /abs/assets\n")
+	write(t, filepath.Join(old, "settings.yaml"), "theme: light # mine\nreims_qemu: \"reims/bin/qemu-system-x86_64\" # local\nassets_dir: /abs/assets\n")
 	write(t, filepath.Join(old, ".env"), "MKG_THEME=dark\n")
 	write(t, filepath.Join(old, "known_hosts"), "[127.0.0.1]:2223 ssh-ed25519 AAAA\n")
 	write(t, filepath.Join(home, "macOS-VMs", ".installers", "24H32", "info.json"), "{}")
@@ -114,6 +114,10 @@ func TestMigrateLegacy(t *testing.T) {
 		return nil
 	})
 
+	// The GUI reads the theme first: that must not hide the old settings.yaml behind a default one.
+	if Setting("MKG_THEME") != "light" {
+		t.Fatalf("theme from the migrated settings.yaml: %q", Setting("MKG_THEME"))
+	}
 	vms := mustList(t)
 	if len(vms) != 2 {
 		t.Fatalf("VMs: %+v", vms)
@@ -128,8 +132,8 @@ func TestMigrateLegacy(t *testing.T) {
 		t.Fatal("no database in ~/.local/share/kvm-gui")
 	}
 	newCfg := filepath.Join(home, ".config", "kvm-gui")
-	if s := readFile(t, filepath.Join(newCfg, "settings.yaml")); !strings.Contains(s, "reims_qemu: "+filepath.Join(old, "reims/bin/qemu-system-x86_64")) ||
-		!strings.Contains(s, "assets_dir: /abs/assets") || !strings.Contains(s, "theme: light") {
+	if s := readFile(t, filepath.Join(newCfg, "settings.yaml")); !strings.Contains(s, `reims_qemu: "`+filepath.Join(old, "reims/bin/qemu-system-x86_64")+`" # local`) ||
+		!strings.Contains(s, "assets_dir: /abs/assets") || !strings.Contains(s, "theme: light") || !strings.Contains(s, "# local") {
 		t.Fatalf("settings.yaml:\n%s", s)
 	}
 	if readFile(t, filepath.Join(newCfg, ".env")) != "MKG_THEME=dark\n" || !exists(filepath.Join(newCfg, "known_hosts")) {

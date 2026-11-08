@@ -78,7 +78,7 @@ func runningIn(proc string, c Config) (RunInfo, bool) {
 			continue
 		}
 		base := filepath.Join(proc, e.Name())
-		if comm, _ := os.ReadFile(filepath.Join(base, "comm")); !strings.HasPrefix(string(comm), "qemu-system") {
+		if comm, _ := os.ReadFile(filepath.Join(base, "comm")); !strings.HasPrefix(string(comm), "qemu-system") && strings.TrimSpace(string(comm)) != "qemu-kvm" {
 			continue
 		}
 		raw, err := os.ReadFile(filepath.Join(base, "cmdline"))

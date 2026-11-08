@@ -132,7 +132,7 @@ func TestVMStartDownloadsKextsFirst(t *testing.T) {
 	if !isErr || !strings.Contains(msg, "127.0.0.1:1") {
 		t.Fatalf("vm_start: %q (error %v)", msg, isErr)
 	}
-	if _, err := os.Stat(filepath.Join(c.Workspace, "macos-kvm-gui", "mcp-start.log")); err == nil {
+	if _, err := os.Stat(filepath.Join(core.StateDir(), "logs", e.ID, "mcp-start.log")); err == nil {
 		t.Fatal("no VM process is spawned when a kext cannot be downloaded")
 	}
 }

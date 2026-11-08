@@ -20,7 +20,11 @@ func ReimsDir() (string, error) { return filepath.Join(DataDir(), "reims-ctl"), 
 // the VM runs QEMU from its own folder, so the path must be absolute by then.
 func ReimsQEMU() (string, error) {
 	if p := Setting("MKG_REIMS_QEMU"); p != "" {
-		if _, env := os.LookupEnv("MKG_REIMS_QEMU"); !env && !filepath.IsAbs(p) {
+		_, env := os.LookupEnv("MKG_REIMS_QEMU")
+		if _, kenv := os.LookupEnv("KVM_GUI_REIMS_QEMU"); kenv {
+			env = true
+		}
+		if !env && !filepath.IsAbs(p) {
 			p = filepath.Join(filepath.Dir(SettingsFile()), p)
 		}
 		p, _ = filepath.Abs(p) // the env's path, from the current directory

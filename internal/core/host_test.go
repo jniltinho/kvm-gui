@@ -294,10 +294,14 @@ func TestHostPerDistribution(t *testing.T) {
 	if _, err := h.SetupHost("nilton"); err != nil || ran[6] != "qemu-img" || ran[7] != "dnf" {
 		t.Fatalf("Rocky setup: %v %q", err, ran)
 	}
-	// Unsupported distribution with a missing package: nothing runs, the packages are listed.
+	// Unsupported distribution: nothing runs, with or without missing packages.
 	write(t, filepath.Join(h.EtcRoot, "os-release"), "ID=arch\n")
 	ran = nil
 	if _, err := h.SetupHost("nilton"); err == nil || !strings.Contains(err.Error(), "qemu-utils") || ran != nil {
 		t.Fatalf("unsupported: %v %q", err, ran)
+	}
+	h.LookPath = func(s string) (string, error) { return "/usr/bin/" + s, nil }
+	if _, err := h.SetupHost("nilton"); err == nil || !strings.Contains(err.Error(), "nothing was changed") || ran != nil {
+		t.Fatalf("unsupported with every tool: %v %q", err, ran)
 	}
 }

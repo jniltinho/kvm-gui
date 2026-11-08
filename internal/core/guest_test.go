@@ -98,7 +98,7 @@ func TestGuestArgs(t *testing.T) {
 		"-machine q35,smm=on", "-cpu host,hv_relaxed,hv_vapic,hv_spinlocks=0x1fff,hv_time",
 		"-global driver=cfi.pflash01,property=secure,value=on",
 		"if=pflash,format=raw,readonly=on,file=/fw/CODE.fd", "file=" + w11.Workspace + "/OVMF_VARS.fd",
-		"ide-cd,bus=sata.0,drive=cd0,bootindex=0", "ide-hd,bus=sata.1,drive=disk0,bootindex=1",
+		"-name guest=Windows 11", "media=cdrom,readonly=on,format=raw", "ide-cd,bus=sata.0,drive=cd0,bootindex=0", "ide-hd,bus=sata.1,drive=disk0,bootindex=1",
 		"-device e1000e,netdev=net0", "-device VGA", "-tpmdev emulator,id=tpm0,chardev=chrtpm", "-device tpm-crb,tpmdev=tpm0",
 		"-serial none", "-qmp unix:/run/x/qmp.sock",
 	} {
@@ -175,6 +175,11 @@ func TestHostFirmware(t *testing.T) {
 	}
 	if err := ensureVars(dir, Firmware{Vars: sec.Vars}); err != ErrVarsTemplate {
 		t.Fatalf("Secure Boot change not caught: %v", err)
+	}
+	// Variables without their marker (an interrupted first start) are refused.
+	os.Remove(filepath.Join(dir, GuestVarsKind))
+	if err := ensureVars(dir, sec); err != ErrVarsTemplate {
+		t.Fatalf("missing marker accepted: %v", err)
 	}
 }
 

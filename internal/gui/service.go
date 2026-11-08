@@ -32,7 +32,7 @@ func (a *App) Version() string { return a.version }
 // Theme is the skin to draw: KVM_GUI_THEME or MKG_THEME (or settings.yaml), else the saved
 // preference, else "system"; an unknown id is "system".
 func (a *App) Theme() string {
-	for _, t := range []string{core.Setting("KVM_GUI_THEME"), core.Setting("MKG_THEME"), core.Preference("theme")} {
+	for _, t := range []string{core.Setting("MKG_THEME"), core.Preference("theme")} { // MKG_THEME reads KVM_GUI_THEME first
 		if t != "" {
 			return core.ThemeOrSystem(t)
 		}

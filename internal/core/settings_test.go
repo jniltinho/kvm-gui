@@ -78,3 +78,16 @@ func TestAssetsDirOverride(t *testing.T) {
 		t.Fatalf("an override without BOOTx64.efi must be refused: %v", err)
 	}
 }
+
+// KVM_GUI_* names win over MKG_* ones (spec file-layout).
+func TestKVMGUIVariables(t *testing.T) {
+	isolateXDG(t, t.TempDir())
+	t.Setenv("MKG_THEME", "dark")
+	if Setting("MKG_THEME") != "dark" {
+		t.Fatal("MKG_THEME alone")
+	}
+	t.Setenv("KVM_GUI_THEME", "xp")
+	if Setting("MKG_THEME") != "xp" {
+		t.Fatal("KVM_GUI_THEME must win")
+	}
+}
