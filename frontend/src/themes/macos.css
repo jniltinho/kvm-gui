@@ -1,0 +1,66 @@
+/* macOS skins (Sequoia): light and dark system colours, the system blue accent, SF / Helvetica text,
+   rounded controls (5 px) and windows (10 px), flat grey title bars with centred-weight text. */
+:root[data-theme="macos"] {
+  color-scheme: light;
+  --surface: #ffffff;
+  --panel: #ececec;
+  --toolbar: #f6f6f6;
+  --input: #ffffff;
+  --text: #1d1d1f;
+  --text-muted: #6e6e73;
+  --text-disabled: #b0b0b5;
+  --accent: #007aff;
+  --border: #c6c6c8;
+  --border-subtle: #e0e0e3;
+  --selection: #0064e1;
+  --selection-text: #ffffff;
+  --hover: #e3e3e8;
+  --pressed: #d1d1d6;
+  --focus: #007aff;
+  --danger: #d70015;
+  --warning: #a05a00;
+  --success: #248a3d;
+  --tab-active: #ffffff;
+  --tab-inactive: #e3e3e6;
+  --outline: #007aff;
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Noto Sans", sans-serif;
+  --title-bg: linear-gradient(180deg, #eeeeee, #e2e2e2);
+  --title-fg: #4d4d4d;
+  --title-weight: 600;
+  --ctl-radius: 5px;
+  --win-radius: 10px;
+  --tile-on: #dcdce1;
+  --tile-line: #c6c6c8;
+}
+:root[data-theme="macos-dark"] {
+  color-scheme: dark;
+  --surface: #1e1e1e;
+  --panel: #2a2a2c;
+  --toolbar: #323234;
+  --input: #1c1c1e;
+  --text: #f5f5f7;
+  --text-muted: #98989d;
+  --text-disabled: #5a5a5e;
+  --accent: #0a84ff;
+  --border: #48484a;
+  --border-subtle: #3a3a3c;
+  --selection: #0a5cc8;
+  --selection-text: #ffffff;
+  --hover: #3a3a3c;
+  --pressed: #48484a;
+  --focus: #0a84ff;
+  --danger: #ff453a;
+  --warning: #ffd60a;
+  --success: #32d74b;
+  --tab-active: #1e1e1e;
+  --tab-inactive: #2a2a2c;
+  --outline: #0a84ff;
+  --font-ui: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", "Noto Sans", sans-serif;
+  --title-bg: linear-gradient(180deg, #38383a, #2c2c2e);
+  --title-fg: #d0d0d0;
+  --title-weight: 600;
+  --ctl-radius: 5px;
+  --win-radius: 10px;
+  --tile-on: #3a3a3c;
+  --tile-line: #48484a;
+}

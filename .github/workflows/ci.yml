@@ -22,7 +22,13 @@ jobs:
           fetch-depth: 0 # the package version comes from the last v* tag
       - name: Go checks (gofmt, go vet, go test -race with every tool required)
         run: make test
+      - name: Layering and skin tokens
+        run: make layers
       - name: OpenSpec (validate --all --strict)
         run: make openspec
-      - name: Artifacts (.deb, .rpm, SHA256SUMS)
+      - name: Frontend lint (Vite Plus)
+        run: make frontend-check
+      - name: The Manager opens and loads the VM list (Xvfb)
+        run: make self-test
+      - name: Artifacts (.deb, .rpm, AppImage, binary, SHA256SUMS)
         run: make dist

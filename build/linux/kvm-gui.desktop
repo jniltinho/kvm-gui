@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=kvm-gui
+Comment=Create and run macOS and other VMs on Linux KVM
+Exec=kvm-gui
+Icon=kvm-gui
+StartupWMClass=kvm-gui
+Terminal=false
+Categories=System;Emulator;

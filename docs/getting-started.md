@@ -29,6 +29,7 @@ A kvm-gui release has a `.deb` (Ubuntu 24.04, Ubuntu 26.04, Debian 13), an `.rpm
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS
 sudo apt install ./kvm-gui_X.Y.Z_amd64.deb          # Ubuntu, Debian
+sudo dnf install epel-release                      # Rocky Linux 10: WebKitGTK 6.0 comes from EPEL
 sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm       # Rocky Linux 10
 ```
 

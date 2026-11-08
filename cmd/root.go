@@ -22,21 +22,16 @@ var rootCmd = &cobra.Command{
 	Use:   "kvm-gui",
 	Short: "Create and run macOS and other VMs on Linux KVM (home lab use)",
 	Long: `kvm-gui creates and runs macOS VMs (OpenCore and OVMF built in, Reims vGPU optional) on Linux KVM.
-The commands below create, configure and run VMs; the desktop GUI (Go + Wails) comes with the next release.
+Without a command it opens the desktop GUI; the commands below automate the same steps.
 
 For home lab use: macOS's license only allows it on Apple-branded hardware.`,
 	SilenceUsage: true,
-	RunE: func(*cobra.Command, []string) error {
-		return errGUIPending
-	},
+	RunE:         func(*cobra.Command, []string) error { return runGUI() },
 }
 
-// errGUIPending: the Fyne GUI is gone and the Wails GUI lands with the next release.
-var errGUIPending = fmt.Errorf("the desktop GUI comes with the next kvm-gui release; meanwhile use the commands (kvm-gui --help) or the MCP server (kvm-gui mcp)")
-
 // Execute runs the command line; appVersion comes from the build.
-func Execute(appVersion string) {
-	version, rootCmd.Version = appVersion, appVersion
+func Execute(appVersion, licenseText string) {
+	version, rootCmd.Version, licenses = appVersion, appVersion, licenseText
 	if filepath.Base(os.Args[0]) == mcp.AskpassName { // ssh runs the binary as SSH_ASKPASS with its prompt
 		rootCmd.SetArgs([]string{mcp.AskpassName})
 	}

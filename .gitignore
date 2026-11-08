@@ -7,3 +7,5 @@ internal/core/testdata/ocvalidate
 docs/prints/
 .claude/worktrees/
 base/
+internal/gui/dist/
+frontend/node_modules/

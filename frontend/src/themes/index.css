@@ -1,0 +1,11 @@
+/* Skins: one file per skin, keyed by data-theme on <html> (set by themes/index.ts). */
+@import "./light.css";
+@import "./dark.css";
+@import "./xp.css";
+@import "./macos.css";
+@import "./macos-retro.css";
+
+/* Shape tokens: controls and windows follow the skin (0 = square; the macOS skins round them). */
+button, input:not([type="checkbox"]):not([type="radio"]), select, textarea { border-radius: var(--ctl-radius); }
+.dialog, .menu { border-radius: var(--win-radius); }
+.dialog { overflow: hidden; }
