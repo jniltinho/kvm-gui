@@ -4,9 +4,13 @@
 import { computed } from "vue";
 import type { VMInfo } from "./api";
 import { base, graphicsOf, guestLabel, isMac, label, size } from "./labels";
+import Screen from "./Screen.vue";
 
 const props = defineProps<{ vm: VMInfo }>();
 const emit = defineEmits<{ open: [page: string] }>();
+
+// The app has the screen unless QEMU draws it in its own window; Reims vGPU always serves it to the app too.
+const previewable = computed(() => props.vm.config.graphics === "reims-vgpu" || props.vm.config.display !== "window");
 
 type Section = { page: string; title: string; icon: string; rows: [string, string][] };
 
@@ -78,8 +82,12 @@ const sections = computed<Section[]>(() => {
     </div>
     <aside class="prev" aria-label="Preview">
       <h3 class="sec-h"><span class="sec-btn static"><img src="/icons/preview.svg" alt="" /> Preview</span></h3>
-      <!-- TODO(task 6.3): the live screen of a running VM; a placeholder until the screen stream exists. -->
-      <div class="prev-screen" role="img" :aria-label="`Preview of ${vm.name}: ${vm.state}`"><span>{{ vm.name }}</span></div>
+      <div v-if="vm.running && previewable" class="prev-screen live">
+        <Screen :key="vm.id" :vm="vm.id" :interval="500" :label="`Preview of ${vm.name}`" />
+      </div>
+      <div v-else class="prev-screen" role="img" :aria-label="`Preview of ${vm.name}: ${vm.running ? 'disabled' : vm.state}`">
+        <span>{{ vm.running ? "Preview disabled" : vm.name }}</span></div>
+      <p v-if="vm.running && !previewable" class="muted prev-note">The screen is in QEMU's own window.</p>
     </aside>
   </div>
 </template>
@@ -100,4 +108,6 @@ const sections = computed<Section[]>(() => {
 .sec-b dd.wide { grid-column: 1 / -1; white-space: pre-wrap; }
 .prev { flex: none; width: clamp(180px, 22%, 300px); border: 1px solid var(--border-subtle); background: var(--surface); }
 .prev-screen { margin: 10px; aspect-ratio: 16 / 10; display: flex; align-items: center; justify-content: center; padding: 6px; background: color-mix(in srgb, var(--accent) 22%, var(--surface)); color: var(--text); border: 4px solid var(--border); font-weight: 700; font-size: 15px; text-align: center; overflow-wrap: anywhere; border-radius: var(--ctl-radius); }
+.prev-screen.live { padding: 0; background: #000; }
+.prev-note { margin: -4px 10px 10px; }
 </style>

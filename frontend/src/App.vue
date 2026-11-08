@@ -4,7 +4,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Application } from "@wailsio/runtime";
 import {
-  DeleteVM, GetLog, GetPrefs, GetVM, Ready, SelectVM, ShutDown, Start, Theme, Version, VMs,
+  DeleteVM, GetLog, GetPrefs, GetVM, Ready, SelectVM, Show, ShutDown, Start, Theme, Version, VMs,
   type VM, type VMInfo,
 } from "./api";
 import { applySkin } from "./themes";
@@ -169,9 +169,13 @@ async function start(headless: boolean) {
     void showInfo(`Start ${vm.name}`, String(e));
   } finally { starting.value = ""; }
 }
-// Show (the VM window) is not built yet: say so, and how to reach a running VM meanwhile.
-const showNote = computed(() => "The VM's screen cannot be shown in the app yet."
-  + (selected.value?.running && shownInfo.value ? ` Connect with SSH meanwhile: port ${shownInfo.value.config.ssh_port} on 127.0.0.1.` : ""));
+// Show opens the running VM's window, or brings it to the front (Normal start opens it from Go).
+async function show() {
+  const vm = selected.value;
+  menu.value = "";
+  if (!vm?.running) return;
+  try { await Show(vm.id); } catch (e) { void showInfo(`Show ${vm.name}`, String(e)); }
+}
 
 // Exit closes the Manager only: VMs keep running (vm-manager-ui › Close dialog).
 const quit = () => void Application.Quit();
@@ -304,7 +308,7 @@ onBeforeUnmount(() => {
           <div class="menu-sep" role="separator"></div>
           <button type="button" class="menu-i" role="menuitem" :disabled="!canStart" @click="start(false)"><img src="/icons/start.svg" alt="" /> Start (Normal)</button>
           <button type="button" class="menu-i" role="menuitem" :disabled="!canStart || reimsGPU" :title="reimsGPU ? headlessNote : undefined" @click="start(true)"><img src="/icons/start.svg" alt="" /> Start (Headless)</button>
-          <button type="button" class="menu-i" role="menuitem" disabled :title="showNote"><img src="/icons/window.svg" alt="" /> Show</button>
+          <button type="button" class="menu-i" role="menuitem" :disabled="!selected?.running" @click="show"><img src="/icons/window.svg" alt="" /> Show</button>
           <button type="button" class="menu-i" role="menuitem" :disabled="!selected?.running" @click="run(shutDown)"><img src="/icons/shutdown.svg" alt="" /> Shut down</button>
           <div class="menu-sep" role="separator"></div>
           <button type="button" class="menu-i" role="menuitem" :disabled="!selected" @click="run(() => tool = 'logs')"><img src="/icons/log.svg" alt="" /> Show log</button>
@@ -330,7 +334,7 @@ onBeforeUnmount(() => {
         <button type="button" class="tb" aria-label="Start" title="Start the selected VM; it keeps running when you close this window" :disabled="!canStart" @click="start(false)"><img src="/icons/start.svg" alt="" /><span>{{ starting ? "Starting…" : "Start" }}</span></button>
         <button ref="startArrow" type="button" class="tb tb-arrow" aria-label="Start options" aria-haspopup="menu" :aria-expanded="startOpen" :disabled="!selected" @click.stop="toggleStart"></button>
       </div>
-      <button type="button" class="tb" aria-label="Show" :title="showNote" disabled><img src="/icons/window.svg" alt="" /><span>Show</span></button>
+      <button type="button" class="tb" aria-label="Show" title="Open the window of the running VM" :disabled="!selected?.running" @click="show"><img src="/icons/window.svg" alt="" /><span>Show</span></button>
       <button type="button" class="tb" aria-label="Shut down" title="Send the shutdown signal (ACPI)" :disabled="!selected?.running" @click="shutDown"><img src="/icons/shutdown.svg" alt="" /><span>Shut down</span></button>
     </div>
 

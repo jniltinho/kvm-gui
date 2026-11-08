@@ -11,7 +11,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       libgtk-4-dev libwebkitgtk-6.0-dev libx11-dev \
       qemu-utils qemu-system-x86 swtpm swtpm-tools ovmf xorriso \
       xvfb openbox x11-apps x11-utils xdotool imagemagick vulkan-tools mesa-vulkan-drivers \
-      dbus dbus-x11 mtools dpkg-dev rpm desktop-file-utils \
+      dbus dbus-x11 mtools dpkg-dev rpm desktop-file-utils librsvg2-bin \
     && rm -rf /var/lib/apt/lists/*
 ARG APPIMAGETOOL_VERSION=1.9.1
 ARG APPIMAGE_RUNTIME_VERSION=20251108

@@ -132,3 +132,7 @@ export const SetWorkspace = (p: string) => call<void>("SetWorkspace", p);
 /** Native file chooser; "" when cancelled. kind: "iso", "disk" or "". */
 export const PickFile = (title: string, kind = "") => call<string>("PickFile", title, kind);
 export const PickFolder = (title: string) => call<string>("PickFolder", title);
+/** Opens the VM's window, or brings it to the front. */
+export const Show = (id: string) => call<void>("Show", id);
+/** Where the page connects for a running VM's screen (internal/gui/screen.go); rejects when it is not running. */
+export const GetScreen = (id: string) => call<{ url: string; token: string; generation: string }>("Screen", id);

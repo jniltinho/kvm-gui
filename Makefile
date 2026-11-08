@@ -28,9 +28,9 @@ embed-stub:
 frontend: image
 	$(RUN) sh -c 'cd frontend && npm ci --no-audit --no-fund && npm run build'
 
-# Frontend lint and type checks (Vite Plus).
+# Frontend lint, type checks and unit tests (Vite Plus).
 frontend-check: image
-	$(RUN) sh -c 'cd frontend && npm ci --no-audit --no-fund && npx vp check --no-fmt'
+	$(RUN) sh -c 'cd frontend && npm ci --no-audit --no-fund && npx vp check --no-fmt && npx vp test run'
 
 # Layering: only internal/gui imports Wails; every skin defines the same tokens.
 layers: image embed-stub
@@ -104,11 +104,16 @@ appimage: build-prod
 	  mv -f dist/kvm-gui-$(VERSION)-x86_64.AppImage.new dist/kvm-gui-$(VERSION)-x86_64.AppImage'
 
 # dist/: every artifact, with SHA256SUMS. Run after each milestone.
-dist: package appimage
+# dist/ holds exactly this build's five files: it is emptied first, and the work binary removed.
+dist: clean-dist package appimage
 	cp $(BIN) dist/kvm-gui-$(VERSION)-linux-amd64
+	rm -f $(BIN)
 	cd dist && rm -f SHA256SUMS && sha256sum kvm-gui_*.deb kvm-gui-*.rpm kvm-gui-*-x86_64.AppImage kvm-gui-*-linux-amd64 > SHA256SUMS && sha256sum -c SHA256SUMS
+
+clean-dist:
+	find dist -mindepth 1 -delete 2>/dev/null || true
 
 clean:
 	rm -rf dist
 
-.PHONY: test-embed self-test image tidy embed-stub frontend frontend-check layers test openspec build build-prod test-integration package appimage dist clean
+.PHONY: clean-dist licenses test-embed self-test image tidy embed-stub frontend frontend-check layers test openspec build build-prod test-integration package appimage dist clean
