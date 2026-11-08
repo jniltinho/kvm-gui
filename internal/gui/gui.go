@@ -164,6 +164,7 @@ func Run(o Options) error {
 		// The embedded VM window goes back to the desktop before this window is destroyed.
 		w.RegisterHook(events.Common.WindowClosing, func(*application.WindowEvent) { embeds.drop(id) })
 	}
+	svc.mainWindow = func() *application.WebviewWindow { return win }
 	svc.vmWindow = func(id string) *application.WebviewWindow {
 		if w, ok := app.Window.GetByName("vm:" + id); ok {
 			if ww, ok := w.(*application.WebviewWindow); ok {

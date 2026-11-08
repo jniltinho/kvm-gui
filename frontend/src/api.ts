@@ -140,6 +140,6 @@ export const GetScreen = (id: string) => call<{ url: string; token: string; gene
 // Reims vGPU's own window placed over the page rectangle (CSS pixels): "embedded", "waiting", or
 // "unavailable" with the reason (the page uses the viewer then).
 export interface EmbedState { state: "embedded" | "waiting" | "unavailable"; reason: string }
-export const EmbedScreen = (id: string, x: number, y: number, w: number, h: number, dpr: number) =>
-  call<EmbedState>("EmbedScreen", id, x, y, w, h, dpr);
+export const EmbedScreen = (id: string, host: "manager" | "vm", x: number, y: number, w: number, h: number, dpr: number) =>
+  call<EmbedState>("EmbedScreen", id, host, x, y, w, h, dpr);
 export const EmbedVisible = (id: string, visible: boolean) => call<void>("EmbedVisible", id, visible);

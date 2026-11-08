@@ -467,7 +467,7 @@ func (a *App) ShutDown(id string) error {
 }
 
 // Start runs the VM in its own session (core.StartDetached), so it keeps running when this window
-// closes. Normal lets a Reims vGPU VM open its window on X11 for the VM window to take; Headless
+// closes. Normal lets a Reims vGPU VM open its window on X11 for the app to take; Headless
 // does not, and Reims vGPU, which always opens its own window, has no Headless.
 func (a *App) Start(id string, headless bool) error {
 	e, err := entry(id)
@@ -506,10 +506,7 @@ func (a *App) Start(id string, headless bool) error {
 		EmbedX11: !headless && onX11(), KextsSnapshot: string(snapshot)}); err != nil {
 		return err
 	}
-	if !headless && a.show != nil {
-		a.show(e.ID, vmTitle(e.DisplayName(), true))
-	}
-	return nil
+	return nil // the Manager shows the screen in its Screen tab; Show opens a window of its own
 }
 
 // Show opens the VM's window, or brings it to the front when it is open. Closing it leaves the VM running.

@@ -24,6 +24,8 @@ type App struct {
 	show func(id, title string)      // opens or focuses the VM's window
 	// vmWindow is id's open VM window, nil when it is closed.
 	vmWindow func(id string) *application.WebviewWindow
+	// mainWindow is the Manager's window.
+	mainWindow func() *application.WebviewWindow
 
 	screen *screenServer // the VMs' screens for the page; nil when it could not start
 

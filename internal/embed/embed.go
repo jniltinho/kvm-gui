@@ -25,6 +25,9 @@ const containerMark = "_KVM_GUI_CONTAINER"
 // wmRelease is how long Embed waits for a reparenting window manager to let the window go.
 const wmRelease = time.Second
 
+// releaseGrace bounds how long Release keeps the old container after giving the window back.
+const releaseGrace = time.Second
+
 // X is a connection to the X server, for finding and embedding windows.
 type X struct {
 	display string
@@ -308,7 +311,18 @@ func (e *Embedded) Release() error {
 		xproto.ReparentWindow(e.conn, e.child, e.x.root, 0, 0)
 		xproto.ChangeSaveSet(e.conn, xproto.SetModeDelete, e.child)
 		xproto.MapWindow(e.conn, e.child)
+		e.conn.Sync()
+		// The VM's toolkit (SDL) still queries its former parent while it handles the move: that
+		// window must outlive the move, or the query's BadWindow kills QEMU. Wait for the move,
+		// then give the client a moment before the container goes.
+		for deadline := time.Now().Add(releaseGrace); time.Now().Before(deadline); time.Sleep(20 * time.Millisecond) {
+			if t, err := xproto.QueryTree(e.conn, e.child).Reply(); err != nil || t.Parent == e.x.root {
+				break
+			}
+		}
+		time.Sleep(releaseGrace / 2)
 	}
+	xproto.UnmapWindow(e.conn, e.container)
 	xproto.DestroyWindow(e.conn, e.container)
 	e.conn.Sync()
 	e.conn.Close()

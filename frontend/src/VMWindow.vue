@@ -4,10 +4,10 @@
 // Closing it leaves the VM running.
 import { computed, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Window } from "@wailsio/runtime";
-import { EmbedScreen, GetVM, Start, Theme, VMs, type VM, type VMInfo } from "./api";
+import { GetVM, Start, Theme, VMs, type VM, type VMInfo } from "./api";
 import { applySkin } from "./themes";
 import GuestIcon from "./GuestIcon.vue";
-import Screen from "./Screen.vue";
+import VMScreen from "./VMScreen.vue";
 import { HOST_KEY_LABEL } from "./viewer";
 
 const props = defineProps<{ id: string }>();
@@ -15,42 +15,10 @@ const vm = ref<VM | null>(null);
 const info = ref<VMInfo | null>(null);
 const error = ref("");
 const starting = ref(false);
-const screen = ref<InstanceType<typeof Screen>>();
+const screen = ref<InstanceType<typeof VMScreen>>();
+const viewer = computed(() => screen.value?.viewer);
 
 const reims = computed(() => vm.value?.graphics === "reims-vgpu");
-// Reims vGPU's own window inside this one (screen-embedding): "embedded" or "waiting" while the app
-// takes it; "unavailable" (a run of the CLI or the MCP server, no X11) shows the viewer instead.
-const embedArea = ref<HTMLElement>();
-const embedState = ref<"embedded" | "waiting" | "unavailable">("waiting");
-const embedReason = ref("");
-const embedding = computed(() => !!vm.value?.running && reims.value && embedState.value !== "unavailable");
-async function place() {
-  const el = embedArea.value;
-  if (!el || !embedding.value) return;
-  const r = el.getBoundingClientRect();
-  try {
-    const s = await EmbedScreen(props.id, r.left, r.top, r.width, r.height, window.devicePixelRatio || 1);
-    embedState.value = s.state;
-    embedReason.value = s.reason;
-  } catch (e) {
-    embedState.value = "unavailable";
-    embedReason.value = String(e);
-  }
-}
-let observer: ResizeObserver | undefined;
-watch(embedArea, (el) => {
-  observer?.disconnect();
-  if (el) {
-    observer = new ResizeObserver(() => void place());
-    observer.observe(el);
-    void place();
-  }
-});
-// A new run (or the window appearing late): try again; "waiting" polls until it is placed.
-watch(() => vm.value?.running, (running) => { if (running) embedState.value = "waiting"; });
-// The app has the screen unless QEMU draws it in its own window; Reims vGPU always serves it to the app too.
-const inApp = computed(() => reims.value || info.value?.config.display !== "window");
-
 async function refresh() {
   try {
     const v = (await VMs()).find((x) => x.id === props.id) ?? null;
@@ -79,23 +47,18 @@ async function start(headless: boolean) {
 }
 
 let timer: ReturnType<typeof setInterval> | undefined;
-let placer: ReturnType<typeof setInterval> | undefined;
 onMounted(async () => {
   try { applySkin(await Theme()); } catch { /* the system skin stays */ }
   await refresh();
   timer = setInterval(refresh, 2000);
-  placer = setInterval(() => { if (embedding.value && embedState.value === "waiting") void place(); }, 500);
 });
-onBeforeUnmount(() => { clearInterval(timer); clearInterval(placer); observer?.disconnect(); });
+onBeforeUnmount(() => clearInterval(timer));
 </script>
 
 <template>
   <div class="vmw">
     <main class="vmw-screen" :aria-label="vm ? `${vm.name} screen` : 'Screen'">
-      <div v-if="embedding" ref="embedArea" class="embed" :aria-label="`Screen of ${vm?.name}`" role="img">
-        <p v-if="embedState === 'waiting'" class="muted">Taking Reims vGPU's window into this one…</p>
-      </div>
-      <Screen v-else-if="vm?.running && inApp" ref="screen" :vm="id" interactive :label="`Screen of ${vm.name}`" />
+      <VMScreen v-if="vm?.running && inApp" ref="screen" :id="id" :name="vm.name" host="vm" :reims="reims" />
       <div v-else-if="vm?.running" class="ph">
         <GuestIcon :guest="vm.guest" :size="56" />
         <p>The screen of <b>{{ vm.name }}</b> is in QEMU's own window (Settings › Display › Screen).</p>
@@ -114,10 +77,10 @@ onBeforeUnmount(() => { clearInterval(timer); clearInterval(placer); observer?.d
     </main>
     <footer class="status" role="status" aria-live="polite">
       <span v-if="vm"><img :src="`./icons/${vm.running ? 'state-running' : 'state-off'}.svg`" alt="" /> {{ vm.state }}</span>
-      <span v-if="screen?.connected" class="muted">{{ screen.size[0] }}×{{ screen.size[1] }}</span>
-      <span class="grow" :class="error ? 'bad' : 'muted'">{{ error || (embedding && embedState === 'embedded' ? "Reims vGPU's display: move the pointer over it to type." : vm?.running && reims ? `Reims vGPU shows this screen in its own window${embedReason ? ` (${embedReason})` : ""}.` : "") }}</span>
-      <template v-if="screen?.connected">
-        <span>{{ screen.grabbed ? "Keyboard captured" : "Click the screen to capture the keyboard" }}</span>
+      <span v-if="viewer?.connected" class="muted">{{ viewer.size[0] }}×{{ viewer.size[1] }}</span>
+      <span class="grow" :class="error ? 'bad' : 'muted'">{{ error || (screen?.state === 'embedded' ? "Reims vGPU's display: move the pointer over it to type." : vm?.running && reims && screen?.reason ? `Reims vGPU shows this screen in its own window (${screen.reason}).` : "") }}</span>
+      <template v-if="viewer?.connected">
+        <span>{{ viewer.grabbed ? "Keyboard captured" : "Click the screen to capture the keyboard" }}</span>
         <span class="muted">Host key: {{ HOST_KEY_LABEL }} · Full screen: Ctrl+Alt+F</span>
       </template>
     </footer>
@@ -127,8 +90,6 @@ onBeforeUnmount(() => { clearInterval(timer); clearInterval(placer); observer?.d
 <style scoped>
 .vmw { height: 100%; display: flex; flex-direction: column; }
 .vmw-screen { flex: 1; min-height: 0; display: flex; background: #000; }
-.embed { flex: 1; min-width: 0; display: flex; align-items: center; justify-content: center; background: #000; }
-.embed p { color: #aaa; }
 .ph { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; margin: 0; padding: 24px; text-align: center; background: var(--surface); color: var(--text); }
 .ph h1 { margin: 0; font-size: 20px; font-weight: 600; }
 .ph p { margin: 0; max-width: 520px; }

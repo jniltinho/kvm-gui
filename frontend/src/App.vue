@@ -18,6 +18,7 @@ import Modal from "./Modal.vue";
 import NewVMWizard from "./NewVMWizard.vue";
 import Preferences from "./Preferences.vue";
 import TabBar from "./TabBar.vue";
+import VMScreen from "./VMScreen.vue";
 import VMSettings from "./VMSettings.vue";
 
 const vms = ref<VM[]>([]);
@@ -41,7 +42,7 @@ const removing = ref<VM | null>(null);
 const purge = ref(false);
 
 // Tools of the selected VM.
-const TOOLS = [["details", "Details", "general"], ["snapshots", "Snapshots", "snapshot"], ["logs", "Logs", "log"]] as const;
+const TOOLS = [["details", "Details", "general"], ["screen", "Screen", "display"], ["snapshots", "Snapshots", "snapshot"], ["logs", "Logs", "log"]] as const;
 type Tool = (typeof TOOLS)[number][0];
 const tool = ref<Tool>("details");
 const log = ref("");
@@ -163,6 +164,7 @@ async function start(headless: boolean) {
   try {
     await Start(vm.id, headless);
     await refresh();
+    if (!headless && selectedId.value === vm.id) tool.value = "screen";
     status.value = `${vm.name} is running. It keeps running when you close this window.`;
   } catch (e) {
     status.value = `${vm.name} did not start.`;
@@ -373,6 +375,13 @@ onBeforeUnmount(() => {
             <p v-else-if="selected" class="muted pad" role="status">Loading {{ selected.name }}…</p>
           </template>
 
+          <div v-else-if="tool === 'screen'" class="screen-tab">
+            <VMScreen v-if="selected?.running && (reimsGPU || shownInfo?.config.display !== 'window')" :key="selected.id"
+              :id="selected.id" :name="selected.name" host="manager" :reims="reimsGPU" :covered="!!dialog || !!menu || startOpen" />
+            <p v-else-if="selected?.running" class="muted pad">The screen of {{ selected.name }} is in QEMU's own window (Settings › Display › Screen).</p>
+            <p v-else-if="selected" class="muted pad">{{ selected.name }} is powered off: Start shows its screen here.</p>
+          </div>
+
           <div v-else-if="tool === 'snapshots'" class="snap">
             <div class="row snap-bar" role="toolbar" aria-label="Snapshot actions">
               <button type="button" class="btn small" disabled><img src="/icons/snapshot.svg" alt="" /> Take…</button>
@@ -503,4 +512,5 @@ onBeforeUnmount(() => {
 .status > span { display: inline-flex; align-items: center; gap: 4px; }
 .status img { width: 10px; height: 10px; }
 .status .grow { overflow: hidden; text-overflow: ellipsis; }
+.screen-tab { height: 100%; display: flex; background: #000; }
 </style>

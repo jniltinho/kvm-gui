@@ -20,6 +20,7 @@ import (
 const findTimeout = 30 * time.Second
 
 type vmEmbed struct {
+	host    string // "manager" or "vm": the window it is in
 	e       *embed.Embedded
 	release func() // the gui-run.lock claim
 	stop    chan struct{}
@@ -41,11 +42,15 @@ type EmbedState struct {
 }
 
 // EmbedScreen puts id's Reims vGPU window over the page rectangle (CSS pixels from the page's
-// top-left, dpr = devicePixelRatio), starting the lookup the first time; call it again on every
-// resize. The page uses the in-app viewer when the state is "unavailable".
-func (a *App) EmbedScreen(id string, x, y, w, h, dpr float64) (EmbedState, error) {
+// top-left, dpr = devicePixelRatio) in host, the Manager ("manager", its Screen tab) or the VM's
+// window ("vm"), starting the lookup the first time and moving it when another host asks; call it
+// again on every resize. The page uses the in-app viewer when the state is "unavailable".
+func (a *App) EmbedScreen(id, host string, x, y, w, h, dpr float64) (EmbedState, error) {
 	var win *application.WebviewWindow
-	if a.vmWindow != nil {
+	switch {
+	case host == "manager" && a.mainWindow != nil:
+		win = a.mainWindow()
+	case host == "vm" && a.vmWindow != nil:
 		win = a.vmWindow(id)
 	}
 	if win == nil || !onX11() {
@@ -55,6 +60,10 @@ func (a *App) EmbedScreen(id string, x, y, w, h, dpr float64) (EmbedState, error
 	v := embeds.vms[id]
 	busy := embeds.busy[id]
 	embeds.mu.Unlock()
+	if v != nil && v.host != host { // the other window takes it: back to the desktop, then in
+		embeds.drop(id)
+		v = nil
+	}
 	if v != nil {
 		if !v.e.Alive() {
 			embeds.drop(id)
@@ -82,12 +91,12 @@ func (a *App) EmbedScreen(id string, x, y, w, h, dpr float64) (EmbedState, error
 	embeds.mu.Lock()
 	embeds.busy[id] = true
 	embeds.mu.Unlock()
-	go embeds.take(id, win, uint32(run.PID), release)
+	go embeds.take(id, host, win, uint32(run.PID), release)
 	return EmbedState{State: "waiting"}, nil
 }
 
 // take finds the run's Reims window and embeds it into win; the page's next EmbedScreen places it.
-func (m *embedder) take(id string, win *application.WebviewWindow, pid uint32, release func()) {
+func (m *embedder) take(id, host string, win *application.WebviewWindow, pid uint32, release func()) {
 	fail := func() {
 		release()
 		m.mu.Lock()
@@ -123,7 +132,7 @@ func (m *embedder) take(id string, win *application.WebviewWindow, pid uint32, r
 		fail()
 		return
 	}
-	v := &vmEmbed{e: e, release: release, stop: make(chan struct{})}
+	v := &vmEmbed{host: host, e: e, release: release, stop: make(chan struct{})}
 	m.mu.Lock()
 	m.vms[id] = v
 	delete(m.busy, id)
