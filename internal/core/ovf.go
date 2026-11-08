@@ -61,7 +61,7 @@ type ovfController struct {
 // descriptor declares in bytes, and the controller (InstanceID) it sits on.
 type ovfDisk struct {
 	DiskID, FileRef, Href, Format string
-	Capacity                      uint64
+	Capacity, Unit                uint64 // bytes; Unit is the declared capacity's unit
 	Controller                    string
 	Address                       int
 }
@@ -315,7 +315,7 @@ func readDisk(d *xnode, files []ovfFile) (ovfDisk, error) {
 	if hi != 0 {
 		return disk, fmt.Errorf("disk %s has an impossible capacity", disk.DiskID)
 	}
-	disk.Capacity = lo
+	disk.Capacity, disk.Unit = lo, unit
 	return disk, nil
 }
 

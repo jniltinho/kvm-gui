@@ -107,7 +107,8 @@ type ImportOptions struct {
 // plannedDisk is one disk the import converts: the appliance's file and the VM's disk.
 type plannedDisk struct {
 	Href, Format string
-	Capacity     uint64
+	Capacity     uint64 // declared, in bytes
+	Unit         uint64 // the declared capacity's unit
 	Path         string // in the VM folder, e.g. disk0.qcow2
 }
 
@@ -207,7 +208,7 @@ func planImport(a appliance, o ImportOptions, hostMiB, hostThreads int) (importP
 		}
 		path := fmt.Sprintf("disk%d.qcow2", i)
 		c.Disks = append(c.Disks, Disk{Path: path, Format: "qcow2", Bus: bus})
-		p.Disks = append(p.Disks, plannedDisk{Href: d.Href, Format: d.Format, Capacity: d.Capacity, Path: path})
+		p.Disks = append(p.Disks, plannedDisk{Href: d.Href, Format: d.Format, Capacity: d.Capacity, Unit: d.Unit, Path: path})
 	}
 	c.DiskGiB = 0
 	c.Optical = make([]string, a.Opticals)
