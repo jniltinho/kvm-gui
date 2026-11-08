@@ -198,6 +198,8 @@ type VM struct {
 	state   VMState
 	ioError string
 	killed  bool
+	// guestOff: the guest shut itself down (QMP SHUTDOWN from the guest) before QEMU exited.
+	guestOff bool
 }
 
 func (v *VM) State() VMState {
@@ -404,7 +406,7 @@ func (v *VM) launch(l launchSpec) error {
 			}
 		}
 		v.mu.Lock()
-		v.proc, v.ioError, v.vncSock, v.disc = cmd.Process, "", "", l.disc
+		v.proc, v.ioError, v.vncSock, v.disc, v.guestOff = cmd.Process, "", "", l.disc, false
 		if l.vnc {
 			v.vncSock = VNCSocket(l.sock)
 		}
@@ -445,8 +447,16 @@ func (v *VM) launch(l launchSpec) error {
 		os.RemoveAll(l.qmpDir)
 		l.unlock()
 		msg := explainExit(err, tail)
-		if killed {
+		v.mu.Lock()
+		guestOff := v.guestOff
+		v.mu.Unlock()
+		switch {
+		case killed:
 			msg = "Stopped by the user (forced)."
+		case guestOff && err != nil:
+			// Reims vGPU's window thread can crash while QEMU closes after the guest powered off
+			// (upstream, with reims-ctl start too): the guest's own shutdown completed.
+			msg = "The guest shut down; QEMU then ended abnormally while closing (" + err.Error() + ")."
 		}
 		v.setState(Stopped, msg)
 	}()
@@ -508,6 +518,12 @@ func (v *VM) onEvent(e QMPEvent) {
 		v.setState(Paused, msg)
 	case "RESUME":
 		v.setState(Running, "")
+	case "SHUTDOWN":
+		if e.Data["guest"] == true {
+			v.mu.Lock()
+			v.guestOff = true
+			v.mu.Unlock()
+		}
 	}
 }
 
@@ -515,6 +531,13 @@ func (v *VM) onEvent(e QMPEvent) {
 // VNCSocket returns the VNC socket of the running VM, or "" when it is stopped or uses
 // QEMU's own window.
 // Pid is QEMU's process id while it runs, else 0.
+// GuestShutDown reports whether the last run ended with the guest shutting itself down.
+func (v *VM) GuestShutDown() bool {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.guestOff
+}
+
 func (v *VM) Pid() int {
 	v.mu.Lock()
 	defer v.mu.Unlock()

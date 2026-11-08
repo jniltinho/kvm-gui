@@ -12,6 +12,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -175,6 +176,13 @@ func fakeQEMUMain() {
 							case "quit":
 								fmt.Fprintln(c, `{"return":{}}`)
 								os.Exit(0)
+							case "system_powerdown":
+								fmt.Fprintln(c, `{"return":{}}`)
+								if os.Getenv("FAKE_QEMU_GUEST_OFF") != "" { // the guest powers off, then QEMU crashes closing
+									fmt.Fprintln(c, `{"event":"SHUTDOWN","data":{"guest":true,"reason":"guest-shutdown"},"timestamp":{"seconds":0,"microseconds":0}}`)
+									time.Sleep(100 * time.Millisecond)
+									syscall.Kill(os.Getpid(), syscall.SIGSEGV)
+								}
 							default: // qmp_capabilities, and system_powerdown the guest never acts on
 								fmt.Fprintln(c, `{"return":{}}`)
 							}
@@ -580,5 +588,39 @@ func TestReimsCtlSaveMapping(t *testing.T) {
 	}
 	if got, _ := reload(e); got.Config.Name != "Renamed" {
 		t.Fatalf("refresh lost the rename: %q", got.Config.Name)
+	}
+}
+
+// The guest shuts down and QEMU then crashes closing (Reims vGPU's window thread, upstream): the
+// run reports the guest's shutdown, not a failure (reference host, task 4.8).
+func TestGuestShutdownThenCrash(t *testing.T) {
+	isolateXDG(t, t.TempDir())
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	t.Setenv("FAKE_QEMU_GUEST_OFF", "1")
+	f := newFakeReimsCtl(t, "")
+	e, err := CreateVM(Config{Name: "Mac", Workspace: f.vmDir, Backend: BackendReimsCtl, ReimsCtlName: "mac"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stopped := make(chan string, 1)
+	v := &VM{ID: e.ID, OnState: func(s VMState, msg string) {
+		if s == Stopped {
+			stopped <- msg
+		}
+	}}
+	if err := v.Start(e.Config); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; v.Powerdown() != nil && i < 50; i++ {
+		time.Sleep(50 * time.Millisecond)
+	}
+	select {
+	case msg := <-stopped:
+		if !v.GuestShutDown() || !strings.HasPrefix(msg, "The guest shut down") {
+			t.Fatalf("stopped with %q (guest shut down: %v)", msg, v.GuestShutDown())
+		}
+	case <-time.After(10 * time.Second):
+		v.Kill()
+		t.Fatal("the run did not end")
 	}
 }

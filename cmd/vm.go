@@ -103,7 +103,7 @@ With display=app there is no window: the screen is on the printed private VNC so
 		for asked := false; ; {
 			select {
 			case msg := <-stopped:
-				if msg != "" && !asked {
+				if msg != "" && !asked && !vm.GuestShutDown() {
 					return errors.New(msg)
 				}
 				return nil
