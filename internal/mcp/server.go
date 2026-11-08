@@ -12,11 +12,9 @@ import (
 	"image"
 	"image/png"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"sync"
-	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -235,42 +233,11 @@ func vmStart(ctx context.Context, _ *mcp.CallToolRequest, in vmStartIn) (*mcp.Ca
 	if err != nil {
 		return nil, nil, err
 	}
-	logDir := filepath.Join(core.StateDir(), "logs", e.ID)
-	if err := os.MkdirAll(logDir, 0o755); err != nil {
-		return nil, nil, err
-	}
-	logPath := filepath.Join(logDir, "mcp-start.log")
-	log, err := os.Create(logPath)
+	r, err := core.StartDetached(ctx, self, e, core.StartOptions{Starter: core.StarterMCP, VerboseBoot: in.VerboseBoot, KextsSnapshot: string(snapshot)})
 	if err != nil {
 		return nil, nil, err
 	}
-	defer log.Close()
-	args := []string{"vm", "start", "--vm", e.ID, "--display", core.DisplayApp, "--kexts-snapshot", string(snapshot), "--starter", core.StarterMCP}
-	if in.VerboseBoot {
-		args = append(args, "--verbose-boot")
-	}
-	cmd := exec.Command(self, args...)
-	cmd.Stdout, cmd.Stderr = log, log
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setsid: true}
-	if err := cmd.Start(); err != nil {
-		return nil, nil, err
-	}
-	exited := make(chan error, 1)
-	go func() { exited <- cmd.Wait() }()
-	for deadline := time.Now().Add(30 * time.Second); time.Now().Before(deadline); {
-		select {
-		case <-exited:
-			b, _ := os.ReadFile(logPath)
-			return nil, nil, fmt.Errorf("the VM did not start: %s", strings.TrimSpace(string(b)))
-		case <-ctx.Done():
-			return nil, nil, ctx.Err()
-		case <-time.After(500 * time.Millisecond):
-		}
-		if r, ok := core.FindRun(e); ok && r.VNCSocket != "" {
-			return text(fmt.Sprintf("%s started (QEMU pid %d). It boots for a minute or two: check screen_capture before sending keys.", e.DisplayName(), r.PID)), nil, nil
-		}
-	}
-	return nil, nil, errors.New("the VM did not show up within 30 s; see " + logPath)
+	return text(fmt.Sprintf("%s started (QEMU pid %d). It boots for a minute or two: check screen_capture before sending keys.", e.DisplayName(), r.PID)), nil, nil
 }
 
 func vmShutdown(_ context.Context, _ *mcp.CallToolRequest, in vmArg) (*mcp.CallToolResult, any, error) {

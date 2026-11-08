@@ -11,6 +11,12 @@ func TestMain(m *testing.M) {
 	if os.Getenv("FAKE_SWTPM") != "" { // the test binary run as swtpm (TestStartTPM)
 		fakeSwtpm()
 	}
+	if len(os.Args) > 2 && os.Args[1] == "vm" && os.Getenv("FAKE_QEMU") != "" { // a detached vm start
+		fakeVMStart()
+	}
+	if os.Getenv("FAKE_GUI") != "" { // the GUI starting VMs (TestGUIRunsSurviveTheGUI)
+		fakeGUI()
+	}
 	dir, err := os.MkdirTemp("", "macos-kvm-gui-test-")
 	if err != nil {
 		panic(err)

@@ -254,3 +254,23 @@ func TestVMCreateLinux(t *testing.T) {
 		t.Fatal("a Windows profile accepted for a Linux VM")
 	}
 }
+
+// The hidden start flags: --embed-x11 only with --gui-run, which is never combined with --starter.
+func TestStartFlags(t *testing.T) {
+	t.Cleanup(func() { vmGUIRun, vmEmbedX11, vmStarter = false, false, core.StarterCLI })
+	for _, c := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"vm", "start", "--embed-x11"}, "--embed-x11 needs --gui-run"},
+		{[]string{"vm", "start", "--gui-run", "--starter", "mcp"}, "cannot be used together"},
+		{[]string{"vm", "start", "--starter", "gui"}, `unknown starter "gui"`},
+	} {
+		vmGUIRun, vmEmbedX11, vmStarter = false, false, core.StarterCLI
+		vmStartCmd.Flags().Lookup("starter").Changed = false
+		if _, err := run(t, c.args...); err == nil || !strings.Contains(err.Error(), c.want) {
+			t.Errorf("%v: %v", c.args, err)
+		}
+	}
+	vmStartCmd.Flags().Lookup("starter").Changed = false
+}

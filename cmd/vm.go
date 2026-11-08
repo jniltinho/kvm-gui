@@ -21,6 +21,8 @@ var (
 	vmKextsSnapshot string
 	// vmStarter is who started the run, recorded in run.json: cli, or mcp from the MCP server.
 	vmStarter string
+	// vmGUIRun and vmEmbedX11: the GUI's detached start; only it embeds Reims vGPU's X11 window.
+	vmGUIRun, vmEmbedX11 bool
 )
 
 var vmCmd = &cobra.Command{Use: "vm", Short: "Run the macOS VM"}
@@ -32,14 +34,15 @@ var vmStartCmd = &cobra.Command{
 Ctrl+C asks macOS to shut down (ACPI); a second Ctrl+C forces the stop.
 With display=app there is no window: the screen is on the printed private VNC socket.`,
 	RunE: func(cmd *cobra.Command, _ []string) error {
+		starter, err := startStarter(cmd)
+		if err != nil {
+			return err
+		}
 		e, err := currentVM()
 		if err != nil {
 			return err
 		}
 		c := e.Config
-		if vmStarter != core.StarterCLI && vmStarter != core.StarterMCP {
-			return fmt.Errorf("unknown starter %q", vmStarter)
-		}
 		if vmDisplay != "" {
 			c.Display = vmDisplay
 		}
@@ -69,7 +72,7 @@ With display=app there is no window: the screen is on the printed private VNC so
 		c.Extras = &ks
 		stopped := make(chan string, 1)
 		vm := &core.VM{
-			ID: e.ID, Starter: vmStarter,
+			ID: e.ID, Starter: starter, EmbedX11: vmEmbedX11,
 			OnState: func(s core.VMState, msg string) {
 				if msg != "" {
 					fmt.Fprintln(out, "vm:", msg)
@@ -125,7 +128,29 @@ func init() {
 	vmStartCmd.Flags().MarkHidden("kexts-snapshot")
 	vmStartCmd.Flags().StringVar(&vmStarter, "starter", core.StarterCLI, "")
 	vmStartCmd.Flags().MarkHidden("starter")
+	vmStartCmd.Flags().BoolVar(&vmGUIRun, "gui-run", false, "")
+	vmStartCmd.Flags().MarkHidden("gui-run")
+	vmStartCmd.Flags().BoolVar(&vmEmbedX11, "embed-x11", false, "")
+	vmStartCmd.Flags().MarkHidden("embed-x11")
 	vmStartCmd.Flags().BoolVar(&vmBootLog, "verbose-boot", false, "show macOS's boot log on screen instead of the logo, for this start only (boot-args -v debug=0x100)")
 	vmCmd.AddCommand(vmStartCmd)
 	rootCmd.AddCommand(vmCmd)
+}
+
+// startStarter is who starts this run: cli by default, mcp from the MCP server, gui with
+// --gui-run. --embed-x11 belongs to GUI runs only.
+func startStarter(cmd *cobra.Command) (string, error) {
+	if vmEmbedX11 && !vmGUIRun {
+		return "", errors.New("--embed-x11 needs --gui-run")
+	}
+	if vmGUIRun {
+		if cmd.Flags().Changed("starter") {
+			return "", errors.New("--gui-run and --starter cannot be used together")
+		}
+		return core.StarterGUI, nil
+	}
+	if vmStarter != core.StarterCLI && vmStarter != core.StarterMCP {
+		return "", fmt.Errorf("unknown starter %q", vmStarter)
+	}
+	return vmStarter, nil
 }
