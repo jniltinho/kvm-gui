@@ -12,7 +12,7 @@
 # <dir>/cache keeps the library's and QEMU's builds for the next run.
 ARG ROCKY=10
 FROM rockylinux/rockylinux:${ROCKY}
-ARG REIMS_COMMIT=c099dd5a4d61107a5527efc64cf1d1ab2f3a9b85
+ARG REIMS_COMMIT=1fe0acb68b287db36f1e6c7b9f45383940b8a76f
 ARG RUST=1.98.1
 # install-ctl.sh's apt package list in dnf names, plus what it calls (sudo, ps, cmp, strip).
 RUN dnf -y install epel-release dnf-plugins-core && dnf config-manager --set-enabled crb \

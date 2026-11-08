@@ -14,7 +14,7 @@
 ARG UBUNTU=24.04
 ARG BASE=ubuntu:${UBUNTU}
 FROM ${BASE}
-ARG REIMS_COMMIT=c099dd5a4d61107a5527efc64cf1d1ab2f3a9b85
+ARG REIMS_COMMIT=1fe0acb68b287db36f1e6c7b9f45383940b8a76f
 ARG RUST=1.98.1
 ENV DEBIAN_FRONTEND=noninteractive
 # install-ctl.sh's apt package list (it installs what is missing, so it must all be here), plus
