@@ -245,3 +245,103 @@ func TestSurvivesSIGKILL(t *testing.T) {
 		t.Fatalf("parent %d, want the root", p)
 	}
 }
+
+// fakeWM is a reparenting window manager like KWin: it frames every top-level window mapped on
+// the root, and on unmap puts the window back on the root and destroys the frame. stop ends it.
+func fakeWM(t *testing.T) (stop func()) {
+	t.Helper()
+	conn, err := xgb.NewConn()
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := xproto.Setup(conn).DefaultScreen(conn).Root
+	if err := xproto.ChangeWindowAttributesChecked(conn, root, xproto.CwEventMask,
+		[]uint32{xproto.EventMaskSubstructureRedirect | xproto.EventMaskSubstructureNotify}).Check(); err != nil {
+		t.Fatalf("another window manager runs: %v", err)
+	}
+	frames := map[xproto.Window]xproto.Window{} // client → frame
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			ev, err := conn.WaitForEvent()
+			if ev == nil && err == nil {
+				return
+			}
+			switch ev := ev.(type) {
+			case xproto.MapRequestEvent:
+				f, _ := xproto.NewWindowId(conn)
+				xproto.CreateWindow(conn, 0, f, root, 0, 0, 1000, 800, 0, xproto.WindowClassInputOutput, 0, 0, nil)
+				xproto.ChangeWindowAttributes(conn, f, xproto.CwEventMask, []uint32{xproto.EventMaskSubstructureNotify})
+				xproto.ChangeSaveSet(conn, xproto.SetModeInsert, ev.Window)
+				xproto.ReparentWindow(conn, ev.Window, f, 4, 20)
+				xproto.MapWindow(conn, f)
+				xproto.MapWindow(conn, ev.Window)
+				frames[ev.Window] = f
+			case xproto.ConfigureRequestEvent:
+				xproto.ConfigureWindow(conn, ev.Window, xproto.ConfigWindowWidth|xproto.ConfigWindowHeight, []uint32{uint32(ev.Width), uint32(ev.Height)})
+			case xproto.UnmapNotifyEvent:
+				if f, ok := frames[ev.Window]; ok && ev.Event == f {
+					delete(frames, ev.Window)
+					xproto.ReparentWindow(conn, ev.Window, root, 0, 0)
+					xproto.ChangeSaveSet(conn, xproto.SetModeDelete, ev.Window)
+					xproto.DestroyWindow(conn, f)
+				}
+			}
+			conn.Sync()
+		}
+	}()
+	return func() { conn.Close(); <-done }
+}
+
+// Under a reparenting window manager the move's own ReparentNotify to the root must not mark the
+// window lost: the embedder would then destroy the container with QEMU's window in it, and QEMU
+// dies of the BadWindow (seen on KDE).
+func TestEmbedUnderWindowManager(t *testing.T) {
+	needX(t)
+	stop := fakeWM(t)
+	defer stop()
+	app, _ := xgb.NewConn()
+	defer app.Close()
+	parent, err := newWindow(app, uint32(os.Getpid()), "kvm-gui")
+	if err != nil {
+		t.Fatal(err)
+	}
+	client := startClient(t)
+	x, err := Open("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer x.Close()
+	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
+	defer cancel()
+	w, err := x.FindWindow(ctx, uint32(client.Process.Pid), ReimsTitle)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := x.root
+	if parentOf(t, app, w) == root {
+		t.Fatal("the fake window manager did not frame the VM's window")
+	}
+	e, err := x.Embed(parent, w, uint32(client.Process.Pid), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.SetRect(0, 0, 300, 200)
+	for range 10 {
+		e.Pump()
+		time.Sleep(50 * time.Millisecond)
+	}
+	if !e.Alive() {
+		t.Fatal("the window manager's move marked the window lost")
+	}
+	if container := parentOf(t, app, w); parentOf(t, app, container) != parent {
+		t.Fatal("not inside the app's window")
+	}
+	// Released even when the embedder thinks it is lost: the window goes back, never destroyed.
+	e.alive = false
+	e.Release()
+	if p := parentOf(t, app, w); p == e.container {
+		t.Fatal("still in the container")
+	}
+}

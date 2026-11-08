@@ -2,6 +2,9 @@ package gui
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 
@@ -27,13 +30,33 @@ type vmEmbed struct {
 }
 
 type embedder struct {
-	mu   sync.Mutex
-	x    *embed.X
-	vms  map[string]*vmEmbed
-	busy map[string]bool // a lookup is running
+	mu     sync.Mutex
+	x      *embed.X
+	vms    map[string]*vmEmbed
+	busy   map[string]bool    // a lookup is running
+	failed map[string]failure // the last lookup of this run failed: the viewer, no new tries
 }
 
-var embeds = &embedder{vms: map[string]*vmEmbed{}, busy: map[string]bool{}}
+type failure struct {
+	pid    int
+	reason string
+}
+
+var embeds = &embedder{vms: map[string]*vmEmbed{}, busy: map[string]bool{}, failed: map[string]failure{}}
+
+// logf appends a line to StateDir/logs/embed.log: what embedding did on the user's desktop.
+func logf(format string, a ...any) {
+	p := filepath.Join(core.StateDir(), "logs", "embed.log")
+	if os.MkdirAll(filepath.Dir(p), 0o700) != nil {
+		return
+	}
+	f, err := os.OpenFile(p, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	fmt.Fprintf(f, "%s %s\n", time.Now().Format("2006-01-02 15:04:05.000"), fmt.Sprintf(format, a...))
+}
 
 // EmbedState is what the page shows in a Reims VM's screen area.
 type EmbedState struct {
@@ -59,6 +82,7 @@ func (a *App) EmbedScreen(id, host string, x, y, w, h, dpr float64) (EmbedState,
 	embeds.mu.Lock()
 	v := embeds.vms[id]
 	busy := embeds.busy[id]
+	failed := embeds.failed[id]
 	embeds.mu.Unlock()
 	if v != nil && v.host != host { // the other window takes it: back to the desktop, then in
 		embeds.drop(id)
@@ -66,11 +90,15 @@ func (a *App) EmbedScreen(id, host string, x, y, w, h, dpr float64) (EmbedState,
 	}
 	if v != nil {
 		if !v.e.Alive() {
+			logf("%s: the VM's window is gone", id)
 			embeds.drop(id)
 			return EmbedState{"unavailable", "the VM's window is gone"}, nil
 		}
 		ox, oy, scale := webviewOrigin(win)
-		v.e.SetRect(int16(ox*float64(scale)+x*dpr), int16(oy*float64(scale)+y*dpr), uint16(w*dpr), uint16(h*dpr))
+		rx, ry, rw, rh := int16(ox*float64(scale)+x*dpr), int16(oy*float64(scale)+y*dpr), uint16(w*dpr), uint16(h*dpr)
+		if v.e.SetRect(rx, ry, rw, rh) {
+			logf("%s: placed at %d,%d %dx%d in %s (origin %.0f,%.0f scale %d, page %.0f,%.0f %.0fx%.0f dpr %.2f)", id, rx, ry, rw, rh, host, ox, oy, scale, x, y, w, h, dpr)
+		}
 		return EmbedState{State: "embedded"}, nil
 	}
 	if busy {
@@ -88,6 +116,10 @@ func (a *App) EmbedScreen(id, host string, x, y, w, h, dpr float64) (EmbedState,
 		release()
 		return EmbedState{"unavailable", "not a Reims vGPU run"}, nil
 	}
+	if failed.pid == run.PID {
+		release()
+		return EmbedState{"unavailable", failed.reason}, nil
+	}
 	embeds.mu.Lock()
 	embeds.busy[id] = true
 	embeds.mu.Unlock()
@@ -97,18 +129,21 @@ func (a *App) EmbedScreen(id, host string, x, y, w, h, dpr float64) (EmbedState,
 
 // take finds the run's Reims window and embeds it into win; the page's next EmbedScreen places it.
 func (m *embedder) take(id, host string, win *application.WebviewWindow, pid uint32, release func()) {
-	fail := func() {
+	fail := func(err error) {
+		logf("%s: not embedded (pid %d): %v", id, pid, err)
 		release()
 		m.mu.Lock()
 		delete(m.busy, id)
+		m.failed[id] = failure{int(pid), "Reims vGPU's window could not be taken into the app: " + err.Error()}
 		m.mu.Unlock()
 	}
+	logf("%s: looking for Reims vGPU's window of pid %d for the %s window", id, pid, host)
 	m.mu.Lock()
 	if m.x == nil {
 		x, err := embed.Open("")
 		if err != nil {
 			m.mu.Unlock()
-			fail()
+			fail(err)
 			return
 		}
 		m.x = x
@@ -119,19 +154,20 @@ func (m *embedder) take(id, host string, win *application.WebviewWindow, pid uin
 	defer cancel()
 	child, err := x.FindWindow(ctx, pid, embed.ReimsTitle)
 	if err != nil {
-		fail()
+		fail(err)
 		return
 	}
 	parent := windowXID(win)
 	if parent == 0 {
-		fail()
+		fail(fmt.Errorf("the app's window has no X11 window"))
 		return
 	}
 	e, err := x.Embed(xproto.Window(parent), child, pid, gtkSaveSet)
 	if err != nil {
-		fail()
+		fail(err)
 		return
 	}
+	logf("%s: window %#x embedded into %#x", id, child, parent)
 	v := &vmEmbed{host: host, e: e, release: release, stop: make(chan struct{})}
 	m.mu.Lock()
 	m.vms[id] = v
@@ -147,6 +183,7 @@ func (m *embedder) take(id, host string, win *application.WebviewWindow, pid uin
 			case <-t.C:
 				v.e.Pump()
 				if !v.e.Alive() {
+					logf("%s: the VM's window was destroyed or taken away", id)
 					m.drop(id)
 					return
 				}
@@ -186,6 +223,7 @@ func (m *embedder) drop(id string) {
 	}
 	v.e.Release()
 	v.release()
+	logf("%s: given back to the desktop", id)
 }
 
 // releaseAll lets every embedded window go: before the app exits (signals included).

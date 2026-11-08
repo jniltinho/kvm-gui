@@ -126,6 +126,7 @@ type Embedded struct {
 	conn                     *xgb.Conn // its own connection: it owns the container
 	parent, container, child xproto.Window
 	pid                      uint32
+	x0, y0                   int16
 	w, h                     uint16
 	alive, released, shown   bool
 }
@@ -194,7 +195,13 @@ func (x *X) Embed(parent, child xproto.Window, pid uint32, saveSet func(uint32) 
 	if err := xproto.MapWindowChecked(conn, child).Check(); err != nil {
 		return fail(err)
 	}
-	e.drain() // events so far come from the move, not from the child's life
+	// Events so far come from the move (a window manager's ReparentNotify to the root among
+	// them), not from the child's life: where it is now is what counts.
+	e.drain()
+	if !e.inContainer() {
+		return fail(errors.New("the window manager took the VM's window back"))
+	}
+	e.alive = true
 	return e, nil
 }
 
@@ -227,9 +234,13 @@ func (e *Embedded) drain() (configured bool) {
 }
 
 // SetRect places the VM's window over the page's screen rectangle (physical pixels relative to
-// the app's window) and shows it; it sends nothing when the rectangle is unchanged.
-func (e *Embedded) SetRect(x, y int16, w, h uint16) {
+// the app's window) and shows it; it sends nothing and returns false when nothing changed.
+func (e *Embedded) SetRect(x, y int16, w, h uint16) bool {
 	w, h = max(w, 1), max(h, 1) // X refuses zero sizes
+	if e.shown && x == e.x0 && y == e.y0 && w == e.w && h == e.h {
+		return false
+	}
+	e.x0, e.y0 = x, y
 	xproto.ConfigureWindow(e.conn, e.container, xproto.ConfigWindowX|xproto.ConfigWindowY|xproto.ConfigWindowWidth|xproto.ConfigWindowHeight,
 		[]uint32{uint32(x), uint32(y), uint32(w), uint32(h)})
 	e.w, e.h = w, h
@@ -237,6 +248,7 @@ func (e *Embedded) SetRect(x, y int16, w, h uint16) {
 	if !e.shown {
 		e.Show()
 	}
+	return true
 }
 
 func (e *Embedded) configureChild() {
@@ -265,6 +277,12 @@ func (e *Embedded) Focus() error {
 }
 func (e *Embedded) Unfocus() error {
 	return xproto.SetInputFocusChecked(e.conn, xproto.InputFocusParent, e.parent, xproto.TimeCurrentTime).Check()
+}
+
+// inContainer: the VM's window still exists and is in the container.
+func (e *Embedded) inContainer() bool {
+	t, err := xproto.QueryTree(e.conn, e.child).Reply()
+	return err == nil && t.Parent == e.container
 }
 
 // Alive is false once QEMU's window is gone or another client took it.
@@ -305,7 +323,9 @@ func (e *Embedded) Release() error {
 	}
 	e.released = true
 	e.drain()
-	if e.alive {
+	// Never trust alive here: destroying a container that still holds the VM's window destroys
+	// that window, and QEMU dies of the BadWindow.
+	if e.inContainer() {
 		e.alive = false
 		xproto.UnmapWindow(e.conn, e.child)
 		xproto.ReparentWindow(e.conn, e.child, e.x.root, 0, 0)
