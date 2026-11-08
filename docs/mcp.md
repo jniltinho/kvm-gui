@@ -20,7 +20,7 @@ Then ask, for example: "Install Sequoia on my VM offline and tell me when it rea
 | Tool | What it does |
 | --- | --- |
 | `vm_list`, `vm_status` | The VMs; for one, its SSH port and a `warning` when another VM shares it, QEMU's state, whether the offline disc is attached, the keyboard layout the recovery uses and whether the screen is available. `guest_phase` is always `unknown`: the server does not read the screen, the agent does. |
-| `vm_create` | Creates a VM as `vm create` does: recommended resources, fresh network MACs, its folder and 80 GiB disk, selected, with a free SSH port (or `ssh_port` when no other VM has it). Returns the VM and the port it got. |
+| `vm_create` | Creates a VM as `vm create` does: recommended resources, fresh network MACs, its folder and 80 GiB disk, selected, with a free SSH port (or `ssh_port` when no other VM has it). Returns the VM and the port it got. With `backend: reims-ctl` (and `offline`), upstream's `reims-ctl` creates a macOS VM on Reims vGPU instead (it downloads macOS from Apple). |
 | `vm_config_get`, `vm_config_set` | Read a VM's settings; change `ssh-port`, `ram`, `cores`, `vcpus`, `graphics`, `resolution`, `display`, `gpu` and `version` with the CLI's validation. Refused while the VM runs. `root-patch` and `workspace` are left to the app and `config set`. The result carries a warning when another VM uses the same SSH port. |
 | `vm_ssh` | Runs one command in a running VM's macOS over its SSH forward and returns stdout, stderr and the exit code (`timeout_sec` 60 by default, up to 600; 1 MiB per stream). Needs `confirm: true` (it runs commands in the guest). Authenticates with your SSH keys or agent, or a `password` in the call, handed to `ssh` through a one-time private socket: never logged, stored or put on a command line. The app keeps its own `known_hosts`; `reset_host_key: true` forgets the guest's key after a reinstall. |
 | `vm_start` | Starts a VM (optionally with `verbose_boot`) with its screen available. It first downloads the [extra kexts](architecture.md#extra-kexts) in `settings.yaml` that are not cached yet, so the start timeout covers only QEMU. The VM runs in its own process, so it keeps running when the agent exits, and the app shows it within a few seconds. |
@@ -33,6 +33,9 @@ Then ask, for example: "Install Sequoia on my VM offline and tell me when it rea
 | `installer_list`, `installer_download`, `installer_remove` | The offline installers. A download reports progress, resumes, and must finish before the VM starts so the VM gets the disc. Removing needs `confirm: true`. |
 | `install_offline` | What **Type it in the VM** does: opens the recovery's Terminal and types the install line. `unattended: true` erases the VM's empty disk and accepts Apple's macOS license for you, so it also needs `erase_disk: true` and `accept_license: true`. |
 | `host_check` | The Host tab's checks. |
+| `snapshot_list`, `snapshot_take` | A VM's snapshot tree (by `parent_id`) and the snapshot its current state is under; take one of a powered-off VM. |
+| `snapshot_restore`, `snapshot_delete` | Return a powered-off VM to a snapshot (its current state is lost unless saved first), or delete one. Both need `confirm: true`. |
+| `vm_clone` | A full, independent copy of a powered-off VM, as `vm clone` does (`new_tpm`, `keep_macs`). |
 
 Screen and input need **Display: In the app** (the default); a VM in QEMU's own window has no screen socket. A VM on [Reims vGPU](reims-vgpu.md) always has the socket: its screen is Reims vGPU's own window, and `screen_capture` and input work as for any VM (capture is slower). `vm_start` runs its host checks first and returns their error, such as a low `vm.max_map_count`.
 
@@ -41,4 +44,4 @@ Screen and input need **Display: In the app** (the default); a VM in QEMU's own 
 - The `confirm`, `erase_disk` and `accept_license` flags and the tools' "destructive" marks are guardrails for agents that follow them. They are set by the agent, so they do not prove that you agreed: an agent with `send_keys` and `pointer` can click anything you could. Run the server only for agents you want controlling your VMs, and answer their questions about erasing disks and Apple's license yourself.
 - Keys pressed while macOS boots change how it boots. Agents should wait until `screen_capture` shows the recovery's window before `install_offline`.
 - Do not type in the VM while an agent does: the keys would mix.
-- A VM started by the app can be driven by the server, and one started by the server is shown by the app. Each run has one extra control connection, so one agent at a time.
+- A VM started by the app can be driven by the server, and one started by the server is shown by the app. Each run has its own monitor for the app (`qmp-gui.sock`) and one for the CLI and agents (`qmp-control.sock`), so the app and one agent at a time.

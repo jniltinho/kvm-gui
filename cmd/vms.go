@@ -184,9 +184,11 @@ var vmExportCmd = &cobra.Command{
 			if len(args) != 2 {
 				return errors.New("--full needs a destination file")
 			}
-			return core.ExportBundle(cmd.Context(), e, args[1], func(done, total int64) {
+			err := core.ExportBundle(cmd.Context(), e, args[1], func(done, total int64) {
 				fmt.Fprintf(cmd.ErrOrStderr(), "\rexporting: %.0f%%", float64(done)*100/float64(max(total, 1)))
 			})
+			fmt.Fprintln(cmd.ErrOrStderr())
+			return err
 		}
 		b, err := core.ExportVM(e)
 		if err != nil {
