@@ -1,10 +1,35 @@
 package gui
 
 /*
-#cgo pkg-config: gtk4 x11
+#cgo pkg-config: gtk4 x11 webkitgtk-6.0
 #include <gtk/gtk.h>
 #include <gdk/x11/gdkx.h>
 #include <X11/Xlib.h>
+#include <webkit/webkit.h>
+
+static GtkWidget *find_webview(GtkWidget *w) {
+	if (WEBKIT_IS_WEB_VIEW(w)) return w;
+	for (GtkWidget *c = gtk_widget_get_first_child(w); c != NULL; c = gtk_widget_get_next_sibling(c)) {
+		GtkWidget *f = find_webview(c);
+		if (f != NULL) return f;
+	}
+	return NULL;
+}
+
+// webview_origin is where the page's (0,0) is inside the window's X11 surface (CSD shadow and
+// any widget above the web view included), in surface pixels before scaling, and the scale.
+static void webview_origin(void *w, double *x, double *y, int *scale) {
+	GtkWidget *win = GTK_WIDGET(w);
+	GtkWidget *wv = find_webview(win);
+	graphene_point_t p = GRAPHENE_POINT_INIT(0, 0), out = GRAPHENE_POINT_INIT(0, 0);
+	if (wv != NULL && !gtk_widget_compute_point(wv, win, &p, &out)) out = p;
+	double sx = 0, sy = 0;
+	gtk_native_get_surface_transform(GTK_NATIVE(win), &sx, &sy);
+	*x = out.x + sx;
+	*y = out.y + sy;
+	GdkSurface *s = gtk_native_get_surface(GTK_NATIVE(win));
+	*scale = s != NULL ? gdk_surface_get_scale_factor(s) : 1;
+}
 
 // window_xid is the X11 window of a GtkWindow, 0 when it is not on X11 (Wayland) or not realized.
 static unsigned long window_xid(void *w) {
@@ -53,4 +78,16 @@ func gtkSaveSet(xid uint32) error {
 		return errors.New("the app is not on X11")
 	}
 	return nil
+}
+
+// webviewOrigin is the page's origin in the window's X11 surface and the surface scale (UI thread).
+func webviewOrigin(w *application.WebviewWindow) (x, y float64, scale int) {
+	var cx, cy C.double
+	var cs C.int = 1
+	application.InvokeSync(func() {
+		if p := w.NativeWindow(); p != nil {
+			C.webview_origin(unsafe.Pointer(p), &cx, &cy, &cs)
+		}
+	})
+	return float64(cx), float64(cy), int(cs)
 }

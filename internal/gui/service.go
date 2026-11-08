@@ -2,6 +2,7 @@ package gui
 
 import (
 	"errors"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"log/slog"
 	"os"
 	"runtime"
@@ -21,6 +22,8 @@ type App struct {
 	pick func(title string, folder bool, filters [][2]string) (string, error)
 	send func(name string, data any) // an event to the page
 	show func(id, title string)      // opens or focuses the VM's window
+	// vmWindow is id's open VM window, nil when it is closed.
+	vmWindow func(id string) *application.WebviewWindow
 
 	screen *screenServer // the VMs' screens for the page; nil when it could not start
 

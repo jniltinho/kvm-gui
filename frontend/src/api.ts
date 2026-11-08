@@ -136,3 +136,10 @@ export const PickFolder = (title: string) => call<string>("PickFolder", title);
 export const Show = (id: string) => call<void>("Show", id);
 /** Where the page connects for a running VM's screen (internal/gui/screen.go); rejects when it is not running. */
 export const GetScreen = (id: string) => call<{ url: string; token: string; generation: string }>("Screen", id);
+
+// Reims vGPU's own window placed over the page rectangle (CSS pixels): "embedded", "waiting", or
+// "unavailable" with the reason (the page uses the viewer then).
+export interface EmbedState { state: "embedded" | "waiting" | "unavailable"; reason: string }
+export const EmbedScreen = (id: string, x: number, y: number, w: number, h: number, dpr: number) =>
+  call<EmbedState>("EmbedScreen", id, x, y, w, h, dpr);
+export const EmbedVisible = (id: string, visible: boolean) => call<void>("EmbedVisible", id, visible);

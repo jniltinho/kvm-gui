@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"net/url"
 	"os"
+	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/jniltinho/kvm-gui/internal/core"
@@ -56,6 +58,7 @@ func Run(o Options) error {
 		Description: "Create and run macOS and other VMs on Linux KVM",
 		LogLevel:    slog.LevelInfo, // never Debug: Wails logs binding arguments there
 		Services:    []application.Service{application.NewService(svc)},
+		OnShutdown:  embeds.releaseAll, // embedded VM windows go back to the desktop first
 		Assets:      application.AssetOptions{Handler: application.AssetFileServerFS(dist), DisableLogging: true},
 		Linux:       application.LinuxOptions{ProgramName: "kvm-gui"},
 	}
@@ -157,8 +160,29 @@ func Run(o Options) error {
 		}
 		o := winOpts
 		o.Name, o.Title, o.Width, o.Height, o.MinWidth, o.MinHeight = "vm:"+id, title, 1280, 860, 480, 320
-		open(o, "/#/vm/"+url.PathEscape(id))
+		w := open(o, "/#/vm/"+url.PathEscape(id))
+		// The embedded VM window goes back to the desktop before this window is destroyed.
+		w.RegisterHook(events.Common.WindowClosing, func(*application.WindowEvent) { embeds.drop(id) })
 	}
+	svc.vmWindow = func(id string) *application.WebviewWindow {
+		if w, ok := app.Window.GetByName("vm:" + id); ok {
+			if ww, ok := w.(*application.WebviewWindow); ok {
+				return ww
+			}
+		}
+		return nil
+	}
+	// Embedded VM windows go back to the desktop before the app exits, a signal included (the
+	// save-set covers a SIGKILL).
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGTERM, syscall.SIGINT, syscall.SIGHUP)
+	defer signal.Stop(sig)
+	go func() {
+		if _, ok := <-sig; ok {
+			embeds.releaseAll()
+			app.Quit()
+		}
+	}()
 	if err := app.Run(); err != nil {
 		return err
 	}
