@@ -1,5 +1,10 @@
 #!/usr/bin/env bash
 # Runs inside a clean distribution container for scripts/check-dist.sh: check-dist-inner.sh <mode> <dist>
+# Every mode runs as root in a container with Docker's default confinement (its /proc/sys is
+# read-only: a package's sysctl settings never reach the host). The GUI self-tests need WebKit's
+# sandbox, which needs an unconfined container: they are only listed here (/selftests), and
+# check-dist.sh runs them in a second, unconfined container of this one's image as "tester", who
+# cannot write the host's /proc/sys either. Mode "selftests" runs that list.
 set -euo pipefail
 mode=$1 dist=$2
 export DEBIAN_FRONTEND=noninteractive
@@ -16,21 +21,32 @@ pkgs() { # install distribution packages quietly
 }
 epel() { $apt || dnf install -y -q epel-release >/dev/null; }
 
-# self_test runs a command's --self-test as an ordinary user with a session bus: under Xvfb, or on
-# Rocky Linux 10 (no Xorg server in RHEL 10) under a headless Weston, on Wayland.
+# self_test lists a command whose --self-test the second container runs as tester (see the top).
 self_test() {
 	id tester >/dev/null 2>&1 || useradd -m tester
+	echo "$1" >>/selftests
+}
+
+# run_selftests (as tester, in the unconfined container): each listed --self-test with a session
+# bus, under Xvfb, or on Rocky Linux 10 (no Xorg server in RHEL 10) under a headless Weston, on Wayland.
+run_selftests() {
+	[[ $(id -u) != 0 ]] || { echo "FAIL: the self-tests run as tester, never as root" >&2; exit 1; }
 	local display="Xvfb :57 -screen 0 1280x800x24 >/dev/null 2>&1 & sleep 1; export DISPLAY=:57"
 	$apt || display="weston --backend=headless --socket=wl-57 --idle-time=0 >/dev/null 2>&1 & sleep 2; export WAYLAND_DISPLAY=wl-57 GDK_BACKEND=wayland"
-	su tester -s /bin/bash -c "export XDG_RUNTIME_DIR=\$(mktemp -d) APPIMAGE_EXTRACT_AND_RUN=1; $display; dbus-run-session -- timeout 120 $1 --self-test" \
-		|| { echo "FAIL: $1 --self-test" >&2; exit 1; }
-	echo "ok: $1 --self-test"
+	while read -r cmd; do
+		bash -c "export XDG_RUNTIME_DIR=\$(mktemp -d) APPIMAGE_EXTRACT_AND_RUN=1; $display; dbus-run-session -- timeout 120 $cmd --self-test" \
+			|| { echo "FAIL: $cmd --self-test" >&2; exit 1; }
+		echo "ok: $cmd --self-test"
+	done </selftests
 }
 x11() { if $apt; then pkgs xvfb dbus-daemon 2>/dev/null || pkgs xvfb dbus; else # the test display only: EPEL's weston needs CRB's libturbojpeg (kvm-gui itself does not)
 	pkgs dnf-plugins-core && dnf config-manager --set-enabled crb && { pkgs weston dbus-daemon 2>/dev/null || pkgs weston dbus; }
 fi; }
 
 case $mode in
+selftests)
+	run_selftests
+	;;
 package)
 	epel
 	if $apt; then pkgs /dist/kvm-gui_*_amd64.deb; else pkgs /dist/kvm-gui-*.x86_64.rpm; fi

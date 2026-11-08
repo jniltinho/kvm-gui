@@ -243,9 +243,9 @@ func (h Host) checkKVM() Check {
 		f.Close()
 		c.Status, c.Detail = OK, "read and write allowed"
 	case errors.Is(err, os.ErrNotExist):
-		c.Status, c.Detail, c.Hint = Fail, "does not exist", "use Set up host (loads kvm_amd or kvm_intel)"
+		c.Status, c.Detail, c.Hint = Fail, "does not exist", "run kvm-gui setup (loads kvm_amd or kvm_intel)"
 	case errors.Is(err, os.ErrPermission):
-		c.Status, c.Detail, c.Hint = Fail, "permission denied", "use Set up host (adds you to the kvm group), then log out and back in"
+		c.Status, c.Detail, c.Hint = Fail, "permission denied", "run kvm-gui setup (adds you to the kvm group), then log out and back in"
 	default:
 		c.Status, c.Detail = Fail, err.Error()
 	}
@@ -307,7 +307,7 @@ func (h Host) checkMSRs() Check {
 	case v == "Y" || v == "1":
 		c.Status, c.Detail = OK, "enabled"
 	default:
-		c.Status, c.Detail, c.Hint = Fail, "disabled: macOS will kernel panic", "use Set up host"
+		c.Status, c.Detail, c.Hint = Fail, "disabled: macOS will kernel panic", "run kvm-gui setup"
 	}
 	return c
 }

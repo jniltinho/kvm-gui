@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Runs inside the clean container of check-gnome.sh: root installs, then the session as "tester".
+# Runs inside the clean containers of check-gnome.sh: as root, with Docker's default confinement, it
+# installs (no package's sysctl settings can reach the host's kernel); as "tester", in an unconfined
+# container of that image (WebKit's sandbox), it runs the session.
 set -euo pipefail
 v=$1
 if [[ $(id -u) == 0 ]]; then
@@ -8,7 +10,7 @@ if [[ $(id -u) == 0 ]]; then
 	apt-get install -y -qq --no-install-recommends /dist/kvm-gui_*_amd64.deb mutter dbus-daemon dbus x11-utils wmctrl procps \
 		$([[ $v == 24.04 ]] && echo xvfb || echo xwayland) >/dev/null 2>&1 || { echo "FAIL: install" >&2; exit 1; }
 	useradd -m tester
-	exec su tester -s /bin/bash -c "bash /check.sh $v"
+	exit 0
 fi
 export XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-$(mktemp -d)} KVM_GUI_SAFE_GPU=1
 [[ -n ${DBUS_SESSION_BUS_ADDRESS:-} ]] || exec dbus-run-session -- bash /check.sh "$v"

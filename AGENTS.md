@@ -26,6 +26,7 @@ The only Rust that is built is upstream Reims vGPU, inside `reims/`'s Docker bui
 - **References.** VirtualBox, virt-manager and webvirtmgr are behavior references only: never copy their code, strings, layouts or icons (this project is BSD-3-Clause). Reference captures live in `docs/prints/` (git-ignored).
 - **Secrets.** The test VM's password is never written to files, commits or docs.
 - **Destructive or outward actions** (force pushes, deleting releases outside the 2-per-series rule, posting to third-party repos) need the user's explicit OK.
+- **The host's kernel.** A container that runs unconfined (`systempaths=unconfined`, for WebKit's sandbox) shares the host's `/proc/sys`: never run one as root. `check-dist.sh` and `check-gnome.sh` install as root in confined containers and run the GUI as `tester`, and fail if the host's `vm.*` settings change (once a container's `sysctl --system` lowered `vm.max_map_count` below what Reims vGPU needs; `sudo sysctl --system` restores it).
 - **The user's desktop.** Do not drive it with xdotool or agent-desktop while the user is using it. Ask first, or use the GNOME containers or a separate Xvfb display.
 
 ## Build and test

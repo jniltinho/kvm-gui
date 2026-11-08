@@ -37,10 +37,32 @@ SUMS
 	)
 fi
 
-run() { # one clean container per mode
-	docker run --rm --init --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
-		-v "$art:/dist:ro" -v "$root/scripts/check-dist-inner.sh:/check.sh:ro" -v "$old:/old:ro" \
+# One clean container per mode, as root but with Docker's default confinement, so nothing the
+# packages do (a sysctl --system among them) can change the host's kernel settings; then, if the mode
+# listed GUI self-tests, a second container of its image, unconfined for WebKit's sandbox but as
+# the ordinary user "tester", runs them (check-dist-inner.sh).
+run() {
+	local name="kvm-gui-check-$$-$1" img="kvm-gui-check:$$-$1"
+	trap 'docker rm -f "${name:-x}" >/dev/null 2>&1; docker rmi -f "${img:-x}" >/dev/null 2>&1' RETURN EXIT
+	docker run --name "$name" --init -v "$art:/dist:ro" -v "$root/scripts/check-dist-inner.sh:/check.sh:ro" -v "$old:/old:ro" \
 		"$image" bash /check.sh "$1" "$dist"
+	if docker cp "$name:/selftests" - >/dev/null 2>&1; then
+		docker commit "$name" "$img" >/dev/null
+		docker run --rm --init --user tester --security-opt seccomp=unconfined --security-opt apparmor=unconfined \
+			--security-opt systempaths=unconfined -v "$root/scripts/check-dist-inner.sh:/check.sh:ro" \
+			"$img" bash /check.sh selftests "$dist"
+	fi
+}
+# The host's kernel settings must come out as they went in (a container once lowered
+# vm.max_map_count below what Reims vGPU needs).
+vm_snapshot() { grep -r . /proc/sys/vm 2>/dev/null | sort || true; } # some entries are unreadable: grep fails
+vm_before=$(vm_snapshot)
+check_host() {
+	[[ "$(vm_snapshot)" == "$vm_before" ]] && return 0
+	echo "FAIL: a container changed the host's kernel settings:" >&2
+	diff <(echo "$vm_before") <(vm_snapshot) >&2 || true
+	echo "restore them with: sudo sysctl --system" >&2
+	return 1
 }
 modes=$mode
 [[ $mode == all ]] && modes="package libs norecommends upgrade"
@@ -49,5 +71,6 @@ for m in $modes; do
 	echo "=== $dist: $m"
 	mkdir -p "$old"
 	run "$m"
+	check_host
 done
 echo "=== $dist: all passed"
