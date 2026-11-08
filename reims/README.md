@@ -14,7 +14,7 @@ setup; this folder only packages it for kvm-gui.
 | `reims.go` | Embeds the Dockerfile and manifest in the app (`kvm-gui reims build`, `reims install`) |
 
 Newest upstream: `.github/workflows/reims-upstream.yml` (run by hand: `gh workflow run reims-upstream.yml`) builds the
-same packages at the newest commit of steelbrain/reims-vgpu's `main` and publishes them as `reims-<7-digit commit>`,
+same packages at the newest commit of steelbrain/reims-vgpu's default branch (`master`) and publishes them as `reims-<7-digit commit>`,
 unless that release exists. Nothing is pinned by it: to make the app install that build, pin the Dockerfiles and
 `manifest.json` to it as below.
 

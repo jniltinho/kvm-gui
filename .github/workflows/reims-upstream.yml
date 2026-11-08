@@ -1,7 +1,7 @@
-name: Reims vGPU packages from upstream main
+name: Reims vGPU packages from upstream
 
 # Builds and publishes the Reims vGPU packages (reims-release.yml) at the newest commit of
-# steelbrain/reims-vgpu's main, as release reims-<7-digit commit>, unless that release exists.
+# steelbrain/reims-vgpu's default branch (master), as release reims-<7-digit commit>, unless that release exists.
 # The app keeps installing the commit reims/manifest.json pins: to move it, pin reims/Dockerfile,
 # reims/Dockerfile.rocky and the manifest to the new release (docs/reims-vgpu.md). Keep the
 # manifest's release when deleting old ones (AGENTS.md: the last 2 of each series).
@@ -27,8 +27,8 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           FORCE: ${{ inputs.force }}
         run: |
-          commit="$(git ls-remote https://github.com/steelbrain/reims-vgpu refs/heads/main | cut -f1)"
-          echo "$commit" | grep -Eqx '[0-9a-f]{40}' || { echo "no upstream main: '$commit'"; exit 1; }
+          commit="$(git ls-remote https://github.com/steelbrain/reims-vgpu HEAD | cut -f1)" # the default branch, master
+          echo "$commit" | grep -Eqx '[0-9a-f]{40}' || { echo "no upstream HEAD: '$commit'"; exit 1; }
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
           if gh release view "reims-${commit:0:7}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && [ "$FORCE" != true ]; then
             echo "reims-${commit:0:7} is already released" >> "$GITHUB_STEP_SUMMARY"
