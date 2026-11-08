@@ -19,8 +19,16 @@ type App struct {
 	// Set by Run once the window exists: the interface scale and the native file choosers.
 	zoom func(float64)
 	pick func(title string, folder bool, filters [][2]string) (string, error)
+	send func(name string, data any) // an event to the page
 
 	mu sync.Mutex
+}
+
+// emit sends the page an event; nothing before the window exists.
+func (a *App) emit(name string, data any) {
+	if a.send != nil {
+		a.send(name, data)
+	}
 }
 
 // Version is the app's version, for the title and About.

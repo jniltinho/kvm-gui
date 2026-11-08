@@ -18,7 +18,7 @@
   --pressed: #9999cc;
   --focus: #3333cc;
   --danger: #b00000;
-  --warning: #7a5a00;
+  --warning: #5c4300;
   --success: #006400;
   --tab-active: #eeeeee;
   --tab-inactive: #cccccc;
@@ -31,4 +31,8 @@
   --win-radius: 0;
   --tile-on: #ccccff;
   --tile-line: #000000;
+  --link: #2a2aa8;
+  --ctl-border: #6a6a6a;
+  --primary: #3333cc;
+  --primary-text: #ffffff;
 }

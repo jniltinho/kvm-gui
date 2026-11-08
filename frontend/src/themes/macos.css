@@ -7,7 +7,7 @@
   --toolbar: #f6f6f6;
   --input: #ffffff;
   --text: #1d1d1f;
-  --text-muted: #6e6e73;
+  --text-muted: #5c5c61;
   --text-disabled: #b0b0b5;
   --accent: #007aff;
   --border: #c6c6c8;
@@ -17,9 +17,9 @@
   --hover: #e3e3e8;
   --pressed: #d1d1d6;
   --focus: #007aff;
-  --danger: #d70015;
-  --warning: #a05a00;
-  --success: #248a3d;
+  --danger: #b80012;
+  --warning: #7f4700;
+  --success: #16642a;
   --tab-active: #ffffff;
   --tab-inactive: #e3e3e6;
   --outline: #007aff;
@@ -31,6 +31,10 @@
   --win-radius: 10px;
   --tile-on: #dcdce1;
   --tile-line: #c6c6c8;
+  --link: #0058b8;
+  --ctl-border: #7c7c80;
+  --primary: #0064e1;
+  --primary-text: #ffffff;
 }
 :root[data-theme="macos-dark"] {
   color-scheme: dark;
@@ -39,7 +43,7 @@
   --toolbar: #323234;
   --input: #1c1c1e;
   --text: #f5f5f7;
-  --text-muted: #98989d;
+  --text-muted: #b4b4b9;
   --text-disabled: #5a5a5e;
   --accent: #0a84ff;
   --border: #48484a;
@@ -49,7 +53,7 @@
   --hover: #3a3a3c;
   --pressed: #48484a;
   --focus: #0a84ff;
-  --danger: #ff453a;
+  --danger: #ff857e;
   --warning: #ffd60a;
   --success: #32d74b;
   --tab-active: #1e1e1e;
@@ -63,4 +67,8 @@
   --win-radius: 10px;
   --tile-on: #3a3a3c;
   --tile-line: #48484a;
+  --link: #5eadff;
+  --ctl-border: #86868b;
+  --primary: #0a5cc8;
+  --primary-text: #ffffff;
 }

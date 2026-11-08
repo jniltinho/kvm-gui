@@ -17,22 +17,22 @@ icons are copied (design D2; kvm-gui is BSD-3-Clause).
 | VirtualBox element | Reference | kvm-gui | Status |
 | --- | --- | --- | --- |
 | File menu | `…/manager/UIVirtualBoxManager.cpp`; vb-45 | File: Preferences, Media manager, Exit; gui-23 | adapted: Import/Export appliance, Network manager, Cloud and Extension packs are not here (rows below) |
-| Machine menu | `…/manager/UIVirtualBoxManager.cpp`; vb-46 | Machine: New, Add, Settings, Remove, Start (Normal/Headless), Show, Shut down, Show log, Refresh; gui-23 | adapted: Clone, Move, Export to OCI, Group, Sort, Create shortcut open (Clone 7.7, Move 5.4); Start and Show disabled until 4.3/6.3 |
+| Machine menu | `…/manager/UIVirtualBoxManager.cpp`; vb-46 | Machine: New, Add, Settings, Remove, Start (Normal/Headless), Show, Shut down, Show log, Refresh; gui-23 | adapted: Clone, Move, Export to OCI, Group, Sort, Create shortcut open (Clone 7.7, Move 5.4); Show disabled until the VM window (6.3) |
 | Help menu | `…/manager/UIVirtualBoxManager.cpp` | Help › About kvm-gui | adapted: no online manual, update check or bug-report links (offline app) |
 | Toolbar: New | `…/manager/UIVirtualBoxManager.cpp`; vb-01 | New (Ctrl+N); gui-01 | covered |
-| Toolbar: Add | idem | Add: a VM settings file (`vm.json` or an export) through `core.ImportSettings` | adapted: kvm-gui has no `.vbox`; its settings file plays that role |
+| Toolbar: Add | idem | Add dialog: a VM settings file (`vm.json` or an export) through `core.ImportSettings`, or a reims-ctl VM not in the list yet (`core.ReimsCtlCandidates`, `core.AddReimsCtlVM`) | adapted: kvm-gui has no `.vbox`; its settings file plays that role |
 | Toolbar: Settings | idem | Settings (Ctrl+S) | covered |
-| Toolbar: Discard | idem | Discard: removes the VM, optionally deleting the files the app created | adapted: kvm-gui keeps no saved state to discard, so Discard is Machine › Remove |
-| Toolbar: Start (Normal, Headless, Detachable) | idem | Start with Normal and Headless; Headless disabled for Reims vGPU with the reason; gui-24 | open: disabled stub until detached runs and the VM window (tasks 4.3, 6.3); Detachable is not applicable (Normal already detaches: closing the VM window keeps the VM running) |
+| Toolbar: Discard | idem | Remove…: removes the VM from the list, optionally deleting the files the app created (an explicit choice in its confirmation) | adapted: kvm-gui keeps no saved state to discard, so the toolbar names it Remove…, as the Machine menu does |
+| Toolbar: Start (Normal, Headless, Detachable) | idem | Start, and Normal or Headless from its ▼ (`core.StartDetached`, a GUI run that outlives the window; Normal lets Reims vGPU open its X11 window); Headless disabled for Reims vGPU with the reason; gui-24 | adapted: the VM window that Normal opens arrives with task 6.3; Detachable is not applicable (every start detaches) |
 | Toolbar: Show | idem | Show | open: task 6.3 |
 | Toolbar: Shut down / Power off | `…/manager/UIVirtualBoxManager.cpp` (Close submenu) | Shut down sends the ACPI power button over the run's control socket | adapted: Power off and Save state live in the VM window's close dialog (task 7.6) |
 | VM list: name, OS icon, state | `…/manager/chooser/UIChooserItemMachine.cpp`; vb-01 | name, guest-type icon, OS, state, memory · CPUs · graphics; refreshed every 2 s; gui-01 | covered |
 | VM list groups | `…/manager/chooser/` | — | not applicable: one flat list sorted by name; the VM count stays small on a workstation |
-| Welcome pane | `…/manager/UIVirtualBoxManagerWidget.cpp` (home) | Welcome with New and Add, Settings/Discard/Start disabled; gui-00 | covered |
+| Welcome pane | `…/manager/UIVirtualBoxManagerWidget.cpp` (home) | Welcome with New and Add, Settings/Remove/Start disabled; gui-00 | covered |
 | Tools: Details | `…/manager/details/UIDetailsGenerator.cpp`; vb-10 | Details with General, System, Display, Storage, Audio, Network, Serial Ports, USB, Shared Folders, Description; a section title opens its Settings page; gui-01 | covered |
 | Details: Preview | `…/manager/details/UIDetailsElements.cpp` (preview) | Preview box with the VM name | open: live screen with the screen stream (task 6.3) |
 | Tools: Snapshots | `…/snapshots/UISnapshotPane.cpp`; vb-11; `virtManager/details/snapshots.py` | Snapshots tool with Current state, Take/Restore/Delete/Properties buttons; gui-08 | open: buttons disabled until the core's snapshots (tasks 5.1, 5.5) |
-| Tools: Logs | `…/logviewer/UIVMLogViewerWidget.cpp`; vb-12 | Logs: the newest run log of the VM, its last 256 KiB, Refresh; gui-09 | adapted: one QEMU output log per run instead of VBox.log rotation; the GUI's detached runs add theirs with task 4.3 |
+| Tools: Logs | `…/logviewer/UIVMLogViewerWidget.cpp`; vb-12 | Logs: the newest run log of the VM, its last 256 KiB, Refresh; gui-09 | adapted: one QEMU output log per run instead of VBox.log rotation; the GUI's detached runs write `gui-start.log` there |
 | Tools: Activity | `…/activity/vmactivity/UIVMActivityMonitor.cpp`; vb-13 | — | open: task 7.7 |
 | Tools: File manager | `…/guestctrl/UIFileManager.cpp`; vb-14 | — | not applicable: needs guest additions; Linux guests use Shared Folders and SSH (port forwarding) |
 | Status bar | — | selected VM and state, last action, VM count, version | adapted: VirtualBox's Manager has none; kept from the previous app |
@@ -52,7 +52,7 @@ icons are copied (design D2; kvm-gui is BSD-3-Clause).
 | Hard disk: new / existing / none | `…/wizards/newvm/UIWizardNewVMDiskPage.cpp`; vb-09 | New (size, qcow2), Existing (format read from the header), None (live ISO); macOS: a new 80 GiB disk; gui-05 | adapted: VDI/VHD/VMDK and fixed-size images not offered (qcow2, thin) |
 | Summary | `…/wizards/newvm/UIWizardNewVMSummaryPage.cpp` | Summary step; gui-06 | covered |
 | Finish validation | idem | Finish checks every section and opens the first with a problem; the core validates again | covered |
-| Reims vGPU via `reims-ctl` with progress | — (kvm-gui only) | Graphics › Reims vGPU, with a note when its QEMU is missing | open: `reims-ctl` backend and Install Reims vGPU (tasks 4.5, 7.3) |
+| Reims vGPU via `reims-ctl` with progress | — (kvm-gui only) | macOS: "Create with reims-ctl (Reims vGPU)" (`core.CreateReimsCtlVM`, reims-ctl's output streamed into the wizard; offline installer option; CPUs, memory, disk size); otherwise Graphics › Reims vGPU, with a note when its QEMU is missing | open: Install Reims vGPU from the app (task 7.3) |
 
 ## Clone wizard
 
@@ -81,23 +81,25 @@ icons are copied (design D2; kvm-gui is BSD-3-Clause).
 | User interface (menus, status bar, mini toolbar) | `…/settings/machine/UIMachineSettingsInterface.cpp`; vb-39 | — | not applicable: the VM window's menus are fixed |
 | Validation that opens the failing page | `…/settings/UISettingsDialog.cpp` | OK validates through `core.SaveVM`; a FieldError opens its page and marks the field; nothing saved; gui-19 | covered |
 | Read-only while running | `…/settings/UISettingsDialogSpecific.cpp` | General's type, System, Display adapter and Storage read-only with a note | covered |
+| reims-ctl VMs | — (kvm-gui only) | Only processors, memory, resolution and SSH port (to `reims-ctl set`), plus the app's name and description; the rest read-only with a note; GPU passthrough and snapshots disabled with the reason | covered |
 
 ## Preferences
 
 | VirtualBox page | Reference | kvm-gui | Status |
 | --- | --- | --- | --- |
-| General: default machine folder | `…/settings/global/UIGlobalSettingsGeneral.cpp`; vb-40 | General › Workspace; gui-20 | covered |
+| General: default machine folder | `…/settings/global/UIGlobalSettingsGeneral.cpp`; vb-40 | General › Workspace (Browse fills the field); gui-20 | covered |
 | Input: host key and shortcuts | `…/settings/global/UIGlobalSettingsInput.cpp` | Input › host key Ctrl+Alt+F shown | adapted: fixed host key, no shortcut editor |
-| Display: scale factor, maximum guest size | `…/settings/global/UIGlobalSettingsDisplay.cpp` | Display › Interface scale 100–200 %, applied at once | adapted: guest size follows the window |
-| Interface (theme) | `…/settings/global/UIGlobalSettingsInterface.cpp` | Interface › Skin (six skins and System), applied at once; gui-21 | covered |
+| Display: scale factor, maximum guest size | `…/settings/global/UIGlobalSettingsDisplay.cpp` | Display › Interface scale 100–200 % | adapted: guest size follows the window |
+| Interface (theme) | `…/settings/global/UIGlobalSettingsInterface.cpp` | Interface › Skin (six skins and System); gui-21 | covered |
+| OK / Apply / Cancel | `…/settings/UISettingsDialog.cpp` | One policy for every page: OK or Apply applies without a restart; closing with changes not applied asks | covered |
 | Language, Update, Proxy, Network, Extensions | `…/settings/global/` | — | not applicable: English only, offline app, no extension packs |
 
 ## Media manager
 
 | VirtualBox element | Reference | kvm-gui | Status |
 | --- | --- | --- | --- |
-| Hard disks and optical discs lists with size, format, location, attached VMs | `…/medium/UIMediumManager.cpp` | File › Media manager: both lists, virtual size, used on host, format, location, VMs; gui-22 | covered (read-only) |
-| Create, copy, resize, convert, remove, release | idem | buttons disabled | open: task 7.7 (grow only, raw to qcow2, remove versus delete with refusals) |
+| Hard disks and optical discs lists with size, format, location, attached VMs | `…/medium/UIMediumManager.cpp` | File › Media manager: both lists with name, location, virtual size, used on host, format and the VMs using each, all shown in the table; gui-22 | covered (read-only, said on the window) |
+| Create, copy, resize, convert, remove, release | idem | — (the window says it is read-only for now) | open: task 7.7 (grow only, raw to qcow2, remove versus delete with refusals) |
 | Floppy images | idem | — | not applicable: no floppy drive |
 
 ## Import and export

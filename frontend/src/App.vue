@@ -4,11 +4,12 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from "vue";
 import { Application } from "@wailsio/runtime";
 import {
-  AddVM, DeleteVM, GetLog, GetPrefs, GetVM, PickFile, Ready, SelectVM, ShutDown, Theme, Version, VMs,
+  DeleteVM, GetLog, GetPrefs, GetVM, Ready, SelectVM, ShutDown, Start, Theme, Version, VMs,
   type VM, type VMInfo,
 } from "./api";
 import { applySkin } from "./themes";
 import { askConfirm, showInfo } from "./ask";
+import AddVMDialog from "./AddVMDialog.vue";
 import AskDialog from "./AskDialog.vue";
 import Details from "./Details.vue";
 import GuestIcon from "./GuestIcon.vue";
@@ -29,10 +30,14 @@ const loaded = ref(false);
 
 const selected = computed(() => vms.value.find((v) => v.id === selectedId.value) ?? null);
 const running = computed(() => vms.value.filter((v) => v.running).length);
+// The selected VM's details, only once they are this VM's (a slower answer for another VM never shows).
+const shownInfo = computed(() => (info.value?.id === selectedId.value ? info.value : null));
 
-// Dialogs: one at a time.
-const dialog = ref<"" | "new" | "settings" | "prefs" | "media" | "about" | "remove">("");
+// Dialogs: one at a time. Settings and Remove keep the VM they were opened for, whatever the list does meanwhile.
+const dialog = ref<"" | "new" | "add" | "settings" | "prefs" | "media" | "about" | "remove">("");
 const settingsPage = ref("general");
+const editing = ref<VMInfo | null>(null);
+const removing = ref<VM | null>(null);
 const purge = ref(false);
 
 // Tools of the selected VM.
@@ -54,19 +59,32 @@ async function refresh() {
   }
 }
 
+// Each load is numbered: only the newest answer, and only for the VM still selected, is kept.
+let infoSeq = 0;
 async function loadInfo() {
-  if (!selectedId.value) { info.value = null; return; }
-  try { info.value = await GetVM(selectedId.value); } catch (e) { error.value = String(e); }
+  const id = selectedId.value;
+  const seq = ++infoSeq;
+  if (!id) { info.value = null; return; }
+  try {
+    const v = await GetVM(id);
+    if (seq === infoSeq && id === selectedId.value) info.value = v;
+  } catch (e) { if (seq === infoSeq) error.value = String(e); }
   if (tool.value === "logs") await loadLog();
 }
+let logSeq = 0;
 async function loadLog() {
-  if (!selectedId.value) return;
-  try { log.value = await GetLog(selectedId.value); } catch (e) { log.value = String(e); }
+  const id = selectedId.value;
+  const seq = ++logSeq;
+  if (!id) return;
+  let text: string;
+  try { text = await GetLog(id); } catch (e) { text = String(e); }
+  if (seq === logSeq && id === selectedId.value) log.value = text;
 }
 
 async function select(id: string) {
   if (id === selectedId.value) return;
   selectedId.value = id;
+  log.value = "";
   void SelectVM(id).catch(() => {});
   await loadInfo();
 }
@@ -78,7 +96,7 @@ function listKey(e: KeyboardEvent) {
   const i = vms.value.findIndex((v) => v.id === selectedId.value);
   const n = vms.value.length;
   const next = { ArrowDown: Math.min(n - 1, i + 1), ArrowUp: Math.max(0, i - 1), Home: 0, End: n - 1 }[e.key];
-  if (e.key === "Enter" && selected.value) { openSettings("general"); return; }
+  if (e.key === "Enter" && selected.value) { void openSettings("general"); return; }
   if (next === undefined || !n) return;
   e.preventDefault();
   void select(vms.value[next].id);
@@ -86,31 +104,36 @@ function listKey(e: KeyboardEvent) {
 }
 
 // Actions.
-function openSettings(page: string) {
-  if (!selected.value) return;
+// Settings edits the VM selected when it was asked for, with its details read again for it.
+async function openSettings(page: string) {
+  const id = selectedId.value;
+  if (!id) return;
+  await loadInfo();
+  if (id !== selectedId.value || info.value?.id !== id) return;
+  editing.value = info.value;
   settingsPage.value = page;
   dialog.value = "settings";
 }
-async function addVM() {
+function addVM() {
   menu.value = "";
-  try {
-    const path = await PickFile("Add a VM from its settings file (vm.json or an export)", "json");
-    if (!path) return;
-    const r = await AddVM(path);
-    if (r.error) return void showInfo("Add VM", r.error);
-    await refresh();
-    if (r.id) await select(r.id);
-    status.value = r.notice || "VM added.";
-  } catch (e) { void showInfo("Add VM", String(e)); }
+  dialog.value = "add";
+}
+async function added(id: string, notice: string) {
+  dialog.value = "";
+  await refresh();
+  if (id) await select(id);
+  status.value = notice || "VM added.";
 }
 function removeVM() {
   if (!selected.value) return;
+  removing.value = selected.value;
   purge.value = false;
   dialog.value = "remove";
 }
 async function confirmRemove() {
-  const vm = selected.value;
+  const vm = removing.value;
   dialog.value = "";
+  removing.value = null;
   if (!vm) return;
   try {
     const removed = await DeleteVM(vm.id, purge.value);
@@ -124,6 +147,32 @@ async function shutDown() {
   if (!(await askConfirm("Shut down", `Send the shutdown signal to ${vm.name}? The guest shuts down by itself, or asks on its screen.`, "Shut down"))) return;
   try { await ShutDown(vm.id); status.value = `Shutdown signal sent to ${vm.name}.`; } catch (e) { void showInfo("Shut down", String(e)); }
 }
+
+// Start runs the VM detached (core.StartDetached): it keeps running when this window closes.
+const starting = ref("");
+const canStart = computed(() => !!selected.value && !selected.value.running && !starting.value);
+const reimsGPU = computed(() => selected.value?.graphics === "reims-vgpu");
+const headlessNote = "Reims vGPU always opens its own window, so Headless is not available.";
+async function start(headless: boolean) {
+  const vm = selected.value;
+  closeStart(false);
+  menu.value = "";
+  if (!vm || vm.running || starting.value || (headless && reimsGPU.value)) return;
+  starting.value = vm.id;
+  status.value = `Starting ${vm.name}…`;
+  try {
+    await Start(vm.id, headless);
+    await refresh();
+    status.value = `${vm.name} is running. It keeps running when you close this window.`;
+  } catch (e) {
+    status.value = `${vm.name} did not start.`;
+    void showInfo(`Start ${vm.name}`, String(e));
+  } finally { starting.value = ""; }
+}
+// Show (the VM window) is not built yet: say so, and how to reach a running VM meanwhile.
+const showNote = computed(() => "The VM's screen cannot be shown in the app yet."
+  + (selected.value?.running && shownInfo.value ? ` Connect with SSH meanwhile: port ${shownInfo.value.config.ssh_port} on 127.0.0.1.` : ""));
+
 // Exit closes the Manager only: VMs keep running (vm-manager-ui › Close dialog).
 const quit = () => void Application.Quit();
 async function created(id: string, notice: string) {
@@ -135,16 +184,11 @@ async function created(id: string, notice: string) {
 }
 async function saved() {
   dialog.value = "";
-  await loadInfo();
+  editing.value = null;
   await refresh();
+  await loadInfo();
   status.value = "Settings saved.";
 }
-
-// Start: TODO(task 4.3, 6.3): detached `vm start --gui-run` and the VM window are built in the core;
-// until then Start stays disabled and says so (core.VM.Start runs QEMU inside this process).
-const startNote = "Starting from the window arrives with detached runs (task 4.3) and the VM window (task 6.3). Use `kvm-gui vm start` meanwhile.";
-const headlessNote = computed(() => selected.value?.graphics === "reims-vgpu"
-  ? "Reims vGPU always opens its own window, so Headless is not available." : startNote);
 
 // Menus (goXterm's menubar): one open at a time; arrows move between menus and items.
 const menu = ref("");
@@ -174,18 +218,45 @@ function menuKey(e: KeyboardEvent) {
     focusItem(0);
   }
 }
+
+// Start options: drawn outside the toolbar (which scrolls sideways, and would clip it), under its ▼.
 const startOpen = ref(false);
+const startArrow = ref<HTMLButtonElement>();
+const startPop = ref<HTMLDivElement>();
+const startPos = ref({ left: 0, top: 0 });
+function toggleStart() {
+  if (startOpen.value) return closeStart(true);
+  const group = startArrow.value!.parentElement!.getBoundingClientRect();
+  startPos.value = { left: group.left, top: group.bottom + 1 };
+  startOpen.value = true;
+  nextTick(() => (startPop.value?.querySelector<HTMLElement>(".menu-i:not(:disabled)") ?? startPop.value)?.focus());
+}
+function closeStart(focus: boolean) {
+  if (!startOpen.value) return;
+  startOpen.value = false;
+  if (focus) startArrow.value?.focus();
+}
+function startKey(e: KeyboardEvent) {
+  const items = [...(startPop.value?.querySelectorAll<HTMLElement>(".menu-i:not(:disabled)") ?? [])];
+  const i = items.indexOf(document.activeElement as HTMLElement);
+  if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); closeStart(true); }
+  else if (e.key === "Tab") closeStart(false);
+  else if (items.length && (e.key === "ArrowDown" || e.key === "ArrowUp")) {
+    e.preventDefault();
+    items[(i + (e.key === "ArrowDown" ? 1 : items.length - 1)) % items.length].focus();
+  }
+}
 function closeMenus(e: MouseEvent) {
   const t = e.target as HTMLElement;
   if (!t.closest(".menubar")) menu.value = "";
-  if (!t.closest(".start")) startOpen.value = false;
+  if (!t.closest(".start, .start-d")) closeStart(false);
 }
 
 function shortcut(e: KeyboardEvent) {
   if (dialog.value || !e.ctrlKey || e.altKey) return;
   const k = e.key.toLowerCase();
   if (k === "n") { e.preventDefault(); dialog.value = "new"; }
-  else if (k === "s" && selected.value) { e.preventDefault(); openSettings("general"); }
+  else if (k === "s" && selected.value) { e.preventDefault(); void openSettings("general"); }
 }
 
 let timer: ReturnType<typeof setInterval> | undefined;
@@ -231,9 +302,9 @@ onBeforeUnmount(() => {
           <button type="button" class="menu-i" role="menuitem" :disabled="!selected" @click="run(() => openSettings('general'))"><img src="/icons/settings.svg" alt="" /> Settings…<kbd>Ctrl+S</kbd></button>
           <button type="button" class="menu-i" role="menuitem" :disabled="!selected || selected.running" @click="run(removeVM)"><img src="/icons/remove.svg" alt="" /> Remove…</button>
           <div class="menu-sep" role="separator"></div>
-          <button type="button" class="menu-i" role="menuitem" disabled :title="startNote"><img src="/icons/start.svg" alt="" /> Start (Normal)</button>
-          <button type="button" class="menu-i" role="menuitem" disabled :title="headlessNote"><img src="/icons/start.svg" alt="" /> Start (Headless)</button>
-          <button type="button" class="menu-i" role="menuitem" disabled :title="startNote"><img src="/icons/window.svg" alt="" /> Show</button>
+          <button type="button" class="menu-i" role="menuitem" :disabled="!canStart" @click="start(false)"><img src="/icons/start.svg" alt="" /> Start (Normal)</button>
+          <button type="button" class="menu-i" role="menuitem" :disabled="!canStart || reimsGPU" :title="reimsGPU ? headlessNote : undefined" @click="start(true)"><img src="/icons/start.svg" alt="" /> Start (Headless)</button>
+          <button type="button" class="menu-i" role="menuitem" disabled :title="showNote"><img src="/icons/window.svg" alt="" /> Show</button>
           <button type="button" class="menu-i" role="menuitem" :disabled="!selected?.running" @click="run(shutDown)"><img src="/icons/shutdown.svg" alt="" /> Shut down</button>
           <div class="menu-sep" role="separator"></div>
           <button type="button" class="menu-i" role="menuitem" :disabled="!selected" @click="run(() => tool = 'logs')"><img src="/icons/log.svg" alt="" /> Show log</button>
@@ -250,21 +321,16 @@ onBeforeUnmount(() => {
 
     <div class="toolbar" role="toolbar" aria-label="Machine tools">
       <button type="button" class="tb" aria-label="New" title="Create a new VM (Ctrl+N)" @click="dialog = 'new'"><img src="/icons/new.svg" alt="" /><span>New</span></button>
-      <button type="button" class="tb" aria-label="Add" title="Add an existing VM from its settings file" @click="addVM"><img src="/icons/import.svg" alt="" /><span>Add</span></button>
+      <button type="button" class="tb" aria-label="Add" title="Add an existing VM: a settings file or a reims-ctl VM" @click="addVM"><img src="/icons/import.svg" alt="" /><span>Add</span></button>
       <span class="tb-sep" role="separator"></span>
       <button type="button" class="tb" aria-label="Settings" title="Settings of the selected VM (Ctrl+S)" :disabled="!selected" @click="openSettings('general')"><img src="/icons/settings.svg" alt="" /><span>Settings</span></button>
-      <button type="button" class="tb" aria-label="Discard" title="Remove the selected VM, optionally with its files" :disabled="!selected || selected.running" @click="removeVM"><img src="/icons/remove.svg" alt="" /><span>Discard</span></button>
+      <button type="button" class="tb" aria-label="Remove" title="Remove the selected VM from the list, optionally with its files" :disabled="!selected || selected.running" @click="removeVM"><img src="/icons/remove.svg" alt="" /><span>Remove…</span></button>
       <span class="tb-sep" role="separator"></span>
       <div class="start">
-        <button type="button" class="tb" aria-label="Start" :title="startNote" disabled><img src="/icons/start.svg" alt="" /><span>Start</span></button>
-        <button type="button" class="tb tb-arrow" aria-label="Start options" aria-haspopup="menu" :aria-expanded="startOpen" :disabled="!selected" @click.stop="startOpen = !startOpen"></button>
-        <div v-if="startOpen" class="menu menu-d start-d" role="menu" aria-label="Start options">
-          <button type="button" class="menu-i" role="menuitem" disabled :title="startNote"><img src="/icons/window.svg" alt="" /> Normal start</button>
-          <button type="button" class="menu-i" role="menuitem" disabled :title="headlessNote"><span class="ico"></span> Headless start</button>
-          <p class="menu-note">{{ headlessNote }}</p>
-        </div>
+        <button type="button" class="tb" aria-label="Start" title="Start the selected VM; it keeps running when you close this window" :disabled="!canStart" @click="start(false)"><img src="/icons/start.svg" alt="" /><span>{{ starting ? "Starting…" : "Start" }}</span></button>
+        <button ref="startArrow" type="button" class="tb tb-arrow" aria-label="Start options" aria-haspopup="menu" :aria-expanded="startOpen" :disabled="!selected" @click.stop="toggleStart"></button>
       </div>
-      <button type="button" class="tb" aria-label="Show" :title="startNote" disabled><img src="/icons/window.svg" alt="" /><span>Show</span></button>
+      <button type="button" class="tb" aria-label="Show" :title="showNote" disabled><img src="/icons/window.svg" alt="" /><span>Show</span></button>
       <button type="button" class="tb" aria-label="Shut down" title="Send the shutdown signal (ACPI)" :disabled="!selected?.running" @click="shutDown"><img src="/icons/shutdown.svg" alt="" /><span>Shut down</span></button>
     </div>
 
@@ -273,7 +339,7 @@ onBeforeUnmount(() => {
     <div v-if="loaded && !vms.length" class="welcome" role="region" aria-label="Welcome">
       <img src="/icons/window.svg" alt="" class="welcome-ico" />
       <h1>Welcome to kvm-gui</h1>
-      <p class="muted">Create a virtual machine for macOS, Linux, Windows or another system, or add one you already have from its settings file.</p>
+      <p class="muted">Create a virtual machine for macOS, Linux, Windows or another system, or add one you already have from its settings file or from reims-ctl.</p>
       <div class="row">
         <button type="button" class="btn primary" @click="dialog = 'new'"><img src="/icons/new.svg" alt="" /> New…</button>
         <button type="button" class="btn" @click="addVM"><img src="/icons/import.svg" alt="" /> Add…</button>
@@ -289,29 +355,33 @@ onBeforeUnmount(() => {
           <GuestIcon :guest="vm.guest" :size="34" />
           <div class="vm-t">
             <div class="vm-name"><b>{{ vm.name }}</b> <span class="vm-os">({{ vm.os }})</span></div>
-            <div class="vm-state"><img :src="`./icons/${vm.running ? 'state-running' : 'state-off'}.svg`" alt="" /> {{ vm.state }}</div>
+            <div class="vm-state"><img :src="`./icons/${vm.running ? 'state-running' : 'state-off'}.svg`" alt="" /> {{ starting === vm.id ? "Starting…" : vm.state }}</div>
             <div class="vm-sum">{{ (vm.memoryMiB / 1024).toFixed(vm.memoryMiB % 1024 ? 1 : 0) }} GiB · {{ vm.cpus }} CPUs · {{ vm.graphics === 'reims-vgpu' ? 'Reims vGPU' : vm.guest === 'macos' ? 'VMware SVGA' : vm.graphics === 'virtio-vga' ? 'virtio-vga' : 'VGA' }}</div>
           </div>
         </li>
       </ul>
 
       <section class="tools" aria-label="Selected VM">
-        <TabBar v-model="tool" :tabs="TOOLS" size="small" class="tools-tabs" aria-label="Tools" />
-        <div class="tool-page tab-page">
-          <Details v-if="tool === 'details' && info" :vm="info" @open="openSettings" />
+        <TabBar v-model="tool" :tabs="TOOLS" size="small" panel="tool-page" class="tools-tabs" aria-label="Tools" />
+        <div id="tool-page" class="tool-page tab-page" role="tabpanel" :aria-labelledby="`tool-page-tab-${tool}`">
+          <template v-if="tool === 'details'">
+            <Details v-if="shownInfo" :vm="shownInfo" @open="openSettings" />
+            <p v-else-if="selected" class="muted pad" role="status">Loading {{ selected.name }}…</p>
+          </template>
 
           <div v-else-if="tool === 'snapshots'" class="snap">
             <div class="row snap-bar" role="toolbar" aria-label="Snapshot actions">
-              <!-- TODO(tasks 5.1, 5.5): take, restore and delete land with the core's snapshot journal. -->
-              <button type="button" class="btn small" disabled title="Snapshots arrive with task 5.1"><img src="/icons/snapshot.svg" alt="" /> Take…</button>
-              <button type="button" class="btn small" disabled title="Snapshots arrive with task 5.1">Restore</button>
-              <button type="button" class="btn small" disabled title="Snapshots arrive with task 5.1">Delete</button>
-              <button type="button" class="btn small" disabled title="Snapshots arrive with task 5.1">Properties</button>
+              <button type="button" class="btn small" disabled><img src="/icons/snapshot.svg" alt="" /> Take…</button>
+              <button type="button" class="btn small" disabled>Restore</button>
+              <button type="button" class="btn small" disabled>Delete</button>
+              <button type="button" class="btn small" disabled>Properties</button>
             </div>
             <ul class="tree" role="tree" aria-label="Snapshots">
               <li role="treeitem" aria-selected="true" class="tree-i on" tabindex="0"><img src="/icons/state-running.svg" alt="" /> Current state</li>
             </ul>
-            <p class="muted pad">Snapshots of powered-off VMs arrive with the core's snapshot support (task 5.1).</p>
+            <p class="muted pad">{{ shownInfo?.config.backend === "reims-ctl"
+              ? "VMs that reims-ctl keeps cannot have snapshots in the app yet."
+              : "Snapshots are not available yet. Copy the VM folder while the VM is powered off to keep a version of it." }}</p>
           </div>
 
           <div v-else-if="tool === 'logs'" class="logs">
@@ -331,19 +401,27 @@ onBeforeUnmount(() => {
     </footer>
   </div>
 
+  <div v-if="startOpen" ref="startPop" class="menu menu-d start-d" role="menu" aria-label="Start options" tabindex="-1"
+    :style="{ left: startPos.left + 'px', top: startPos.top + 'px' }" @keydown="startKey">
+    <button type="button" class="menu-i" role="menuitem" :disabled="!canStart" @click="start(false)"><img src="/icons/window.svg" alt="" /> Normal start</button>
+    <button type="button" class="menu-i" role="menuitem" :disabled="!canStart || reimsGPU" @click="start(true)"><span class="ico"></span> Headless start</button>
+    <p class="menu-note">{{ reimsGPU ? headlessNote : "Headless runs the VM without a window." }} The VM keeps running when you close this window.</p>
+  </div>
+
   <NewVMWizard v-if="dialog === 'new'" :names="vms.map((v) => v.name)" @close="dialog = ''" @created="created" />
-  <VMSettings v-if="dialog === 'settings' && info" :vm="info" :page="settingsPage" @close="dialog = ''" @saved="saved" />
+  <AddVMDialog v-if="dialog === 'add'" @close="dialog = ''" @added="added" />
+  <VMSettings v-if="dialog === 'settings' && editing" :vm="editing" :page="settingsPage" @close="dialog = ''; editing = null" @saved="saved" />
   <Preferences v-if="dialog === 'prefs'" @close="dialog = ''" />
   <MediaManager v-if="dialog === 'media'" @close="dialog = ''" />
-  <Modal v-if="dialog === 'remove' && selected" title="Remove VM" :width="460" @close="dialog = ''">
+  <Modal v-if="dialog === 'remove' && removing" title="Remove VM" :width="460" @close="dialog = ''; removing = null">
     <div class="pad col">
-      <p>Remove <b>{{ selected.name }}</b> from the list?</p>
+      <p>Remove <b>{{ removing.name }}</b> from the list?</p>
       <label class="chk"><input v-model="purge" type="checkbox" /> Also delete the files the app created for it (disk, install media, boot files)</label>
       <p class="muted">Other files in its folder are never deleted. Deleted files cannot be recovered.</p>
     </div>
     <template #footer>
-      <button type="button" class="btn primary" :class="{ danger: purge }" @click="confirmRemove">{{ purge ? "Delete files and remove" : "Remove" }}</button>
-      <button type="button" class="btn" autofocus @click="dialog = ''">Cancel</button>
+      <button type="button" class="btn" :class="purge ? 'danger' : 'primary'" @click="confirmRemove">{{ purge ? "Delete files and remove" : "Remove" }}</button>
+      <button type="button" class="btn" autofocus @click="dialog = ''; removing = null">Cancel</button>
     </template>
   </Modal>
   <Modal v-if="dialog === 'about'" title="About kvm-gui" :width="420" @close="dialog = ''">
@@ -379,11 +457,12 @@ onBeforeUnmount(() => {
 .tb:active:not(:disabled) { background: var(--pressed); }
 .tb:disabled { color: var(--text-disabled); cursor: default; }
 .tb:disabled img { opacity: 0.4; filter: grayscale(1); }
+.tb:focus-visible { outline-offset: -2px; }
 .tb-sep { width: 1px; margin: 6px 4px; background: var(--border-subtle); }
-.start { position: relative; display: flex; }
+.start { display: flex; }
 .tb-arrow { min-width: 16px; padding: 0 3px; position: relative; }
 .tb-arrow::after { content: ""; border: 4px solid transparent; border-top: 5px solid currentColor; margin-top: 6px; }
-.start-d { top: 100%; left: 0; }
+.start-d { position: fixed; outline: none; }
 
 .err { margin: 6px; }
 .body { flex: 1; min-height: 0; display: flex; }
@@ -392,7 +471,8 @@ onBeforeUnmount(() => {
 .vm { display: flex; align-items: center; gap: 10px; padding: 7px 10px; border-bottom: 1px solid var(--border-subtle); cursor: pointer; }
 .vm:hover:not(.on) { background: var(--hover); }
 .vm.on { background: var(--selection); color: var(--selection-text); }
-.vm.on .vm-os, .vm.on .vm-sum { color: inherit; opacity: 0.85; }
+/* full selection colour: the secondary lines keep 4.5:1 on the selection */
+.vm.on .vm-os, .vm.on .vm-sum { color: inherit; }
 .vm-t { min-width: 0; display: flex; flex-direction: column; gap: 1px; }
 .vm-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .vm-os { color: var(--text-muted); }
@@ -419,5 +499,4 @@ onBeforeUnmount(() => {
 .status > span { display: inline-flex; align-items: center; gap: 4px; }
 .status img { width: 10px; height: 10px; }
 .status .grow { overflow: hidden; text-overflow: ellipsis; }
-.danger { color: var(--danger); border-color: var(--danger); }
 </style>
