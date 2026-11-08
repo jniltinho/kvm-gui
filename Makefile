@@ -28,9 +28,9 @@ embed-stub:
 frontend: image
 	$(RUN) sh -c 'cd frontend && npm ci --no-audit --no-fund && npm run build'
 
-# Frontend lint and type checks (Vite Plus).
+# Frontend lint, type checks and unit tests (Vite Plus).
 frontend-check: image
-	$(RUN) sh -c 'cd frontend && npm ci --no-audit --no-fund && npx vp check --no-fmt'
+	$(RUN) sh -c 'cd frontend && npm ci --no-audit --no-fund && npx vp check --no-fmt && npx vp test run'
 
 # Layering: only internal/gui imports Wails; every skin defines the same tokens.
 layers: image embed-stub

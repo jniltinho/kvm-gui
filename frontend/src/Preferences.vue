@@ -75,7 +75,8 @@ onMounted(load);
         </template>
         <template v-else-if="tab === 'input'">
           <section class="grp"><h2 class="grp-h">Host key</h2><div class="grp-b">
-            <div class="row"><span>Release the keyboard and pointer from a VM screen:</span> <kbd class="key">{{ p.hostKey }}</kbd></div>
+            <div class="row"><span>Capture and release the keyboard of a VM screen:</span> <kbd class="key">{{ p.hostKey }}</kbd></div>
+            <div class="row"><span>Full screen of a VM window:</span> <kbd class="key">Ctrl+Alt+F</kbd></div>
             <p class="muted">The VM screen takes the keyboard while it has the focus; this combination gives it back. It cannot be changed yet.</p>
           </div></section>
         </template>

@@ -20,6 +20,7 @@ type App struct {
 	zoom func(float64)
 	pick func(title string, folder bool, filters [][2]string) (string, error)
 	send func(name string, data any) // an event to the page
+	show func(id, title string)      // opens or focuses the VM's window
 
 	screen *screenServer // the VMs' screens for the page; nil when it could not start
 
@@ -65,8 +66,9 @@ type Prefs struct {
 	HostKey   string `json:"hostKey"`
 }
 
-// hostKey releases the keyboard and pointer from a VM screen (embedded-display spec).
-const hostKey = "Ctrl+Alt+F"
+// hostKey captures and releases the keyboard of a VM screen (frontend/src/viewer.ts HOST_KEY); Ctrl+Alt+F
+// toggles full screen.
+const hostKey = "Right Ctrl"
 
 // scales are the interface scales offered, in percent.
 var scales = []string{"100", "125", "150", "200"}
