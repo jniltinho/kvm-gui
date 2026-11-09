@@ -91,12 +91,13 @@ itself before `qemu-img` opens it. A refused or failed import leaves nothing beh
 `kvm-gui vm export-ova "Ubuntu lab" ~/ubuntu-lab.ova` (File › Export Appliance…, or the MCP tool
 `vm_export_ova`) writes a powered-off Linux, Windows or Other VM as an `.ova` that VirtualBox 7
 imports: an OVF 1.0 descriptor with VirtualBox's OS type, the VM's processors, memory, firmware
-(EFI included), TPM 2.0 and adapters, its disks on a SATA controller as streamOptimized VMDKs, and
-a SHA-256 manifest. It does not carry snapshots (only each disk's current state), TPM contents (a
-VM with a TPM needs `--accept-tpm-loss`: have the BitLocker recovery key), UEFI boot entries, or
-Secure Boot (turn it on again in VirtualBox). A disk on virtio or NVMe here goes on SATA there,
-so the guest needs its AHCI driver at boot, which the usual distributions and Windows have. An
-existing file is replaced only with `--force`.
+(EFI included), TPM 2.0 and adapters, its disks as streamOptimized VMDKs (on an NVMe controller
+for NVMe disks, on SATA for the others), and a SHA-256 manifest. It does not carry snapshots (only
+each disk's current state), TPM contents (a VM with a TPM needs `--accept-tpm-loss`: have the
+BitLocker recovery key), UEFI boot entries, or Secure Boot (turn it on again in VirtualBox). A
+virtio disk here goes on SATA there, so the guest needs its AHCI driver at boot, which the usual
+distributions and Windows have. An existing file is replaced only with `--force`, and never a
+file of the VM's own folder.
 
 ## Validated
 

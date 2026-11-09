@@ -136,6 +136,17 @@ func (n *xnode) text(space, local string) string {
 
 func isOVF(space string) bool { return space == nsOVF1 || space == nsOVF2 }
 
+// xmlBool reads an xs:boolean ("true", "1", "false", "0"); def when it is missing or invalid.
+func xmlBool(v string, def bool) bool {
+	switch strings.TrimSpace(v) {
+	case "true", "1":
+		return true
+	case "false", "0":
+		return false
+	}
+	return def
+}
+
 // parseTree reads XML into a tree with bounded depth and size. Go's decoder never resolves
 // external entities or DTDs.
 func parseTree(b []byte) (*xnode, error) {
@@ -245,7 +256,7 @@ func readOVF(b []byte) (appliance, error) {
 			a.Notes = append(a.Notes, "the appliance has a license agreement (EulaSection): read it in the .ovf before you use the VM")
 		case sec.Name.Space == nsVBox && sec.Name.Local == "Machine":
 		default:
-			if req, _ := sec.attr("*", "required"); req == "true" {
+			if req, _ := sec.attr(ns, "required"); xmlBool(req, false) { // the envelope's own namespace only
 				return a, fmt.Errorf("the appliance requires %s, which kvm-gui does not support", sec.Name.Local)
 			}
 			if strings.HasSuffix(sec.Name.Local, "Section") {
@@ -368,6 +379,7 @@ const (
 	rtGraphics  = 24
 	rtSound     = 35
 	rtLogicDisk = 31
+	rtNVRAM     = 32768 // VirtualBox 7's UEFI variable store (a vendor-specific type), with its file
 )
 
 // readHardware reads the VM's hardware items: rasd Items, and in OVF 2 also sasd StorageItems
@@ -392,12 +404,18 @@ func readHardware(a *appliance, hw *xnode, disks map[string]ovfDisk) error {
 			if key == "firmware" && a.Firmware == "" {
 				a.Firmware = strings.ToLower(val)
 			}
+		case isOVF(k.Name.Space) && (k.Name.Local == "Info" || k.Name.Local == "System"):
+		default:
+			if req, _ := k.attr(hw.Name.Space, "required"); xmlBool(req, false) {
+				return fmt.Errorf("the appliance requires hardware %s, which kvm-gui does not support", k.Name.Local)
+			}
 		}
 	}
 	for _, it := range items {
 		t := func(local string) string { return it.n.text(it.ns, local) }
 		rt, _ := strconv.Atoi(t("ResourceType"))
-		required := it.n.ovfAttr("required") != "false"
+		req, ok := it.n.attr(hw.Name.Space, "required")
+		required := !ok || xmlBool(req, true) // an Item is required unless it says not
 		switch rt {
 		case rtCPU:
 			n, err := strconv.Atoi(t("VirtualQuantity"))
@@ -428,14 +446,14 @@ func readHardware(a *appliance, hw *xnode, disks map[string]ovfDisk) error {
 			switch {
 			case rt == rtIDE:
 				c.Kind = "ide"
+			case strings.Contains(sub, "virtio"): // VirtualBox writes VirtioSCSI as type 6 or 20
+				c.Kind = "virtio-scsi"
 			case rt == rtSCSI:
 				c.Kind = "scsi"
 			case sub == "ahci" || strings.Contains(sub, "sata"):
 				c.Kind = "sata"
 			case strings.Contains(sub, "nvme"):
 				c.Kind = "nvme"
-			case strings.Contains(sub, "virtio"):
-				c.Kind = "virtio-scsi"
 			default:
 				c.Kind = "sata"
 				a.Notes = append(a.Notes, fmt.Sprintf("storage controller %q is attached as SATA", c.Sub))
@@ -466,6 +484,8 @@ func readHardware(a *appliance, hw *xnode, disks map[string]ovfDisk) error {
 			a.NICs = append(a.NICs, nic)
 		case rtFloppy:
 			a.Notes = append(a.Notes, "the floppy drive is not kept")
+		case rtNVRAM:
+			a.Notes = append(a.Notes, "the VM's UEFI variables (NVRAM) are not imported: the guest starts from its fallback loader")
 		case rtUSB, rtSound, rtGraphics, rtOther:
 			// a USB controller, sound and graphics are kvm-gui's own (from the profile)
 		default:

@@ -5,9 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"golang.org/x/sys/unix"
 )
 
 // maxMembers bounds an appliance's files (spec: refused over 64).
@@ -22,8 +25,20 @@ type applianceSource struct {
 	DescName   string
 	Manifest   string // the manifest's name, "" when there is none
 	Sizes      map[string]int64
+	Infos      map[string]os.FileInfo // the .ova, or an .ovf's files, as pass 1 saw them: pass 2 opens the same ones
+	Dir        *os.File               // the appliance's folder, held open: every file is opened relative to it
 	Appliance  appliance
 }
+
+// Close releases the appliance's folder.
+func (s *applianceSource) Close() {
+	if s != nil && s.Dir != nil {
+		s.Dir.Close()
+	}
+}
+
+// maxSmallFile bounds a manifest or certificate.
+const maxSmallFile = 1 << 20
 
 // memberName checks a member or referenced file name: flat, relative, no "..".
 func memberName(n string) error {
@@ -37,8 +52,17 @@ func memberName(n string) error {
 // number of files, the descriptor first and at most 4 MiB, every referenced file present and no
 // other file than a manifest or certificate. It reads headers only (a regular file is seeked
 // past each member's data).
-func openAppliance(src string) (*applianceSource, error) {
-	s := &applianceSource{Path: src, Sizes: map[string]int64{}}
+func openAppliance(src string) (_ *applianceSource, err error) {
+	s := &applianceSource{Path: src, Sizes: map[string]int64{}, Infos: map[string]os.FileInfo{}}
+	// The folder is opened once: a folder swapped for a link later cannot redirect any file.
+	if s.Dir, err = os.OpenFile(filepath.Dir(src), os.O_RDONLY|unix.O_DIRECTORY, 0); err != nil {
+		return nil, err
+	}
+	defer func() {
+		if err != nil {
+			s.Close()
+		}
+	}()
 	switch strings.ToLower(filepath.Ext(src)) {
 	case ".ova":
 		s.OVA = true
@@ -74,9 +98,12 @@ func openAppliance(src string) (*applianceSource, error) {
 			return nil, fmt.Errorf("%s is %d bytes, its descriptor says %d", f.Href, size, f.Size)
 		}
 	}
-	for name := range s.Sizes {
+	for name, size := range s.Sizes {
 		if name == s.DescName || referenced[name] {
 			continue
+		}
+		if size > maxSmallFile {
+			return nil, fmt.Errorf("%s is larger than 1 MiB: refusing it", name)
 		}
 		switch strings.ToLower(filepath.Ext(name)) {
 		case ".mf":
@@ -108,11 +135,12 @@ func (s *applianceSource) add(name string, size int64) error {
 
 // walkOVA reads an .ova's headers; the first member must be the descriptor.
 func (s *applianceSource) walkOVA() error {
-	f, err := os.Open(s.Path)
+	f, st, err := openPlainAt(s.Dir, filepath.Base(s.Path), nil)
 	if err != nil {
 		return err
 	}
 	defer f.Close()
+	s.Infos[""] = st
 	tr := tar.NewReader(f)
 	for first := true; ; first = false {
 		h, err := tr.Next()
@@ -147,17 +175,44 @@ func (s *applianceSource) walkOVA() error {
 	return nil
 }
 
+// openPlainAt opens name in dir without following a symbolic link and without blocking (a FIFO
+// cannot hang it) and checks it is a plain file; with want set, it must be that very file (same
+// device and inode), so a file swapped since pass 1 is refused.
+func openPlainAt(dir *os.File, name string, want os.FileInfo) (*os.File, os.FileInfo, error) {
+	fd, err := unix.Openat(int(dir.Fd()), name, unix.O_RDONLY|unix.O_NOFOLLOW|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
+	if errors.Is(err, unix.ELOOP) {
+		return nil, nil, fmt.Errorf("%s is not a plain file (a link): refusing it", name)
+	}
+	if err != nil {
+		return nil, nil, &os.PathError{Op: "open", Path: name, Err: err}
+	}
+	f := os.NewFile(uintptr(fd), name)
+	st, err := f.Stat()
+	if err == nil && !st.Mode().IsRegular() {
+		err = fmt.Errorf("%s is not a plain file (a link or a device): refusing it", name)
+	}
+	if err == nil && want != nil && (!os.SameFile(st, want) || st.Size() != want.Size()) {
+		err = fmt.Errorf("%s changed since the appliance was checked", name)
+	}
+	if err != nil {
+		f.Close()
+		return nil, nil, err
+	}
+	return f, st, nil
+}
+
 // walkOVF reads an .ovf and lists its folder's files the descriptor may reference; each must be a
-// plain file (no link).
+// plain file (no link), and is remembered so pass 2 opens the same one.
 func (s *applianceSource) walkOVF() error {
-	st, err := os.Lstat(s.Path)
+	f, st, err := openPlainAt(s.Dir, filepath.Base(s.Path), nil)
 	if err != nil {
 		return err
 	}
-	if !st.Mode().IsRegular() || st.Size() > maxDescriptor {
-		return errors.New("the descriptor is not a plain file of at most 4 MiB")
+	defer f.Close()
+	if st.Size() > maxDescriptor {
+		return errors.New("the descriptor is larger than 4 MiB")
 	}
-	if s.Descriptor, err = os.ReadFile(s.Path); err != nil {
+	if s.Descriptor, err = io.ReadAll(io.LimitReader(f, maxDescriptor)); err != nil {
 		return err
 	}
 	s.DescName = filepath.Base(s.Path)
@@ -166,39 +221,42 @@ func (s *applianceSource) walkOVF() error {
 	if err != nil {
 		return fmt.Errorf("%s: %w", s.DescName, err)
 	}
-	dir := filepath.Dir(s.Path)
 	names := []string{strings.TrimSuffix(s.DescName, filepath.Ext(s.DescName)) + ".mf"}
 	for _, f := range a.Files {
 		names = append(names, f.Href)
 	}
-	for i, n := range names {
+	for _, n := range names {
 		if err := memberName(n); err != nil {
 			return err
 		}
-		st, err := os.Lstat(filepath.Join(dir, n))
-		if i == 0 && errors.Is(err, os.ErrNotExist) {
-			continue // no manifest
+		g, lst, err := openPlainAt(s.Dir, n, nil)
+		if errors.Is(err, os.ErrNotExist) {
+			continue // no manifest; a missing referenced file is reported by openAppliance
 		}
 		if err != nil {
-			continue // a missing referenced file is reported by openAppliance
-		}
-		if !st.Mode().IsRegular() {
-			return fmt.Errorf("%s is not a plain file (a link or a device): refusing it", n)
-		}
-		if err := s.add(n, st.Size()); err != nil {
 			return err
 		}
+		g.Close()
+		if err := s.add(n, lst.Size()); err != nil {
+			return err
+		}
+		s.Infos[n] = lst
 	}
 	return nil
 }
 
-// diskBytes is the size of the files the import extracts: every referenced file.
-func (s *applianceSource) diskBytes() int64 {
+// extractBytes is the size of everything the import extracts (every referenced file and the
+// manifest), refused when the sum overflows.
+func (s *applianceSource) extractBytes() (int64, error) {
 	var n int64
-	for _, f := range s.Appliance.Files {
-		n += s.Sizes[f.Href]
+	for _, name := range append(hrefs(s.Appliance.Files), s.Manifest) {
+		size := s.Sizes[name]
+		if size < 0 || n > math.MaxInt64/4-size { // callers add a reserve and double it for progress
+			return 0, errors.New("the appliance's files are impossibly large")
+		}
+		n += size
 	}
-	return n
+	return n, nil
 }
 
 // extractReserve is kept free besides an import's files.

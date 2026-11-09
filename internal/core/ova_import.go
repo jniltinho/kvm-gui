@@ -20,10 +20,16 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
+
+	"golang.org/x/sys/unix"
 )
 
 // maxDiskBytes bounds an imported disk's virtual size (spec: refused over 16 TiB).
 const maxDiskBytes = 16 << 40
+
+// maxSlug bounds the folder name an import derives from the appliance's VM name.
+const maxSlug = 64
 
 // ImportPreview is what an import would create (spec "Preview before import").
 type ImportPreview struct {
@@ -35,18 +41,23 @@ type ImportPreview struct {
 }
 
 // PlanImport is the dry run of ImportAppliance: pass 1, the mapping, the destination folder and
-// the space check. It writes nothing.
+// the space check. It writes nothing, not even the destination's parent folders.
 func PlanImport(src string, o ImportOptions) (ImportPreview, error) {
-	_, pv, err := planAppliance(src, o)
+	s, pv, err := planAppliance(src, o)
+	s.Close()
 	return pv, err
 }
 
-func planAppliance(src string, o ImportOptions) (*applianceSource, ImportPreview, error) {
-	var pv ImportPreview
+func planAppliance(src string, o ImportOptions) (_ *applianceSource, pv ImportPreview, err error) {
 	s, err := openAppliance(src)
 	if err != nil {
 		return nil, pv, err
 	}
+	defer func() {
+		if err != nil {
+			s.Close()
+		}
+	}()
 	h := SystemHost()
 	p, err := planImport(s.Appliance, o, h.MemTotalMiB(), runtime.NumCPU())
 	if err != nil {
@@ -55,15 +66,23 @@ func planAppliance(src string, o ImportOptions) (*applianceSource, ImportPreview
 	p.Config.Name = freeName(p.Config.Name) // the name it will really get, shown in the preview
 	folder := o.Folder
 	if folder == "" {
-		folder = VMFolder(p.Config.Name) // under the workspace, often "~/KVM-VMs"
+		slug := Slug(p.Config.Name)
+		if len(slug) > maxSlug {
+			slug = strings.TrimRight(slug[:maxSlug], "-")
+		}
+		folder = filepath.Join(WorkspaceRoot(), slug) // the workspace is often "~/KVM-VMs"
 	}
 	if folder, err = (Config{Workspace: folder}).WorkspaceDir(); err != nil { // "~" expanded, absolute only
 		return nil, pv, err
 	}
 	if o.Folder == "" {
-		folder = freeFolder(folder)
-	} else if _, err := os.Stat(folder); err == nil {
+		if folder, err = freeFolder(folder); err != nil {
+			return nil, pv, err
+		}
+	} else if _, err := os.Lstat(folder); err == nil {
 		return nil, pv, fmt.Errorf("%s already exists: choose another folder", folder)
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return nil, pv, err
 	}
 	p.Config.Workspace = folder
 	if err := validatePlan(p.Config); err != nil {
@@ -72,19 +91,77 @@ func planAppliance(src string, o ImportOptions) (*applianceSource, ImportPreview
 	if s.Manifest == "" {
 		p.Notes = append(p.Notes, "the appliance has no manifest: its files' integrity cannot be checked")
 	}
-	pv = ImportPreview{Config: p.Config, Folder: folder, Notes: p.Notes, NeedBytes: s.diskBytes() + extractReserve}
+	need, err := s.extractBytes()
+	if err != nil {
+		return nil, pv, err
+	}
+	pv = ImportPreview{Config: p.Config, Folder: folder, Notes: append([]string{}, p.Notes...), Disks: []string{}, NeedBytes: need + extractReserve}
 	for i, d := range p.Disks {
 		pv.Disks = append(pv.Disks, fmt.Sprintf("%s: %.1f GiB, %s (from %s)", d.Path, float64(d.Capacity)/(1<<30), strings.ToUpper(p.Config.Disks[i].Bus), d.Href))
 	}
+	// The space check runs on the nearest folder that exists: nothing is created before the import.
 	parent := filepath.Dir(folder)
-	if err := os.MkdirAll(parent, 0o755); err != nil {
-		return nil, pv, err
-	}
-	if free, err := freeBytes(parent); err == nil && free < pv.NeedBytes {
+	if free, err := freeBytes(existingAncestor(parent)); err == nil && free < pv.NeedBytes {
 		return nil, pv, fmt.Errorf("the import needs %.1f GiB free in %s to extract the appliance, and %.1f GiB are free",
 			float64(pv.NeedBytes)/(1<<30), parent, float64(free)/(1<<30))
 	}
 	return s, pv, nil
+}
+
+// existingAncestor is dir or its nearest parent that exists.
+func existingAncestor(dir string) string {
+	for {
+		if _, err := os.Stat(dir); err == nil || dir == filepath.Dir(dir) {
+			return dir
+		}
+		dir = filepath.Dir(dir)
+	}
+}
+
+// ownedDir is a folder an import created, with its identity: a folder put at that path later by
+// someone else is not removed.
+type ownedDir struct {
+	path string
+	info os.FileInfo
+}
+
+// mkdirsOwned creates dir and its missing parents one by one and returns the folders this call
+// created, deepest first; a folder someone else created meanwhile is not one of them.
+func mkdirsOwned(dir string) ([]ownedDir, error) {
+	var missing []string
+	for d := dir; ; d = filepath.Dir(d) {
+		if _, err := os.Stat(d); err == nil || d == filepath.Dir(d) {
+			break
+		}
+		missing = append(missing, d)
+	}
+	var created []ownedDir
+	for i := len(missing) - 1; i >= 0; i-- {
+		err := os.Mkdir(missing[i], 0o755)
+		if errors.Is(err, os.ErrExist) {
+			continue
+		}
+		var st os.FileInfo
+		if err == nil {
+			st, err = os.Lstat(missing[i])
+		}
+		if err != nil {
+			removeOwned(created)
+			return nil, err
+		}
+		created = append([]ownedDir{{missing[i], st}}, created...)
+	}
+	return created, nil
+}
+
+// removeOwned removes the folders mkdirsOwned created, deepest first, each only while empty: rmdir
+// never removes a file, even one put in a folder's place meanwhile.
+func removeOwned(dirs []ownedDir) {
+	for _, d := range dirs {
+		if st, err := os.Lstat(d.path); err == nil && os.SameFile(st, d.info) {
+			unix.Rmdir(d.path)
+		}
+	}
 }
 
 // freeName is name, or the first free "name (imported)", "name (imported 2)"... as
@@ -117,48 +194,74 @@ func freeName(name string) string {
 	return name
 }
 
-// freeFolder is dir, or dir-2, dir-3... the first that does not exist.
-func freeFolder(dir string) string {
-	for i := 1; ; i++ {
+// freeFolder is dir, or dir-2, dir-3... the first that does not exist; another error than "does
+// not exist" (a name too long, no permission) is returned.
+func freeFolder(dir string) (string, error) {
+	for i := 1; i <= 1000; i++ {
 		d := dir
 		if i > 1 {
 			d = fmt.Sprintf("%s-%d", dir, i)
 		}
-		if _, err := os.Lstat(d); errors.Is(err, os.ErrNotExist) {
-			return d
+		_, err := os.Lstat(d)
+		if errors.Is(err, os.ErrNotExist) {
+			return d, nil
+		}
+		if err != nil {
+			return "", err
 		}
 	}
+	return "", fmt.Errorf("no free folder name next to %s", dir)
 }
 
 // ImportAppliance imports an .ova or .ovf as a new Linux, Windows or Other VM (design D6-D8):
-// files extracted into a staging folder beside the destination with their digests checked,
-// each disk's header checked, then inspected and converted to qcow2 by qemu-img with its
-// declared format, the folder renamed into place and the VM registered last. Any failure or
-// cancellation removes what it wrote. progress gets bytes done of the total.
+// files extracted into a private payload folder inside a staging folder (0700) beside the
+// destination, their digests checked, each disk's header checked, then inspected and converted
+// to qcow2 (0600) by qemu-img with its declared format. Only the converted disks are published,
+// by a rename that never replaces anything, and the VM is registered last. Any failure or
+// cancellation removes what it wrote, parent folders it created included. progress gets bytes
+// done of the total.
 func ImportAppliance(ctx context.Context, src string, o ImportOptions, progress func(done, total int64)) (VMEntry, error) {
 	s, pv, err := planAppliance(src, o)
 	if err != nil {
 		return VMEntry{}, err
 	}
+	defer s.Close()
 	p, err := planImport(s.Appliance, o, SystemHost().MemTotalMiB(), runtime.NumCPU())
 	if err != nil {
 		return VMEntry{}, err
 	}
 	p.Config = pv.Config
-	stage, err := os.MkdirTemp(filepath.Dir(pv.Folder), ".import-")
+	parent := filepath.Dir(pv.Folder)
+	created, err := mkdirsOwned(parent) // made by this import: removed again on failure if still empty
 	if err != nil {
 		return VMEntry{}, err
 	}
-	owned := stage // removed on any failure until the VM is registered
+	owned := ""
 	defer func() {
 		if owned != "" {
 			os.RemoveAll(owned)
 		}
+		removeOwned(created)
 	}()
-	if err := os.Chmod(stage, 0o755); err != nil {
+	stage, err := os.MkdirTemp(parent, ".import-") // 0700: the guest's disks are the user's only
+	if err != nil {
 		return VMEntry{}, err
 	}
-	total := s.diskBytes() * 2 // extraction, then conversion
+	owned = stage // removed on any failure until the VM is registered
+	// The appliance's own files never become the VM's: a converted disk could otherwise collide
+	// with a referenced file of the same name, and an OVMF_VARS.fd in it would be published.
+	payload := filepath.Join(stage, ".payload")
+	if err := os.Mkdir(payload, 0o700); err != nil {
+		return VMEntry{}, err
+	}
+	need, err := s.extractBytes()
+	if err != nil {
+		return VMEntry{}, err
+	}
+	total := need // extraction, then each disk's conversion
+	for _, d := range p.Disks {
+		total += s.Sizes[d.Href]
+	}
 	var done int64
 	report := func(n int64) {
 		done += n
@@ -166,19 +269,19 @@ func ImportAppliance(ctx context.Context, src string, o ImportOptions, progress 
 			progress(min(done, total), total)
 		}
 	}
-	sums, err := s.extract(ctx, stage, report)
+	sums, err := s.extract(ctx, payload, report)
 	if err != nil {
 		return VMEntry{}, err
 	}
-	if err := s.checkManifest(stage, sums); err != nil {
+	if err := s.checkManifest(payload, sums); err != nil {
 		return VMEntry{}, err
 	}
 	for _, d := range p.Disks {
-		in := filepath.Join(stage, d.Href)
-		size := s.Sizes[d.Href]
+		in := filepath.Join(payload, d.Href)
+		size, base := s.Sizes[d.Href], done
 		if err := convertImported(ctx, in, d, filepath.Join(stage, d.Path), func(f float64) {
 			if progress != nil {
-				progress(min(done+int64(f*float64(size)), total), total)
+				progress(min(base+int64(f*float64(size)), total), total)
 			}
 		}); err != nil {
 			return VMEntry{}, fmt.Errorf("%s: %w", d.Href, err)
@@ -188,15 +291,14 @@ func ImportAppliance(ctx context.Context, src string, o ImportOptions, progress 
 			return VMEntry{}, err
 		}
 	}
-	for _, name := range []string{s.DescName, s.Manifest} {
-		if name != "" {
-			os.Remove(filepath.Join(stage, name))
-		}
+	// The rest (VirtualBox's NVRAM, a certificate, the manifest) was only checked.
+	if err := os.RemoveAll(payload); err != nil {
+		return VMEntry{}, err
 	}
 	if err := ctx.Err(); err != nil {
 		return VMEntry{}, err
 	}
-	if err := os.Rename(stage, pv.Folder); err != nil {
+	if err := unix.Renameat2(unix.AT_FDCWD, stage, unix.AT_FDCWD, pv.Folder, unix.RENAME_NOREPLACE); err != nil {
 		return VMEntry{}, fmt.Errorf("moving the imported VM into %s: %w", pv.Folder, err)
 	}
 	owned = pv.Folder
@@ -204,12 +306,13 @@ func ImportAppliance(ctx context.Context, src string, o ImportOptions, progress 
 	if err != nil {
 		return VMEntry{}, err
 	}
-	owned = ""
+	owned, created = "", nil
 	return e, nil
 }
 
 // extract runs pass 2 (D6): every referenced file and the manifest into dir, hashing each; the
-// descriptor's digests come from the copy pass 1 read.
+// descriptor's digests come from the copy pass 1 read. An .ovf's files are opened without
+// following links and must be the very files pass 1 saw.
 func (s *applianceSource) extract(ctx context.Context, dir string, report func(int64)) (map[string][2]string, error) {
 	sums := map[string][2]string{}
 	want := map[string]bool{}
@@ -245,7 +348,7 @@ func (s *applianceSource) extract(ctx context.Context, dir string, report func(i
 	}
 	if !s.OVA {
 		for name := range want {
-			f, err := os.Open(filepath.Join(filepath.Dir(s.Path), name))
+			f, _, err := openPlainAt(s.Dir, name, s.Infos[name])
 			if err != nil {
 				return nil, err
 			}
@@ -257,7 +360,7 @@ func (s *applianceSource) extract(ctx context.Context, dir string, report func(i
 		}
 		return sums, nil
 	}
-	f, err := os.Open(s.Path)
+	f, _, err := openPlainAt(s.Dir, filepath.Base(s.Path), s.Infos[""])
 	if err != nil {
 		return nil, err
 	}
@@ -291,17 +394,18 @@ func (s *applianceSource) extract(ctx context.Context, dir string, report func(i
 var manifestLine = regexp.MustCompile(`^(SHA1|SHA256)\s*\(([^)]+)\)\s*=\s*([0-9a-fA-F]+)$`)
 
 // checkManifest verifies the manifest (D6): SHA1 or SHA256 lines, one per file, covering the
-// descriptor and every referenced file, each matching.
+// descriptor and every referenced file, each matching. It is read through a bounded reader.
 func (s *applianceSource) checkManifest(dir string, sums map[string][2]string) error {
 	if s.Manifest == "" {
 		return nil
 	}
-	b, err := os.ReadFile(filepath.Join(dir, s.Manifest))
+	f, err := os.Open(filepath.Join(dir, s.Manifest))
 	if err != nil {
 		return err
 	}
+	defer f.Close()
 	seen := map[string]bool{}
-	sc := bufio.NewScanner(bytes.NewReader(b))
+	sc := bufio.NewScanner(io.LimitReader(f, maxSmallFile))
 	for sc.Scan() {
 		line := strings.TrimSpace(sc.Text())
 		if line == "" {
@@ -327,6 +431,9 @@ func (s *applianceSource) checkManifest(dir string, sums map[string][2]string) e
 		if !strings.EqualFold(have, m[3]) {
 			return fmt.Errorf("%s does not match its digest in the manifest: the appliance is damaged or was changed", name)
 		}
+	}
+	if err := sc.Err(); err != nil {
+		return fmt.Errorf("the manifest cannot be read: %w", err)
 	}
 	for _, name := range append([]string{s.DescName}, hrefs(s.Appliance.Files)...) {
 		if !seen[name] {
@@ -364,8 +471,15 @@ func (c *ctxReader) Read(p []byte) (int, error) {
 
 // --- disks ---------------------------------------------------------------------------------
 
+var (
+	vmdkCreateType = regexp.MustCompile(`(?m)^[ \t]*createType[ \t]*=[ \t]*"([^"]*)"`)
+	vmdkExtent     = regexp.MustCompile(`(?m)^[ \t]*(RW|RDONLY|NOACCESS)[ \t]+\d+[ \t]+(\S+)`)
+	vmdkExtentAny  = regexp.MustCompile(`(?m)^[ \t]*(RW|RDONLY|NOACCESS)[ \t]`)
+	vmdkParent     = regexp.MustCompile(`(?m)^[ \t]*parent(CID[ \t]*=[ \t]*(\S+)|FileNameHint)`)
+)
+
 // checkDiskHeader reads an extracted disk's header itself before qemu-img opens it (D7): qemu-img
-// opens a VMDK's extents and a qcow2's backing file while reading metadata.
+// opens a VMDK's extents and parent and a qcow2's backing file while reading metadata.
 func checkDiskHeader(path, format string) error {
 	f, err := os.Open(path)
 	if err != nil {
@@ -393,11 +507,16 @@ func checkDiskHeader(path, format string) error {
 		if n < 512 || string(hdr[:4]) != "KDMV" {
 			return errors.New("it is not a single-file VMDK (sparse or streamOptimized): VMDKs whose data is in other files are refused")
 		}
+		// A zero capacity makes QEMU read the embedded descriptor as a descriptor file, extents and
+		// all (block/vmdk.c): only a real sparse extent is accepted.
+		if binary.LittleEndian.Uint64(hdr[12:20]) == 0 {
+			return errors.New("its header declares no capacity: refusing it")
+		}
 		descOff, descSize := binary.LittleEndian.Uint64(hdr[28:36]), binary.LittleEndian.Uint64(hdr[36:44])
 		if descOff == 0 {
-			return nil // no embedded descriptor: one extent, this file
+			return nil // no embedded descriptor: one extent, this file, no parent
 		}
-		if descSize == 0 || descSize > 128 { // sectors: 64 KiB is far more than any descriptor needs
+		if descSize == 0 || descSize > 128 || descOff > 1<<40 { // sectors: 64 KiB is far more than any descriptor needs
 			return errors.New("its embedded descriptor has an invalid size")
 		}
 		desc := make([]byte, descSize*512)
@@ -405,28 +524,49 @@ func checkDiskHeader(path, format string) error {
 			return fmt.Errorf("reading its embedded descriptor: %w", err)
 		}
 		text := string(bytes.TrimRight(desc, "\x00"))
-		ct := regexp.MustCompile(`(?m)^\s*createType\s*=\s*"([^"]*)"`).FindStringSubmatch(text)
-		if ct == nil || (ct[1] != "monolithicSparse" && ct[1] != "streamOptimized") {
+		ct := vmdkCreateType.FindAllStringSubmatch(text, -1)
+		if len(ct) != 1 || (ct[0][1] != "monolithicSparse" && ct[0][1] != "streamOptimized") {
 			return errors.New("it is not a single-file VMDK (sparse or streamOptimized): refusing it")
 		}
-		if ext := regexp.MustCompile(`(?m)^\s*(RW|RDONLY|NOACCESS)\s`).FindAllString(text, -1); len(ext) != 1 {
-			return fmt.Errorf("its descriptor lists %d extents: only single-file VMDKs are accepted", len(ext))
+		ext := vmdkExtent.FindAllStringSubmatch(text, -1)
+		if n := len(vmdkExtentAny.FindAllString(text, -1)); n != 1 || len(ext) != 1 || ext[0][2] != "SPARSE" {
+			return fmt.Errorf("its descriptor lists %d extents: only a single sparse extent is accepted", n)
+		}
+		for _, m := range vmdkParent.FindAllStringSubmatch(text, -1) {
+			if strings.HasPrefix(m[1], "FileNameHint") || !strings.EqualFold(strings.Trim(m[2], `"`), "ffffffff") {
+				return errors.New("it is a delta of another disk (it has a parent): refusing it")
+			}
 		}
 		return nil
 	}
 	return fmt.Errorf("format %q is not supported", format)
 }
 
-// qemuImgLimited runs qemu-img under prlimit (D7): an address space bound, and a time bound for
-// quick commands (0: none).
+// limited is qemu-img args under prlimit (D7): an address space bound, and for quick commands a
+// CPU-time bound (seconds, 0: none). Without prlimit an untrusted image is not processed.
+func limited(asBytes int64, seconds int, args ...string) (string, []string, error) {
+	p, err := exec.LookPath("prlimit") // util-linux: on every supported distribution
+	if err != nil {
+		return "", nil, errors.New("prlimit (util-linux) is missing: kvm-gui does not process an appliance's disks without resource limits")
+	}
+	pre := []string{"--as=" + strconv.FormatInt(asBytes, 10)}
+	if seconds > 0 {
+		pre = append(pre, "--cpu="+strconv.Itoa(seconds))
+	}
+	return p, append(append(pre, "--", "qemu-img"), args...), nil
+}
+
+// qemuImgLimited runs a quick qemu-img command under limited, with a wall-clock timeout of twice
+// its CPU time (0: none).
 func qemuImgLimited(ctx context.Context, asBytes int64, seconds int, args ...string) ([]byte, error) {
-	name, full := "qemu-img", args
-	if p, err := exec.LookPath("prlimit"); err == nil { // util-linux: on every supported distribution
-		pre := []string{"--as=" + strconv.FormatInt(asBytes, 10)}
-		if seconds > 0 {
-			pre = append(pre, "--cpu="+strconv.Itoa(seconds))
-		}
-		name, full = p, append(append(pre, "--", "qemu-img"), args...)
+	name, full, err := limited(asBytes, seconds, args...)
+	if err != nil {
+		return nil, err
+	}
+	if seconds > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 2*time.Duration(seconds)*time.Second)
+		defer cancel()
 	}
 	cmd := exec.CommandContext(ctx, name, full...)
 	var stderr bytes.Buffer
@@ -457,7 +597,25 @@ type imgInfo struct {
 	} `json:"format-specific"`
 }
 
-// convertImported checks an extracted disk (D7) and converts it to qcow2 at out.
+// qemu-img -p prints its progress as "    (12.34/100%)".
+var convertPct = regexp.MustCompile(`\(([0-9.]+)/100%\)`)
+
+// convertLimited runs qemu-img convert -p under limited, reporting the fraction done.
+func convertLimited(ctx context.Context, progress func(float64), args ...string) error {
+	name, full, err := limited(4<<30, 0, append([]string{"convert", "-p"}, args...)...)
+	if err != nil {
+		return err
+	}
+	return runStream(ctx, "", func(line string) {
+		if m := convertPct.FindStringSubmatch(line); m != nil && progress != nil {
+			if f, err := strconv.ParseFloat(m[1], 64); err == nil {
+				progress(f / 100)
+			}
+		}
+	}, name, full...)
+}
+
+// convertImported checks an extracted disk (D7) and converts it to qcow2 at out, 0600.
 func convertImported(ctx context.Context, in string, d plannedDisk, out string, progress func(float64)) error {
 	if err := checkDiskHeader(in, d.Format); err != nil {
 		return err
@@ -506,12 +664,16 @@ func convertImported(ctx context.Context, in string, d plannedDisk, out string, 
 	if free, err := freeBytes(filepath.Dir(out)); err == nil && free < m.Required+extractReserve {
 		return fmt.Errorf("converting it needs %.1f GiB free, and %.1f GiB are free", float64(m.Required+extractReserve)/(1<<30), float64(free)/(1<<30))
 	}
-	if _, err := qemuImgLimited(ctx, 4<<30, 0, "convert", "-f", d.Format, "-O", "qcow2", "-o", "compat=1.1", in, out); err != nil {
+	if err := convertLimited(ctx, progress, "-f", d.Format, "-O", "qcow2", "-o", "compat=1.1", in, out); err != nil {
 		os.Remove(out)
 		return err
 	}
 	if progress != nil {
 		progress(1)
+	}
+	if err := os.Chmod(out, 0o600); err != nil {
+		os.Remove(out)
+		return err
 	}
 	if err := checkStandaloneDisk(out); err != nil {
 		os.Remove(out)

@@ -25,7 +25,7 @@ type ExportOptions struct {
 // caller shows them before it starts.
 func ExportNotes(e VMEntry) []string {
 	c := e.Config
-	var notes []string
+	notes := []string{}
 	if snaps, err := listSnapshots(e.ID, false); err == nil && len(snaps) > 0 {
 		notes = append(notes, fmt.Sprintf("its %d snapshot(s) are not included: the appliance holds each disk's current state", len(snaps)))
 	}
@@ -39,7 +39,7 @@ func ExportNotes(e VMEntry) []string {
 		notes = append(notes, "Secure Boot is not carried: turn it on again in VirtualBox (Settings › System)")
 	}
 	for i, d := range c.Disks {
-		if d.Bus != BusSATA {
+		if d.Bus != BusSATA && d.Bus != BusNVMe {
 			notes = append(notes, fmt.Sprintf("disk %d is %s here and goes on a SATA controller there: the guest needs its AHCI driver at boot", i+1, strings.ToUpper(d.Bus)))
 		}
 	}
@@ -50,6 +50,7 @@ func ExportNotes(e VMEntry) []string {
 // the appliance.
 type exportDisk struct {
 	Src, Format, Href, UUID string
+	NVMe                    bool // on the NVMe controller; every other disk is on SATA
 	Capacity                uint64
 }
 
@@ -98,14 +99,47 @@ func ExportAppliance(ctx context.Context, e VMEntry, dst string, o ExportOptions
 		if format == "" {
 			format = "qcow2"
 		}
-		disks = append(disks, exportDisk{Src: p, Format: format, Href: fmt.Sprintf("%s-disk%d.vmdk", Slug(c.Name), i+1), UUID: newUUID()})
+		disks = append(disks, exportDisk{Src: p, Format: format, Href: fmt.Sprintf("%s-disk%d.vmdk", Slug(c.Name), i+1), UUID: newUUID(), NVMe: d.Bus == BusNVMe})
 		used = append(used, p)
 	}
 	used = append(used, c.Optical...)
+	// Disks only a snapshot still names (qcow2, as snapshots need), and every file a disk depends on
+	// (backing chain, external data files), are the VM's too.
+	roots := map[string]string{}
+	for _, d := range disks {
+		roots[d.Src] = d.Format
+	}
+	snaps, err := listSnapshots(e.ID, true)
+	if err != nil {
+		return err
+	}
+	for _, sn := range snaps {
+		for _, d := range sn.Manifest.Disks {
+			if !filepath.IsAbs(d) {
+				d = filepath.Join(dir, d)
+			}
+			used = append(used, d)
+			if _, ok := roots[d]; !ok {
+				if _, err := os.Stat(d); err == nil {
+					roots[d] = "qcow2"
+				}
+			}
+		}
+	}
+	for src, format := range roots {
+		deps, err := diskDependencies(ctx, src, format)
+		if err != nil {
+			return err
+		}
+		used = append(used, deps...)
+	}
 	for _, u := range used {
 		if u != "" && sameFile(u, dst) {
 			return fmt.Errorf("the destination %s is a file the VM uses: choose another one", dst)
 		}
+	}
+	if err := outsideVM(dir, dst); err != nil {
+		return err
 	}
 	unlock, err := (&VM{ID: e.ID}).lockRun(NewWorkspace(dir), c) // no start while the disks are read
 	if err != nil {
@@ -118,6 +152,11 @@ func ExportAppliance(ctx context.Context, e VMEntry, dst string, o ExportOptions
 	}
 	defer os.RemoveAll(stage)
 	var total, done int64
+	report := func(n int64) {
+		if progress != nil {
+			progress(min(n, total), total)
+		}
+	}
 	for i := range disks {
 		b, err := qemuImgLimited(ctx, 2<<30, 120, "info", "-f", disks[i].Format, "--output=json", disks[i].Src)
 		if err != nil {
@@ -127,8 +166,11 @@ func ExportAppliance(ctx context.Context, e VMEntry, dst string, o ExportOptions
 		if err := json.Unmarshal(b, &info); err != nil {
 			return err
 		}
-		disks[i].Capacity = info.VirtualSize
-		total += int64(info.VirtualSize)
+		if info.VirtualSize > maxDiskBytes {
+			return fmt.Errorf("disk %d is over the 16 TiB kvm-gui exports", i+1)
+		}
+		disks[i].Capacity = vmdkCapacity(int64(info.VirtualSize)) * vmdkSector // the VMDK's, in whole grains
+		total += 2 * int64(disks[i].Capacity)                                  // conversion to raw, then the stream
 	}
 	for _, d := range disks {
 		if err := ctx.Err(); err != nil {
@@ -138,20 +180,16 @@ func ExportAppliance(ctx context.Context, e VMEntry, dst string, o ExportOptions
 		// streamOptimized output fails there (task 3.0): qemu-img writes a sparse raw image, and
 		// kvm-gui's own writer turns it into the stream layout VirtualBox reads.
 		raw := filepath.Join(stage, d.Href+".raw")
-		if _, err := qemuImgLimited(ctx, 4<<30, 0, "convert", "-f", d.Format, "-O", "raw", d.Src, raw); err != nil {
+		base, size := done, int64(d.Capacity)
+		if err := convertLimited(ctx, func(f float64) { report(base + int64(f*float64(size))) }, "-f", d.Format, "-O", "raw", d.Src, raw); err != nil {
 			return err
 		}
-		base := done
-		err := writeStreamVMDK(ctx, raw, filepath.Join(stage, d.Href), func(n, _ int64) {
-			if progress != nil {
-				progress(base+n, total)
-			}
-		})
+		err := writeStreamVMDK(ctx, raw, filepath.Join(stage, d.Href), func(n, _ int64) { report(base + size + n) })
 		os.Remove(raw)
 		if err != nil {
 			return err
 		}
-		done += int64(d.Capacity)
+		done += 2 * size
 	}
 	ovf := []byte(writeOVF(c, disks))
 	tmp, err := os.CreateTemp(filepath.Dir(dst), "."+filepath.Base(dst)+".")
@@ -183,12 +221,82 @@ func ExportAppliance(ctx context.Context, e VMEntry, dst string, o ExportOptions
 	return nil
 }
 
+// diskDependencies is every file the disk at src reads: its backing chain and external data files.
+func diskDependencies(ctx context.Context, src, format string) ([]string, error) {
+	b, err := qemuImgLimited(ctx, 2<<30, 120, "info", "--backing-chain", "-U", "-f", format, "--output=json", src)
+	if err != nil {
+		return nil, err
+	}
+	var chain []struct {
+		Filename string `json:"filename"`
+		Spec     struct {
+			Data struct {
+				DataFile string `json:"data-file"`
+			} `json:"data"`
+		} `json:"format-specific"`
+	}
+	if err := json.Unmarshal(b, &chain); err != nil {
+		return nil, fmt.Errorf("reading qemu-img info: %w", err)
+	}
+	var out []string
+	for _, f := range chain {
+		out = append(out, f.Filename)
+		if df := f.Spec.Data.DataFile; df != "" {
+			// A relative data file is opened from the working directory, not the image's: both count.
+			if abs, err := filepath.Abs(df); err == nil {
+				out = append(out, abs)
+			}
+			if !filepath.IsAbs(df) {
+				out = append(out, filepath.Join(filepath.Dir(f.Filename), df))
+			}
+		}
+	}
+	return out, nil
+}
+
+// outsideVM refuses a destination inside the VM's folder (its configuration, UEFI variables,
+// TPM state, snapshots), or a link to any file there.
+func outsideVM(vmDir, dst string) error {
+	parent, err := filepath.EvalSymlinks(filepath.Dir(dst))
+	if err != nil {
+		return err
+	}
+	if real, err := filepath.EvalSymlinks(vmDir); err == nil {
+		if rel, err := filepath.Rel(real, parent); err == nil && rel != ".." && !strings.HasPrefix(rel, "../") {
+			return fmt.Errorf("the destination %s is inside the VM's folder: choose another folder", dst)
+		}
+	}
+	st, err := os.Stat(dst)
+	if err != nil {
+		return nil // nothing there yet: nothing of the VM's can be replaced
+	}
+	return filepath.WalkDir(vmDir, func(p string, d os.DirEntry, err error) error {
+		if err != nil || d.IsDir() {
+			return nil
+		}
+		if fi, err := os.Stat(p); err == nil && os.SameFile(fi, st) {
+			return fmt.Errorf("the destination %s is a file of the VM's (%s): choose another one", dst, filepath.Base(p))
+		}
+		return nil
+	})
+}
+
+// tarHeader is a member's header: plain ustar, or GNU (sizes in base-256) for a member of 8 GiB
+// or more, which ustar cannot record; VirtualBox's own .ova writer uses the GNU format.
+func tarHeader(name string, size int64) *tar.Header {
+	format := tar.FormatUSTAR
+	if size >= 1<<33 {
+		format = tar.FormatGNU
+	}
+	return &tar.Header{Name: name, Mode: 0o644, Size: size, Typeflag: tar.TypeReg, Format: format}
+}
+
 // writeOVA writes descriptor, disks and the SHA-256 manifest, in that order, and syncs.
 func writeApplianceTar(ctx context.Context, f *os.File, base string, ovf []byte, stage string, disks []exportDisk) error {
 	tw := tar.NewWriter(f)
 	var mf strings.Builder
 	add := func(name string, size int64, r io.Reader) error {
-		if err := tw.WriteHeader(&tar.Header{Name: name, Mode: 0o644, Size: size, Typeflag: tar.TypeReg, Format: tar.FormatUSTAR}); err != nil {
+		if err := tw.WriteHeader(tarHeader(name, size)); err != nil {
 			return err
 		}
 		h := sha256.New()
@@ -216,7 +324,7 @@ func writeApplianceTar(ctx context.Context, f *os.File, base string, ovf []byte,
 		}
 	}
 	m := mf.String()
-	if err := tw.WriteHeader(&tar.Header{Name: base + ".mf", Mode: 0o644, Size: int64(len(m)), Typeflag: tar.TypeReg, Format: tar.FormatUSTAR}); err != nil {
+	if err := tw.WriteHeader(tarHeader(base+".mf", int64(len(m)))); err != nil {
 		return err
 	}
 	if _, err := io.WriteString(tw, m); err != nil {
@@ -311,12 +419,26 @@ func writeOVF(c Config, disks []exportDisk) string {
 	item(el("Caption", fmt.Sprintf("%d virtual CPU", c.VCPUs)) + el("ElementName", fmt.Sprintf("%d virtual CPU", c.VCPUs)) + el("ResourceType", "3") + el("VirtualQuantity", fmt.Sprint(c.VCPUs)))
 	item(el("AllocationUnits", "MegaBytes") + el("Caption", fmt.Sprintf("%d MB of memory", c.RAMMiB)) + el("ElementName", fmt.Sprintf("%d MB of memory", c.RAMMiB)) + el("ResourceType", "4") + el("VirtualQuantity", fmt.Sprint(c.RAMMiB)))
 	item(el("Address", "0") + el("Caption", "sataController0") + el("ElementName", "sataController0") + el("ResourceSubType", "AHCI") + el("ResourceType", "20"))
-	sata := id
-	port := 0
-	for i := range disks {
-		item(el("AddressOnParent", fmt.Sprint(port)) + el("Caption", fmt.Sprintf("disk%d", i+1)) + el("ElementName", fmt.Sprintf("disk%d", i+1)) +
-			el("HostResource", fmt.Sprintf("/disk/vmdisk%d", i+1)) + el("Parent", fmt.Sprint(sata)) + el("ResourceType", "17"))
-		port++
+	sata, nvme := id, 0
+	nvmeDisks := 0
+	for _, d := range disks {
+		if d.NVMe {
+			nvmeDisks++
+		}
+	}
+	if nvmeDisks > 0 {
+		item(el("Address", "0") + el("Caption", "nvmeController0") + el("ElementName", "nvmeController0") + el("ResourceSubType", "NVMe") + el("ResourceType", "20"))
+		nvme = id
+	}
+	port, nport := 0, 0
+	for i, d := range disks {
+		parent, addr := sata, &port
+		if d.NVMe {
+			parent, addr = nvme, &nport
+		}
+		item(el("AddressOnParent", fmt.Sprint(*addr)) + el("Caption", fmt.Sprintf("disk%d", i+1)) + el("ElementName", fmt.Sprintf("disk%d", i+1)) +
+			el("HostResource", fmt.Sprintf("/disk/vmdisk%d", i+1)) + el("Parent", fmt.Sprint(parent)) + el("ResourceType", "17"))
+		*addr++
 	}
 	for range c.Optical {
 		item(el("AddressOnParent", fmt.Sprint(port)) + el("AutomaticAllocation", "true") + el("Caption", "cdrom") + el("ElementName", "cdrom") +
@@ -359,14 +481,28 @@ func writeOVF(c Config, disks []exportDisk) string {
 	fmt.Fprintf(&b, "          <StorageController name=\"SATA\" type=\"AHCI\" PortCount=\"%d\" useHostIOCache=\"false\" Bootable=\"true\">\n", max(port, 1))
 	port = 0
 	for _, d := range disks {
-		fmt.Fprintf(&b, "            <AttachedDevice type=\"HardDisk\" hotpluggable=\"false\" port=\"%d\" device=\"0\"><Image uuid=\"{%s}\"/></AttachedDevice>\n", port, d.UUID)
-		port++
+		if !d.NVMe {
+			fmt.Fprintf(&b, "            <AttachedDevice type=\"HardDisk\" hotpluggable=\"false\" port=\"%d\" device=\"0\"><Image uuid=\"{%s}\"/></AttachedDevice>\n", port, d.UUID)
+			port++
+		}
 	}
 	for range c.Optical {
 		fmt.Fprintf(&b, "            <AttachedDevice passthrough=\"false\" type=\"DVD\" hotpluggable=\"false\" port=\"%d\" device=\"0\"/>\n", port)
 		port++
 	}
-	b.WriteString("          </StorageController>\n        </StorageControllers>\n      </Hardware>\n    </vbox:Machine>\n  </VirtualSystem>\n</Envelope>\n")
+	b.WriteString("          </StorageController>\n")
+	if nvmeDisks > 0 {
+		fmt.Fprintf(&b, "          <StorageController name=\"NVMe\" type=\"NVMe\" PortCount=\"%d\" useHostIOCache=\"false\" Bootable=\"true\">\n", nvmeDisks)
+		nport = 0
+		for _, d := range disks {
+			if d.NVMe {
+				fmt.Fprintf(&b, "            <AttachedDevice type=\"HardDisk\" hotpluggable=\"false\" port=\"%d\" device=\"0\"><Image uuid=\"{%s}\"/></AttachedDevice>\n", nport, d.UUID)
+				nport++
+			}
+		}
+		b.WriteString("          </StorageController>\n")
+	}
+	b.WriteString("        </StorageControllers>\n      </Hardware>\n    </vbox:Machine>\n  </VirtualSystem>\n</Envelope>\n")
 	return b.String()
 }
 

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -23,7 +25,27 @@ type importOVAOut struct {
 	ID      string             `json:"id,omitempty" jsonschema:"the new VM's id, when confirm was true"`
 }
 
-func vmImportOVA(ctx context.Context, _ *mcp.CallToolRequest, in importOVAIn) (*mcp.CallToolResult, importOVAOut, error) {
+// byteProgress forwards an import's or export's bytes done as MCP progress (at most once a second)
+// when the client asked for it with a progress token.
+func byteProgress(ctx context.Context, req *mcp.CallToolRequest, stage string) func(done, total int64) {
+	if req == nil || req.Params == nil || req.Session == nil || req.Params.GetProgressToken() == nil {
+		return nil
+	}
+	token := req.Params.GetProgressToken()
+	var mu sync.Mutex
+	var lastSent time.Time
+	return func(done, total int64) {
+		mu.Lock()
+		defer mu.Unlock()
+		if total <= 0 || (time.Since(lastSent) < time.Second && done < total) {
+			return
+		}
+		lastSent = time.Now()
+		req.Session.NotifyProgress(ctx, &mcp.ProgressNotificationParams{ProgressToken: token, Progress: float64(done) * 100 / float64(total), Total: 100, Message: stage})
+	}
+}
+
+func vmImportOVA(ctx context.Context, req *mcp.CallToolRequest, in importOVAIn) (*mcp.CallToolResult, importOVAOut, error) {
 	if !filepath.IsAbs(in.Path) || (in.Folder != "" && !filepath.IsAbs(in.Folder)) {
 		return nil, importOVAOut{}, errors.New("path and folder must be absolute")
 	}
@@ -35,7 +57,7 @@ func vmImportOVA(ctx context.Context, _ *mcp.CallToolRequest, in importOVAIn) (*
 	if !in.Confirm {
 		return nil, importOVAOut{Preview: pv}, nil
 	}
-	e, err := core.ImportAppliance(ctx, in.Path, o, nil)
+	e, err := core.ImportAppliance(ctx, in.Path, o, byteProgress(ctx, req, "importing"))
 	if err != nil {
 		return nil, importOVAOut{}, err
 	}
@@ -54,7 +76,7 @@ type exportOVAOut struct {
 	Notes []string `json:"notes" jsonschema:"what the appliance does not carry"`
 }
 
-func vmExportOVA(ctx context.Context, _ *mcp.CallToolRequest, in exportOVAIn) (*mcp.CallToolResult, exportOVAOut, error) {
+func vmExportOVA(ctx context.Context, req *mcp.CallToolRequest, in exportOVAIn) (*mcp.CallToolResult, exportOVAOut, error) {
 	if !filepath.IsAbs(in.Path) {
 		return nil, exportOVAOut{}, errors.New("path must be absolute")
 	}
@@ -63,11 +85,8 @@ func vmExportOVA(ctx context.Context, _ *mcp.CallToolRequest, in exportOVAIn) (*
 		return nil, exportOVAOut{}, err
 	}
 	notes := core.ExportNotes(e)
-	if err := core.ExportAppliance(ctx, e, in.Path, core.ExportOptions{Overwrite: in.Overwrite, AcceptTPMLoss: in.AcceptTPMLoss}, nil); err != nil {
+	if err := core.ExportAppliance(ctx, e, in.Path, core.ExportOptions{Overwrite: in.Overwrite, AcceptTPMLoss: in.AcceptTPMLoss}, byteProgress(ctx, req, "exporting")); err != nil {
 		return nil, exportOVAOut{}, err
-	}
-	if notes == nil {
-		notes = []string{}
 	}
 	return nil, exportOVAOut{Path: in.Path, Notes: notes}, nil
 }

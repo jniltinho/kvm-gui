@@ -18,28 +18,46 @@ const bridges = ref<string[]>([]);
 const preview = ref<ImportPreview | null>(null);
 const error = ref("");
 const busy = ref(false);
+const planning = ref(false);
+let planSeq = 0; // only the latest plan's answer is shown: an older one may come back last
 const done = ref(0);
 const total = ref(0);
 const bridgeOptions = computed<Option<string>[]>(() => [["", "NAT (bridged adapters become NAT)"], ...bridges.value.map((b) => [b, `Bridge ${b}`] as Option<string>)]);
 const pct = computed(() => (total.value ? Math.round((done.value * 100) / total.value) : 0));
 
 async function plan() {
+  const seq = ++planSeq;
   error.value = "";
+  planning.value = true;
   try {
-    preview.value = await PlanAppliance(path.value, { name: name.value, folder: folder.value, bridge: bridge.value });
-    if (!name.value) name.value = preview.value.config.name;
-    if (!folder.value) folder.value = preview.value.folder;
+    const pv = await PlanAppliance(path.value, { name: name.value, folder: folder.value, bridge: bridge.value });
+    if (seq !== planSeq) return;
+    preview.value = { ...pv, notes: pv.notes ?? [], disks: pv.disks ?? [] };
+    if (!name.value) name.value = pv.config.name;
+    if (!folder.value) folder.value = pv.folder;
   } catch (e) {
+    if (seq !== planSeq) return;
     preview.value = null;
     error.value = String(e);
+  } finally {
+    if (seq === planSeq) planning.value = false;
   }
+}
+function invalidate() {
+  planSeq++; // an answer still on its way is for another path
+  planning.value = false;
+  preview.value = null;
+}
+function pathChanged() {
+  preview.value = null; // the shown appliance is no longer the one Import would read
+  name.value = folder.value = "";
+  void plan();
 }
 async function choose() {
   const p = await PickFile("Import appliance (.ova or .ovf)", "ova").catch(() => "");
   if (!p) return;
   path.value = p;
-  name.value = folder.value = "";
-  await plan();
+  pathChanged();
 }
 async function browse() {
   const p = await PickFolder("Folder for the imported VM").catch(() => "");
@@ -67,7 +85,7 @@ async function run() {
   <Modal title="Import appliance" :width="720" :busy="busy" @close="emit('close')">
     <div class="ia">
       <div class="row">
-        <input v-model="path" class="in grow mono" aria-label="Appliance file" placeholder="An .ova or .ovf file" spellcheck="false" :disabled="busy" @change="plan" />
+        <input v-model="path" class="in grow mono" aria-label="Appliance file" placeholder="An .ova or .ovf file" spellcheck="false" :disabled="busy" @input="invalidate" @change="pathChanged" />
         <button type="button" class="btn" :disabled="busy" @click="choose">Choose…</button>
       </div>
       <p v-if="error" class="note bad" role="alert">{{ error }}</p>
@@ -98,7 +116,7 @@ async function run() {
     </div>
     <template #footer>
       <button v-if="busy" type="button" class="btn" @click="CancelAppliance">Cancel import</button>
-      <button v-else type="button" class="btn primary" :disabled="!preview" @click="run">Import</button>
+      <button v-else type="button" class="btn primary" :disabled="!preview || planning" @click="run">Import</button>
       <button type="button" class="btn" :disabled="busy" @click="emit('close')">Close</button>
     </template>
   </Modal>

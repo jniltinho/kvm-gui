@@ -225,3 +225,32 @@ func TestImportApplianceHomeWorkspace(t *testing.T) {
 		t.Error(err)
 	}
 }
+
+// VirtualBox 7 writes an NVRAM item (type 32768) with its file: imported with a note, the file
+// checked against the manifest and not left in the VM folder (task 4.2).
+func TestImportApplianceNVRAM(t *testing.T) {
+	ws := importEnv(t)
+	raw, _ := rawDisk(t)
+	ovf := strings.NewReplacer(
+		`<References><File ovf:id="file1" ovf:href="d.img"/></References>`, `<References><File ovf:id="file1" ovf:href="d.img"/><File ovf:id="nv" ovf:href="lab.nvram" ovf:size="4"/></References>`,
+		`<Item><rasd:InstanceID>8</rasd:InstanceID><rasd:ResourceType>14</rasd:ResourceType></Item>`, `<Item><rasd:HostResource>ovf:/file/nv</rasd:HostResource><rasd:InstanceID>8</rasd:InstanceID><rasd:ResourceType>32768</rasd:ResourceType></Item>`,
+	).Replace(diskOVF("d.img", "http://example.com/raw", 2<<20))
+	if !strings.Contains(ovf, "32768") {
+		t.Fatal("fixture not built")
+	}
+	b, _ := os.ReadFile(raw)
+	ova := writeOVA(t, tarMember{name: "lab.ovf", data: ovf}, tarMember{name: "lab.nvram", data: "NVRM"}, tarMember{name: "d.img", data: string(b)})
+	pv, err := PlanImport(ova, ImportOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(strings.Join(pv.Notes, "\n"), "NVRAM") {
+		t.Errorf("no NVRAM note: %v", pv.Notes)
+	}
+	if _, err := ImportAppliance(t.Context(), ova, ImportOptions{}, nil); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(ws, "lab", "lab.nvram")); err == nil {
+		t.Error("the NVRAM file was left in the VM folder")
+	}
+}

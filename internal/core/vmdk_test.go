@@ -2,6 +2,7 @@ package core
 
 import (
 	"crypto/rand"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -31,6 +32,11 @@ func TestWriteStreamVMDK(t *testing.T) {
 	}
 	run(t, "qemu-img", "check", "-f", "vmdk", out)
 	run(t, "qemu-img", "compare", "-f", "raw", "-F", "vmdk", raw, out)
+	var info imgInfo
+	b, _ := qemuImgLimited(t.Context(), 2<<30, 60, "info", "-f", "vmdk", "--output=json", out)
+	if json.Unmarshal(b, &info); info.VirtualSize != 70<<20+64<<10 {
+		t.Errorf("virtual size %d, want the image rounded up to whole 64 KiB grains", info.VirtualSize)
+	}
 	if err := checkDiskHeader(out, "vmdk"); err != nil {
 		t.Errorf("kvm-gui's own check refuses it: %v", err)
 	}

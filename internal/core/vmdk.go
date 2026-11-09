@@ -13,8 +13,10 @@ import (
 	"compress/zlib"
 	"context"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 )
@@ -118,7 +120,9 @@ func writeStreamVMDK(ctx context.Context, src, dst string, progress func(done, t
 		return err
 	}
 	size := st.Size()
-	capacity := uint64((size + vmdkSector - 1) / vmdkSector)
+	// Whole grains: VirtualBox refuses a stream whose capacity ends inside a grain (task 4.2, an
+	// ISO-sized disk), so the extent is rounded up to one and the last grain padded with zeros.
+	capacity := vmdkCapacity(size)
 	out, err := os.OpenFile(dst, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
 	if err != nil {
 		return err
@@ -156,7 +160,8 @@ func writeStreamVMDK(ctx context.Context, src, dst string, progress func(done, t
 			if err != nil && err != io.EOF {
 				return err
 			}
-			data := grain[:n]
+			clear(grain[n:]) // the padding of a last, partial grain
+			data := grain
 			if allZero(data) {
 				continue
 			}
@@ -165,6 +170,9 @@ func writeStreamVMDK(ctx context.Context, src, dst string, progress func(done, t
 			zw.Write(data)
 			if err := zw.Close(); err != nil {
 				return err
+			}
+			if bw.pos > math.MaxUint32 { // grain tables hold 32-bit sector offsets: 2 TiB of stream
+				return errors.New("the disk's compressed stream is over 2 TiB, which a VMDK cannot address")
 			}
 			gt[e] = uint32(bw.pos)
 			m := make([]byte, 12, 12+comp.Len())
@@ -175,6 +183,9 @@ func writeStreamVMDK(ctx context.Context, src, dst string, progress func(done, t
 		}
 		if used { // a table follows its grains; an empty one is left out (its directory entry is 0)
 			bw.marker(vmdkGTEs*4/vmdkSector, markerGT)
+			if bw.pos > math.MaxUint32 {
+				return errors.New("the disk's compressed stream is over 2 TiB, which a VMDK cannot address")
+			}
 			gd[t] = uint32(bw.pos)
 			b := make([]byte, vmdkGTEs*4)
 			for i, x := range gt {
@@ -215,4 +226,11 @@ func allZero(b []byte) bool {
 		}
 	}
 	return true
+}
+
+// vmdkCapacity is a streamOptimized extent's capacity in sectors for an image of size bytes:
+// rounded up to whole grains.
+func vmdkCapacity(size int64) uint64 {
+	grainBytes := uint64(vmdkGrain * vmdkSector)
+	return (uint64(size) + grainBytes - 1) / grainBytes * vmdkGrain
 }
