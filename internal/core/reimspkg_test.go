@@ -27,7 +27,7 @@ func osRelease(t *testing.T, body string) {
 
 func TestHostPlatform(t *testing.T) {
 	for body, want := range map[string]string{
-		"NAME=\"Ubuntu\"\nID=ubuntu\nVERSION_ID=\"24.04\"\n":                                                "24.04",
+		"NAME=\"Ubuntu\"\nID=ubuntu\nVERSION_ID=\"24.04\"\nPRETTY_NAME=\"Ubuntu 24.04.3 LTS\"\n": "",
 		"ID=ubuntu\nVERSION_ID=\"26.04\"\n":                                                                 "26.04",
 		"ID=ubuntu\nVERSION_ID=\"22.04\"\nPRETTY_NAME=\"Ubuntu 22.04.5 LTS\"\n":                             "",
 		"ID=debian\nVERSION_ID=\"13\"\nPRETTY_NAME=\"Debian GNU/Linux 13 (trixie)\"":                        "debian13",
@@ -42,8 +42,11 @@ func TestHostPlatform(t *testing.T) {
 		if got != want || (want == "") != (err != nil) {
 			t.Errorf("%q: %q %v", body, got, err)
 		}
-		if err != nil && !strings.Contains(err.Error(), "24.04 and 26.04") {
+		if err != nil && !strings.Contains(err.Error(), SupportedHosts) {
 			t.Errorf("the error names the supported releases: %v", err)
+		}
+		if strings.Contains(body, "24.04") && (err == nil || !strings.Contains(err.Error(), "v0.15.0")) {
+			t.Errorf("Ubuntu 24.04 is pointed to v0.15.0: %v", err)
 		}
 	}
 }
@@ -228,7 +231,7 @@ func TestInstallReims(t *testing.T) {
 	installerDownloadClient.Transport, reimsReleaseURL = srv.Client().Transport, srv.URL+"/"
 	t.Cleanup(func() { reimsManifestJSON, installerDownloadClient.Transport, reimsReleaseURL = old, oldClient, oldURL })
 	manifest := func(sum string) {
-		reimsManifestJSON = []byte(`{"tag":"reims-test","commit":"c099dd5a4d61107a5527efc64cf1d1ab2f3a9b85","packages":{"24.04":{"file":"good.tar.gz","sha256":"` + sum + `"}}}`)
+		reimsManifestJSON = []byte(`{"tag":"reims-test","commit":"c099dd5a4d61107a5527efc64cf1d1ab2f3a9b85","packages":{"26.04":{"file":"good.tar.gz","sha256":"` + sum + `"}}}`)
 	}
 	dir, _ := ReimsDir()
 	current := filepath.Join(dir, "qemu", "current")
@@ -236,11 +239,15 @@ func TestInstallReims(t *testing.T) {
 	logf := func(s string) { log = append(log, s) }
 
 	osRelease(t, "ID=debian\nVERSION_ID=\"12\"\nPRETTY_NAME=\"Debian GNU/Linux 12 (bookworm)\"\n")
-	if err := InstallReims(context.Background(), logf); err == nil || !strings.Contains(err.Error(), "24.04 and 26.04") || !strings.Contains(err.Error(), "reims build") {
-		t.Fatalf("an unsupported release names the releases and the Docker build: %v", err)
+	if err := InstallReims(context.Background(), logf); err == nil || !strings.Contains(err.Error(), SupportedHosts) {
+		t.Fatalf("an unsupported release names the supported hosts: %v", err)
+	}
+	osRelease(t, "ID=ubuntu\nVERSION_ID=\"24.04\"\nPRETTY_NAME=\"Ubuntu 24.04.3 LTS\"\n")
+	if err := InstallReims(context.Background(), logf); err == nil || !strings.Contains(err.Error(), "v0.15.0") {
+		t.Fatalf("Ubuntu 24.04 gets no package and is pointed to v0.15.0: %v", err)
 	}
 
-	osRelease(t, "ID=ubuntu\nVERSION_ID=\"24.04\"\n")
+	osRelease(t, "ID=ubuntu\nVERSION_ID=\"26.04\"\n")
 	manifest(strings.Repeat("ab", 32))
 	if err := InstallReims(context.Background(), logf); err == nil || !strings.Contains(err.Error(), "SHA-256") {
 		t.Fatalf("a tampered package is refused: %v", err)
@@ -254,11 +261,11 @@ func TestInstallReims(t *testing.T) {
 	if err := InstallReims(context.Background(), logf); err != nil {
 		t.Fatal(err)
 	}
-	if l, _ := os.Readlink(current); l != "reims-test-ubuntu24.04" {
+	if l, _ := os.Readlink(current); l != "reims-test-ubuntu26.04" {
 		t.Fatalf("current -> %q", l)
 	}
 	info, err := ReimsInstalled()
-	if err != nil || info.Build != "reims-test-ubuntu24.04" || info.Commit != "test" || info.AppleGFX != nil {
+	if err != nil || info.Build != "reims-test-ubuntu26.04" || info.Commit != "test" || info.AppleGFX != nil {
 		t.Fatalf("%+v %v", info, err)
 	}
 }
@@ -299,7 +306,7 @@ func TestInstallReimsPackage(t *testing.T) {
 }
 
 func TestActivateReims(t *testing.T) {
-	osRelease(t, "ID=ubuntu\nVERSION_ID=\"24.04\"\n")
+	osRelease(t, "ID=ubuntu\nVERSION_ID=\"26.04\"\n")
 	pkg := fakeReims(t)
 	qdir := t.TempDir()
 	build := func(name string) {
@@ -308,15 +315,15 @@ func TestActivateReims(t *testing.T) {
 		}
 	}
 	log := func(string) {}
-	build("old-ubuntu24.04")
-	build("busy-ubuntu24.04")
-	build("a-ubuntu26.04")
-	build("new-ubuntu24.04")
-	os.WriteFile(filepath.Join(qdir, "a-ubuntu26.04", "bin", "qemu-system-x86_64"), []byte("#!/bin/sh\n"), 0o755)
+	build("old-ubuntu26.04")
+	build("busy-ubuntu26.04")
+	build("a-ubuntu24.04")
+	build("new-ubuntu26.04")
+	os.WriteFile(filepath.Join(qdir, "a-ubuntu24.04", "bin", "qemu-system-x86_64"), []byte("#!/bin/sh\n"), 0o755)
 
 	// A running process inside a build keeps that build.
 	sleep, _ := exec.LookPath("sleep")
-	busy := filepath.Join(qdir, "busy-ubuntu24.04", "bin", "sleep")
+	busy := filepath.Join(qdir, "busy-ubuntu26.04", "bin", "sleep")
 	data, _ := os.ReadFile(sleep)
 	os.WriteFile(busy, data, 0o755)
 	cmd := exec.Command(busy, "30")
@@ -325,13 +332,13 @@ func TestActivateReims(t *testing.T) {
 	}
 	defer cmd.Process.Kill()
 
-	if err := activateReims(qdir, "a-ubuntu26.04", "26.04", log); err != nil {
+	if err := activateReims(qdir, "a-ubuntu24.04", "24.04", log); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Lstat(filepath.Join(qdir, "current")); err == nil {
 		t.Fatal("a build for another release stays staged")
 	}
-	if err := activateReims(qdir, "new-ubuntu24.04", "24.04", log); err != nil {
+	if err := activateReims(qdir, "new-ubuntu26.04", "26.04", log); err != nil {
 		t.Fatal(err)
 	}
 	var left []string
@@ -339,28 +346,36 @@ func TestActivateReims(t *testing.T) {
 	for _, e := range ents {
 		left = append(left, e.Name())
 	}
-	if strings.Join(left, " ") != "a-ubuntu26.04 busy-ubuntu24.04 current new-ubuntu24.04" {
+	if strings.Join(left, " ") != "a-ubuntu24.04 busy-ubuntu26.04 current new-ubuntu26.04" {
 		t.Fatalf("pruning: %v", left)
 	}
 
 	// A build that fails on the host leaves current as it was.
-	build("broken-ubuntu24.04")
-	os.Remove(filepath.Join(qdir, "broken-ubuntu24.04", "share", "qemu", "ReimsVgpu.rom"))
-	if err := activateReims(qdir, "broken-ubuntu24.04", "24.04", log); err == nil || !strings.Contains(err.Error(), "staged") {
+	build("broken-ubuntu26.04")
+	os.Remove(filepath.Join(qdir, "broken-ubuntu26.04", "share", "qemu", "ReimsVgpu.rom"))
+	if err := activateReims(qdir, "broken-ubuntu26.04", "26.04", log); err == nil || !strings.Contains(err.Error(), "staged") {
 		t.Fatalf("%v", err)
 	}
-	if l, _ := os.Readlink(filepath.Join(qdir, "current")); l != "new-ubuntu24.04" {
+	if l, _ := os.Readlink(filepath.Join(qdir, "current")); l != "new-ubuntu26.04" {
 		t.Fatalf("current -> %s", l)
 	}
 }
 
 func TestBuildReimsRelease(t *testing.T) {
-	if err := BuildReims(context.Background(), "22.04", func(string) {}); err == nil || !strings.Contains(err.Error(), "24.04 and 26.04") {
+	if err := BuildReims(context.Background(), "22.04", func(string) {}); err == nil || !strings.Contains(err.Error(), "Ubuntu 26.04") {
 		t.Fatalf("%v", err)
 	}
 	osRelease(t, "ID=ubuntu\nVERSION_ID=\"22.04\"\nPRETTY_NAME=\"Ubuntu 22.04.5 LTS\"\n")
-	if err := BuildReims(context.Background(), "", func(string) {}); err == nil || !strings.Contains(err.Error(), "--release") {
+	if err := BuildReims(context.Background(), "", func(string) {}); err == nil || !strings.Contains(err.Error(), SupportedHosts) {
 		t.Fatalf("an unsupported host stops before Docker: %v", err)
+	}
+	osRelease(t, "ID=ubuntu\nVERSION_ID=\"24.04\"\nPRETTY_NAME=\"Ubuntu 24.04.3 LTS\"\n")
+	if err := BuildReims(context.Background(), "", func(string) {}); err == nil || !strings.Contains(err.Error(), SupportedHosts) || !strings.Contains(err.Error(), "v0.15.0") {
+		t.Fatalf("Ubuntu 24.04 stops before Docker naming the platforms: %v", err)
+	}
+	osRelease(t, "ID=debian\nVERSION_ID=\"13\"\n")
+	if err := BuildReims(context.Background(), "", func(string) {}); err == nil || !strings.Contains(err.Error(), "prebuilt package") {
+		t.Fatalf("Debian 13 is pointed to the package: %v", err)
 	}
 }
 

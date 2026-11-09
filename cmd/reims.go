@@ -14,7 +14,7 @@ var reimsCmd = &cobra.Command{Use: "reims", Short: "Install, build and inspect R
 
 var reimsInstallCmd = &cobra.Command{
 	Use:   "install",
-	Short: "Download the prebuilt Reims vGPU QEMU for this host (Ubuntu 24.04/26.04, Debian 13, Rocky Linux 10) and activate it",
+	Short: "Download the prebuilt Reims vGPU QEMU for this host (Ubuntu 26.04, Debian 13, Rocky Linux 10) and activate it",
 	RunE: func(cmd *cobra.Command, _ []string) error {
 		out := cmd.OutOrStdout()
 		return core.InstallReims(cmd.Context(), func(s string) { fmt.Fprintln(out, s) })
@@ -55,7 +55,7 @@ var reimsStatusCmd = &cobra.Command{
 }
 
 func init() {
-	reimsBuildCmd.Flags().StringVar(&reimsRelease, "release", "", "Ubuntu release to build for, 24.04 or 26.04 (default: the host's)")
+	reimsBuildCmd.Flags().StringVar(&reimsRelease, "release", "", "Ubuntu release to build for: 26.04 (default: the host's; Debian 13 and Rocky Linux 10 hosts install the package)")
 	reimsCmd.AddCommand(reimsInstallCmd, reimsBuildCmd, reimsStatusCmd)
 	rootCmd.AddCommand(reimsCmd)
 }

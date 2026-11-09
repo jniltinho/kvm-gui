@@ -303,6 +303,22 @@ var vmStatusCmd = &cobra.Command{
 		fmt.Fprintf(out, "status:    %s\n", statusOf(e))
 		fmt.Fprintf(out, "macOS:     %s, %d MiB, %d vCPUs\n", c.Version, c.RAMMiB, c.VCPUs)
 		fmt.Fprintf(out, "folder: %s\n", c.Workspace)
+		if c.Graphics == core.GraphicsVirtioGL {
+			what := "OpenGL (virgl)"
+			if c.Vulkan {
+				what += " and Vulkan (Venus)"
+			}
+			on := "the automatic GPU"
+			if c.RenderGPU != "" {
+				on = c.RenderGPU
+			}
+			if g, err := core.SystemHost().RenderGPUFor(c); err == nil {
+				on = g.Name + " (" + g.Addr + ")"
+			} else {
+				on += ": " + err.Error()
+			}
+			fmt.Fprintf(out, "3D:        %s on %s\n", what, on)
+		}
 		if c.SSHForwarded() {
 			fmt.Fprintf(out, "ssh:       ssh -p %d user@127.0.0.1\n", c.SSHPort)
 			if w := core.SSHPortWarning(c.SSHPort, e.ID); w != "" && e.Path == "" {

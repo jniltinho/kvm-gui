@@ -413,8 +413,8 @@ func TestGuestTopoext(t *testing.T) {
 // 3D (virgl) graphics: virtio-vga-gl with the resolution as EDID, drawn by the host's render node
 // over the app's VNC screen, or in QEMU's window with OpenGL; never for Windows.
 func TestGuestVirgl(t *testing.T) {
-	defer func(f func() string) { RenderNode = f }(RenderNode)
-	RenderNode = func() string { return "/dev/dri/renderD128" }
+	defer func(f func(Config) (RenderGPU, error)) { renderGPU = f }(renderGPU)
+	renderGPU = func(Config) (RenderGPU, error) { return RenderGPU{Node: "/dev/dri/renderD128", ID: "1002:73df"}, nil }
 	ub := testGuest(t, "ubuntu")
 	ub.Graphics, ub.Resolution = GraphicsVirtioGL, "2560x1440"
 	if err := ub.Validate(); err != nil {
@@ -442,12 +442,6 @@ func TestGuestVirgl(t *testing.T) {
 	w.Graphics = GraphicsVirtioGL
 	if err := w.Validate(); err == nil {
 		t.Error("3D accepted for Windows, which has no virgl driver")
-	}
-	if err := checkRenderNode([]string{"-display", "egl-headless,rendernode=/nonexistent/renderD999"}); err == nil {
-		t.Error("a render node that cannot be opened was accepted")
-	}
-	if err := checkRenderNode([]string{"-display", "none"}); err != nil {
-		t.Errorf("2D start refused: %v", err)
 	}
 }
 

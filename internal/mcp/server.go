@@ -170,6 +170,23 @@ type vmStatusOut struct {
 	Uptime     string `json:"uptime,omitempty"`
 	SSHPort    int    `json:"ssh_port"`
 	Warning    string `json:"warning,omitempty" jsonschema:"set when another VM uses the same SSH port"`
+	Render3D   string `json:"render_3d,omitempty" jsonschema:"a Linux or Other VM with 3D acceleration: OpenGL, and Vulkan when on, and the host GPU that draws it (or why it cannot)"`
+}
+
+// render3D describes a 3D VM's acceleration and the host GPU it draws on ("" without 3D).
+func render3D(c core.Config) string {
+	if c.Graphics != core.GraphicsVirtioGL {
+		return ""
+	}
+	what := "OpenGL (virgl)"
+	if c.Vulkan {
+		what += " and Vulkan (Venus)"
+	}
+	g, err := core.SystemHost().RenderGPUFor(c)
+	if err != nil {
+		return what + ": " + err.Error()
+	}
+	return what + " on " + g.Name + " (" + g.Addr + ")"
 }
 
 func vmStatus(_ context.Context, _ *mcp.CallToolRequest, in vmArg) (*mcp.CallToolResult, vmStatusOut, error) {
@@ -179,7 +196,7 @@ func vmStatus(_ context.Context, _ *mcp.CallToolRequest, in vmArg) (*mcp.CallToo
 	}
 	out := vmStatusOut{vmInfo: vmInfo{e.ID, e.DisplayName(), e.Config.Version, false}, QEMUState: "stopped",
 		GuestPhase: "unknown", Layout: core.RecoveryKeyboard(), SSHPort: e.Config.SSHPort,
-		Warning: core.SSHPortWarning(e.Config.SSHPort, e.ID)}
+		Warning: core.SSHPortWarning(e.Config.SSHPort, e.ID), Render3D: render3D(e.Config)}
 	r, ok := core.FindRun(e)
 	if !ok {
 		return nil, out, nil
@@ -705,7 +722,9 @@ type configSetIn struct {
 	RAM         *int    `json:"ram,omitempty" jsonschema:"RAM in MiB (at least 4096)"`
 	Cores       *int    `json:"cores,omitempty" jsonschema:"CPU cores: 1, 2, 4, 8 or 16"`
 	VCPUs       *int    `json:"vcpus,omitempty" jsonschema:"vCPUs, a multiple of cores"`
-	Graphics    *string `json:"graphics,omitempty" jsonschema:"vmware-svga or reims-vgpu"`
+	Graphics    *string `json:"graphics,omitempty" jsonschema:"macOS: vmware-svga or reims-vgpu; linux and other: virtio-vga, virtio-vga-gl (3D acceleration) or vga; windows: virtio-vga or vga"`
+	Vulkan      *bool   `json:"vulkan,omitempty" jsonschema:"linux and other VMs with graphics virtio-vga-gl: Vulkan in the guest through Venus"`
+	RenderGPU   *string `json:"render-gpu,omitempty" jsonschema:"linux and other VMs with 3D: PCI address of the host GPU that draws it (see gpu list), or auto"`
 	Resolution  *string `json:"resolution,omitempty" jsonschema:"Reims vGPU display size, such as 1920x1080"`
 	Display     *string `json:"display,omitempty" jsonschema:"app or window"`
 	GPU         *string `json:"gpu,omitempty" jsonschema:"PCI address of a passed-through GPU, or empty for none"`
@@ -735,12 +754,13 @@ func vmConfigSet(_ context.Context, _ *mcp.CallToolRequest, in configSetIn) (*mc
 		}
 	}
 	for k, v := range map[string]*string{"graphics": in.Graphics, "resolution": in.Resolution, "display": in.Display, "gpu": in.GPU, "version": in.Version,
-		"firmware": in.Firmware, "boot-order": in.BootOrder, "serial": in.Serial, "description": in.Description, "iso": in.ISO} {
+		"firmware": in.Firmware, "boot-order": in.BootOrder, "serial": in.Serial, "description": in.Description, "iso": in.ISO,
+		"render-gpu": in.RenderGPU} {
 		if v != nil {
 			values[k] = *v
 		}
 	}
-	for k, v := range map[string]*bool{"secure-boot": in.SecureBoot, "tpm": in.TPM} {
+	for k, v := range map[string]*bool{"secure-boot": in.SecureBoot, "tpm": in.TPM, "vulkan": in.Vulkan} {
 		if v != nil {
 			values[k] = fmt.Sprint(*v)
 		}

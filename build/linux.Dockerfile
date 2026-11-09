@@ -1,7 +1,10 @@
 # The one build image of kvm-gui: every make target runs in it, so the host needs only Docker and
-# make. Ubuntu 24.04 is the oldest supported ABI (glibc 2.39).
+# make. Ubuntu 24.04 is the build ABI, not a supported host: its glibc 2.39 is the oldest of the
+# supported hosts (Rocky Linux 10's), so the binary runs on all of them.
 FROM ubuntu:24.04
 ENV DEBIAN_FRONTEND=noninteractive
+# A mirror that drops connections for a while (seen on CI runners) is retried, not fatal.
+RUN echo 'Acquire::Retries "5";' > /etc/apt/apt.conf.d/80-retries
 # The Wails window: GTK 4 and WebKitGTK 6.0 headers (cgo). Tests: qemu-img for disk and media, QEMU,
 # swtpm and OVMF for guests, xorriso for test ISOs, Xvfb, a window manager and X11/Vulkan clients
 # (lavapipe) for the window and embedding checks. Packaging: dpkg-dev, rpm, desktop-file-utils and

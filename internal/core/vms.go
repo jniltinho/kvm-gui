@@ -237,11 +237,14 @@ type guestExt struct {
 	ReimsCtlName  string         `json:"reims_ctl_name,omitempty"`
 	ReimsCtlConf  string         `json:"reims_ctl_config,omitempty"`
 	CurrentSnap   string         `json:"current_snapshot,omitempty"`
+	Vulkan        bool           `json:"vulkan,omitempty"`
+	RenderGPU     string         `json:"render_gpu,omitempty"`
 }
 
 func extJSON(c Config) string {
 	x := guestExt{c.Guest, c.Profile, c.Firmware, c.SecureBoot, c.TPM, c.Disks, c.Optical, c.BootOrder,
-		c.Serial, c.SharedFolders, c.USBDevices, c.Description, c.Backend, c.ReimsCtlName, c.ReimsCtlConfig, c.CurrentSnapshot}
+		c.Serial, c.SharedFolders, c.USBDevices, c.Description, c.Backend, c.ReimsCtlName, c.ReimsCtlConfig, c.CurrentSnapshot,
+		c.Vulkan, c.RenderGPU}
 	if x.Guest == "" && x.Description == "" && x.Backend == "" && x.CurrentSnap == "" {
 		return ""
 	}
@@ -260,6 +263,7 @@ func applyExt(c *Config, s string) error {
 	c.Guest, c.Profile, c.Firmware, c.SecureBoot, c.TPM, c.Disks, c.Optical, c.BootOrder = x.Guest, x.Profile, x.Firmware, x.SecureBoot, x.TPM, x.Disks, x.Optical, x.BootOrder
 	c.Serial, c.SharedFolders, c.USBDevices, c.Description = x.Serial, x.SharedFolders, x.USBDevices, x.Description
 	c.Backend, c.ReimsCtlName, c.ReimsCtlConfig, c.CurrentSnapshot = x.Backend, x.ReimsCtlName, x.ReimsCtlConf, x.CurrentSnap
+	c.Vulkan, c.RenderGPU = x.Vulkan, x.RenderGPU
 	return nil
 }
 

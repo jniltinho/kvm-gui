@@ -2,10 +2,6 @@
   "tag": "reims-1fe0acb",
   "commit": "1fe0acb68b287db36f1e6c7b9f45383940b8a76f",
   "packages": {
-    "24.04": {
-      "file": "reims-qemu-1fe0acb-ubuntu24.04-x86_64.tar.gz",
-      "sha256": "fbd3fa9ff5f51c783d51507cb8b59c28f5d0266ddb7c74369cf6638857f3b8f6"
-    },
     "26.04": {
       "file": "reims-qemu-1fe0acb-ubuntu26.04-x86_64.tar.gz",
       "sha256": "fa373e3c480d1d4b17a9d0236daf58ec8cebe01fe7e03392c2fd4a40a25d986e"

@@ -12,11 +12,25 @@ import (
 // ConfigKeys are the keys of `config set` and the MCP server's vm_config_set, and how each one
 // is applied. nic<N>.<field> keys edit network adapter N (1-4).
 var ConfigKeys = map[string]func(*Config, string) error{
-	"workspace":  func(c *Config, v string) error { c.Workspace = v; return nil },
-	"version":    func(c *Config, v string) error { c.Version = v; return nil },
-	"display":    func(c *Config, v string) error { c.Display = v; return nil },
-	"gpu":        func(c *Config, v string) error { c.GPU = v; return nil },
-	"graphics":   func(c *Config, v string) error { c.Graphics = v; return nil },
+	"workspace": func(c *Config, v string) error { c.Workspace = v; return nil },
+	"version":   func(c *Config, v string) error { c.Version = v; return nil },
+	"display":   func(c *Config, v string) error { c.Display = v; return nil },
+	"gpu":       func(c *Config, v string) error { c.GPU = v; return nil },
+	"graphics": func(c *Config, v string) error {
+		if c.Graphics = v; v != GraphicsVirtioGL {
+			c.Vulkan = false // Vulkan runs on 3D acceleration: turning 3D off turns it off
+		}
+		return nil
+	},
+	"vulkan": boolKey(func(c *Config, b bool) { c.Vulkan = b }),
+	// render-gpu is the host GPU of a 3D VM by PCI address; "auto" or "" is the automatic choice.
+	"render-gpu": func(c *Config, v string) error {
+		if v = strings.ToLower(strings.TrimSpace(v)); v == "auto" {
+			v = ""
+		}
+		c.RenderGPU = v
+		return nil
+	},
 	"resolution": func(c *Config, v string) error { c.Resolution = v; return nil },
 	"ram":        intKey(func(c *Config, n int) { c.RAMMiB = n }),
 	"cores":      intKey(func(c *Config, n int) { c.Cores = n }),
@@ -115,7 +129,7 @@ func intKey(set func(*Config, int)) func(*Config, string) error {
 
 // AgentConfigKeys are the keys agents may set (MCP vm_config_set). root-patch needs a
 // confirmation and downloads, workspace is a folder change: those stay with the app and the CLI.
-var AgentConfigKeys = []string{"ssh-port", "ram", "cores", "vcpus", "graphics", "resolution", "display", "gpu", "version",
+var AgentConfigKeys = []string{"ssh-port", "ram", "cores", "vcpus", "graphics", "vulkan", "render-gpu", "resolution", "display", "gpu", "version",
 	"firmware", "secure-boot", "tpm", "boot-order", "serial", "description", "iso"}
 
 // ConfigWarnings are the warnings for saved settings: a shared SSH port, and a Reims resolution

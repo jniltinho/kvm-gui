@@ -36,13 +36,13 @@ var (
 )
 
 // ReimsReleases are the Ubuntu releases packages and Docker builds exist for.
-var ReimsReleases = []string{"24.04", "26.04"}
+var ReimsReleases = []string{"26.04"}
 
 // ReimsOtherPlatforms are other hosts with a prebuilt package (installed, not built here):
 // Debian 13 and Rocky Linux 10 (the RHEL 10 family). These keys name their packages and folders.
 var ReimsOtherPlatforms = []string{"debian13", "rocky10"}
 
-// reimsSuffix is a platform key's build-folder suffix: -ubuntu24.04, -debian13, -rocky10.
+// reimsSuffix is a platform key's build-folder suffix: -ubuntu26.04, -debian13, -rocky10.
 func reimsSuffix(key string) string {
 	if slices.Contains(ReimsReleases, key) {
 		return "-ubuntu" + key
@@ -109,7 +109,10 @@ func HostPlatform() (string, error) {
 	if name == "" {
 		name = "not identified by " + osReleaseFile
 	}
-	return "", fmt.Errorf("Reims vGPU supports Ubuntu %s, Debian 13 and Rocky Linux 10 (RHEL 10 family) hosts, and this one is %s", strings.Join(ReimsReleases, " and "), name)
+	if id == "ubuntu" && version == "24.04" {
+		name += " (" + lastFor2404 + " was the last kvm-gui release for it, with its Reims vGPU package)"
+	}
+	return "", fmt.Errorf("Reims vGPU supports %s (RHEL 10 family) hosts, and this one is %s", SupportedHosts, name)
 }
 
 // InstallReims downloads the package for the host's release, checks it against the manifest,
@@ -117,7 +120,7 @@ func HostPlatform() (string, error) {
 func InstallReims(ctx context.Context, log func(string)) error {
 	rel, err := HostPlatform()
 	if err != nil {
-		return fmt.Errorf("%w: there is no package for it (`macos-kvm-gui reims build --release 24.04|26.04` builds an Ubuntu one in Docker)", err)
+		return fmt.Errorf("%w: there is no package for it", err)
 	}
 	m, err := loadReimsManifest()
 	if err != nil {
@@ -125,7 +128,7 @@ func InstallReims(ctx context.Context, log func(string)) error {
 	}
 	pkg, ok := m.Packages[rel]
 	if !ok || !sha256Re.MatchString(pkg.SHA256) {
-		return fmt.Errorf("the app has no Reims vGPU package for %s: build it with `macos-kvm-gui reims build` (Ubuntu)", rel)
+		return fmt.Errorf("the app has no Reims vGPU package for %s: build it with `kvm-gui reims build` (Ubuntu 26.04)", rel)
 	}
 	qdir, unlock, err := lockReims(ctx)
 	if err != nil {
@@ -496,14 +499,14 @@ func BuildReims(ctx context.Context, release string, log func(string)) error {
 	if release == "" {
 		r, err := HostPlatform()
 		if err != nil {
-			return fmt.Errorf("%w: build for one of them with --release", err)
+			return err
 		}
 		if !slices.Contains(ReimsReleases, r) {
-			return fmt.Errorf("Reims vGPU builds from source for Ubuntu %s only; this host is %s: install its prebuilt package instead (Install Reims vGPU, or `macos-kvm-gui reims install`), or build an Ubuntu one with --release", strings.Join(ReimsReleases, " and "), r)
+			return fmt.Errorf("Reims vGPU builds from source for Ubuntu %s only; this host is %s: install its prebuilt package instead (Install Reims vGPU, or `kvm-gui reims install`)", strings.Join(ReimsReleases, " and "), r)
 		}
 		release = r
 	} else if !slices.Contains(ReimsReleases, release) {
-		return fmt.Errorf("Reims vGPU builds for Ubuntu %s, not %q", strings.Join(ReimsReleases, " and "), release)
+		return fmt.Errorf("Reims vGPU builds for Ubuntu %s, not %q (%s hosts install the prebuilt package)", strings.Join(ReimsReleases, " and "), release, SupportedHosts)
 	}
 	if _, err := exec.LookPath("docker"); err != nil {
 		return errors.New("the build needs Docker: install it (sudo apt install docker.io) and add yourself to the docker group (sudo usermod -aG docker $USER, then log in again)")

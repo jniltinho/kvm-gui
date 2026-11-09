@@ -31,7 +31,7 @@ func fakeHost(t *testing.T, cpuFlags, msrs string, procs ...string) Host {
 		DevKVM:   filepath.Join(root, "kvm"),
 		LookPath: func(s string) (string, error) { return "/usr/bin/" + s, nil },
 		Output: func(string, ...string) ([]byte, error) {
-			return []byte("QEMU emulator version 8.2.2 (Debian 1:8.2.2+ds-0ubuntu1)\nname \"apple-gfx-pci\", bus PCI"), nil
+			return []byte("QEMU emulator version 10.2.1 (Debian 1:10.2.1+ds-1ubuntu3.3)\nname \"apple-gfx-pci\", bus PCI"), nil
 		},
 		ShareRoot:  filepath.Join(root, "share"),
 		DevUdmabuf: filepath.Join(root, "udmabuf"),
@@ -49,7 +49,7 @@ func fakeHost(t *testing.T, cpuFlags, msrs string, procs ...string) Host {
 		write(t, filepath.Join(h.ProcRoot, string(rune('1'+i)), "comm"), p+"\n")
 	}
 	write(t, h.DevKVM, "")
-	write(t, filepath.Join(h.EtcRoot, "os-release"), "ID=ubuntu\nVERSION_ID=\"24.04\"\n")
+	write(t, filepath.Join(h.EtcRoot, "os-release"), "ID=ubuntu\nVERSION_ID=\"26.04\"\nPRETTY_NAME=\"Ubuntu 26.04.1 LTS\"\n")
 	return h
 }
 
@@ -303,5 +303,53 @@ func TestHostPerDistribution(t *testing.T) {
 	h.LookPath = func(s string) (string, error) { return "/usr/bin/" + s, nil }
 	if _, err := h.SetupHost("nilton"); err == nil || !strings.Contains(err.Error(), "nothing was changed") || ran != nil {
 		t.Fatalf("unsupported with every tool: %v %q", err, ran)
+	}
+}
+
+// Supported hosts and the QEMU floor (OpenSpec ubuntu-26-04-and-vulkan, task 2.1): Ubuntu 26.04,
+// Debian 13 and Rocky Linux 10 or later are OK, anything else warns; QEMU must be 10.0 or later.
+func TestHostSystemAndQEMUFloor(t *testing.T) {
+	for osr, want := range map[string]Status{
+		"ID=ubuntu\nVERSION_ID=\"24.04\"\nPRETTY_NAME=\"Ubuntu 24.04.3 LTS\"\n": Warn,
+		"ID=ubuntu\nVERSION_ID=\"26.04\"\n":                                     OK,
+		"ID=ubuntu\nVERSION_ID=\"26.10\"\n":                                     OK,
+		"ID=debian\nVERSION_ID=\"12\"\n":                                        Warn,
+		"ID=debian\nVERSION_ID=\"13\"\n":                                        OK,
+		"ID=rocky\nID_LIKE=\"rhel centos fedora\"\nVERSION_ID=\"10.1\"\n":       OK,
+		"ID=almalinux\nVERSION_ID=\"9.6\"\n":                                    Warn,
+		"ID=fedora\nVERSION_ID=\"43\"\n":                                        Warn,
+		"ID=linuxmint\nID_LIKE=\"ubuntu debian\"\nVERSION_ID=\"22.2\"\n":        Warn,
+	} {
+		h := fakeHost(t, "svm", "Y")
+		write(t, filepath.Join(h.EtcRoot, "os-release"), osr)
+		c := byName(h.Checks("sonoma"))["Host system"]
+		if c.Status != want {
+			t.Errorf("%q: %v (%s), want %v", osr, c.Status, c.Detail, want)
+		}
+		if want == Warn && (!strings.Contains(c.Hint, SupportedHosts) || !strings.Contains(c.Hint, "v0.15.0")) {
+			t.Errorf("%q: hint %q", osr, c.Hint)
+		}
+	}
+	for v, want := range map[string]Status{"8.2.2": Fail, "9.2.0": Fail, "10.0.13": OK, "10.1.0": OK, "10.2.1": OK, "11.0.0": OK} {
+		h := fakeHost(t, "svm", "Y")
+		h.Output = func(string, ...string) ([]byte, error) { return []byte("QEMU emulator version " + v), nil }
+		c := h.checkQEMUVersion()
+		if c.Status != want {
+			t.Errorf("QEMU %s: %v, want %v", v, c.Status, want)
+		}
+		if want == Fail && !strings.Contains(c.Hint, "10.0") {
+			t.Errorf("QEMU %s: hint %q", v, c.Hint)
+		}
+	}
+}
+
+// Set up host changes nothing on Ubuntu 24.04: its QEMU would fail the version check.
+func TestSetupHostRefusesUbuntu2404(t *testing.T) {
+	h := fakeHost(t, "svm", "N")
+	write(t, filepath.Join(h.EtcRoot, "os-release"), "ID=ubuntu\nVERSION_ID=\"24.04\"\nPRETTY_NAME=\"Ubuntu 24.04.3 LTS\"\n")
+	h.Run = func(name string, args ...string) error { t.Fatalf("ran %s %v", name, args); return nil }
+	_, err := h.SetupHost("tester")
+	if err == nil || !strings.Contains(err.Error(), SupportedHosts) || !strings.Contains(err.Error(), "Ubuntu 24.04.3 LTS") {
+		t.Fatalf("got %v", err)
 	}
 }

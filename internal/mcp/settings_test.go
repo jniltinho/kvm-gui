@@ -219,3 +219,28 @@ func TestVMCreateGuests(t *testing.T) {
 		}
 	}
 }
+
+// vm_config_set sets 3D, Vulkan and the host GPU with the core's rules, and vm_status describes
+// them (OpenSpec ubuntu-26-04-and-vulkan, task 3.5).
+func TestVMConfigSetVulkan(t *testing.T) {
+	if _, err := exec.LookPath("qemu-img"); err != nil {
+		needTool(t, "qemu-img unavailable")
+	}
+	cs := session(t)
+	callOut(t, cs, "vm_create", map[string]any{"name": "Lab", "guest": "linux", "profile": "ubuntu", "disk_gib": 1, "folder": filepath.Join(t.TempDir(), "lab")})
+	if out, isErr := call(t, cs, "vm_config_set", map[string]any{"vm": "Lab", "vulkan": true}); !isErr || !strings.Contains(out, "3D acceleration") {
+		t.Fatalf("Vulkan without 3D: %v %s", isErr, out)
+	}
+	got := callOut(t, cs, "vm_config_set", map[string]any{"vm": "Lab", "graphics": "virtio-vga-gl", "vulkan": true, "render-gpu": "0000:42:00.0"})
+	if got["vulkan"] != true || got["render_gpu"] != "0000:42:00.0" {
+		t.Fatalf("vm_config_set: %v", got)
+	}
+	st := callOut(t, cs, "vm_status", map[string]any{"vm": "Lab"})
+	if s, _ := st["render_3d"].(string); !strings.Contains(s, "Vulkan (Venus)") || !strings.Contains(s, "0000:42:00.0") {
+		t.Fatalf("vm_status render_3d: %v", st["render_3d"])
+	}
+	got = callOut(t, cs, "vm_config_set", map[string]any{"vm": "Lab", "graphics": "virtio-vga", "render-gpu": "auto"})
+	if got["vulkan"] == true || got["render_gpu"] != nil {
+		t.Fatalf("3D off turns Vulkan off: %v", got)
+	}
+}

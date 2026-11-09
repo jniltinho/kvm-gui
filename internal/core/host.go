@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -42,8 +43,9 @@ type Host struct {
 	Output   func(name string, args ...string) ([]byte, error)
 	Run      func(name string, args ...string) error
 
-	// ShareRoot is /usr/share (Vulkan ICD manifests); DevUdmabuf is /dev/udmabuf.
-	ShareRoot, DevUdmabuf string
+	// ShareRoot is /usr/share (Vulkan ICD manifests); DevUdmabuf is /dev/udmabuf; DevDRI is
+	// /dev/dri ("" = that), where the render nodes are.
+	ShareRoot, DevUdmabuf, DevDRI string
 	// QEMUKVM is RHEL-family QEMU, /usr/libexec/qemu-kvm; FirmwareRoot is "/" (host OVMF).
 	QEMUKVM, FirmwareRoot string
 	// extras, when set, is the start's kexts snapshot that eligibility uses instead of
@@ -84,13 +86,7 @@ var tools = []struct{ bin, apt, dnf string }{
 // PackageManager is the host's package manager kvm-gui installs with: "apt" on Ubuntu and Debian,
 // "dnf" on Rocky Linux and the RHEL family, "" on any other distribution.
 func (h Host) PackageManager() string {
-	data, _ := os.ReadFile(filepath.Join(h.EtcRoot, "os-release"))
-	kv := map[string]string{}
-	for _, line := range strings.Split(string(data), "\n") {
-		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
-			kv[k] = strings.Trim(v, `"'`)
-		}
-	}
+	kv := h.osRelease()
 	family := append([]string{kv["ID"]}, strings.Fields(kv["ID_LIKE"])...)
 	for _, f := range family {
 		switch f {
@@ -101,6 +97,68 @@ func (h Host) PackageManager() string {
 		}
 	}
 	return ""
+}
+
+// osRelease is the host's os-release as keys and values ("" values when it cannot be read).
+func (h Host) osRelease() map[string]string {
+	data, _ := os.ReadFile(filepath.Join(h.EtcRoot, "os-release"))
+	kv := map[string]string{}
+	for _, line := range strings.Split(string(data), "\n") {
+		if k, v, ok := strings.Cut(strings.TrimSpace(line), "="); ok {
+			kv[k] = strings.Trim(v, `"'`)
+		}
+	}
+	return kv
+}
+
+// SupportedHosts names the hosts kvm-gui supports, for messages.
+const SupportedHosts = "Ubuntu 26.04, Debian 13 and Rocky Linux 10"
+
+// lastFor2404 is the last release that supported Ubuntu 24.04 hosts.
+const lastFor2404 = "v0.15.0"
+
+// supportedHost reports whether the host is Ubuntu 26.04 or later, Debian 13 or later, or Rocky
+// Linux / RHEL / AlmaLinux 10 or later, and its name.
+func (h Host) supportedHost() (bool, string) {
+	kv := h.osRelease()
+	name := kv["PRETTY_NAME"]
+	if name == "" {
+		name = strings.TrimSpace(kv["ID"] + " " + kv["VERSION_ID"])
+	}
+	major, minor := 0, 0
+	v := strings.SplitN(kv["VERSION_ID"], ".", 3)
+	major, _ = strconv.Atoi(v[0])
+	if len(v) > 1 {
+		minor, _ = strconv.Atoi(v[1])
+	}
+	id := kv["ID"]
+	rhel := slices.Contains([]string{"rocky", "rhel", "almalinux"}, id)
+	switch {
+	case id == "ubuntu":
+		return major > 26 || major == 26 && minor >= 4, name
+	case id == "debian":
+		return major >= 13, name
+	case rhel:
+		return major >= 10, name
+	}
+	return false, name
+}
+
+// checkHostSystem warns on a host kvm-gui does not support; it is not a failure, since a
+// capable unlisted host can still run VMs.
+func (h Host) checkHostSystem() Check {
+	ok, name := h.supportedHost()
+	c := Check{Name: "Host system", Detail: name}
+	if c.Detail == "" {
+		c.Detail = "not identified by os-release"
+	}
+	if ok {
+		c.Status = OK
+		return c
+	}
+	c.Status = Warn
+	c.Hint = "kvm-gui supports " + SupportedHosts + "; " + lastFor2404 + " was the last release for Ubuntu 24.04"
+	return c
 }
 
 // pkgFor is the package that provides a tool with the host's package manager.
@@ -171,7 +229,7 @@ func (h Host) baseChecks(version string) []Check {
 			out = append(out, Check{t.bin, OK, "found: " + p, ""})
 		}
 	}
-	return append(out, h.checkQEMUVersion(), h.checkCompat(flags, version), h.checkMSRs(), h.checkConflict(),
+	return append(out, h.checkHostSystem(), h.checkQEMUVersion(), h.checkCompat(flags, version), h.checkMSRs(), h.checkConflict(),
 		h.checkSwtpm(), h.checkSecureBootFirmware())
 }
 
@@ -255,7 +313,7 @@ func (h Host) checkKVM() Check {
 var qemuVersionRe = regexp.MustCompile(`version (\d+)\.(\d+)\.(\d+)`)
 
 func (h Host) checkQEMUVersion() Check {
-	c := Check{Name: "QEMU version", Hint: "QEMU 8.2.2 or later is required"}
+	c := Check{Name: "QEMU version", Hint: "QEMU 10.0 or later is required: " + SupportedHosts + " have it"}
 	bin, ok := h.qemuBin()
 	if !ok {
 		bin = "qemu-system-x86_64"
@@ -271,7 +329,7 @@ func (h Host) checkQEMUVersion() Check {
 		v[i], _ = strconv.Atoi(m[i+1])
 	}
 	c.Detail = strings.Join(m[1:], ".")
-	if v[0] > 8 || v[0] == 8 && (v[1] > 2 || v[1] == 2 && v[2] >= 2) {
+	if v[0] >= 10 {
 		c.Status, c.Hint = OK, ""
 	} else {
 		c.Status = Fail
@@ -443,9 +501,10 @@ func (h Host) SetupHost(user string) (string, error) {
 		}
 	}
 	pm := h.PackageManager()
-	if pm == "" {
-		return "", fmt.Errorf("Set up host supports Ubuntu, Debian and Rocky Linux only; nothing was changed. On this distribution: install QEMU, qemu-img, OVMF and swtpm, add yourself to the kvm group, and enable kvm ignore_msrs (see docs/troubleshooting.md)%s",
-			map[bool]string{true: " (missing here: " + strings.Join(pkgs, ", ") + ")", false: ""}[len(pkgs) > 0])
+	if ok, name := h.supportedHost(); pm == "" || !ok {
+		// An older release would install a QEMU that fails the version check.
+		return "", fmt.Errorf("Set up host supports %s only, and this host is %s; nothing was changed. Here: install QEMU 10.0 or later, qemu-img, OVMF and swtpm, add yourself to the kvm group, and enable kvm ignore_msrs (see docs/troubleshooting.md)%s",
+			SupportedHosts, name, map[bool]string{true: " (missing here: " + strings.Join(pkgs, ", ") + ")", false: ""}[len(pkgs) > 0])
 	}
 	err := h.Run("pkexec", "/bin/sh", "-c", setupScript, "sh", user, module, strings.Join(pkgs, " "), pm)
 	if pkexecCancelled(err) {

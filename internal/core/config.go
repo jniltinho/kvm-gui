@@ -72,6 +72,11 @@ type Config struct {
 	// Resolution is the Reims vGPU display size (one of Resolutions); "" = DefaultResolution.
 	// Other graphics adapters ignore it.
 	Resolution string `json:"resolution,omitempty"`
+	// Vulkan (Linux and Other VMs with 3D acceleration) turns on Venus: the guest's Vulkan runs on
+	// the host GPU that draws its 3D (guest3d.go).
+	Vulkan bool `json:"vulkan,omitempty"`
+	// RenderGPU is the PCI address of the host GPU that draws a 3D VM; "" = the automatic choice.
+	RenderGPU string `json:"render_gpu,omitempty"`
 	// rootPatchWasOn is set by PrepareBoot when the previous boot had root-patch mode on.
 	rootPatchWasOn bool
 	// Extras is a start's snapshot of settings.yaml, never saved; nil
@@ -246,6 +251,9 @@ func (c Config) Validate() error {
 	}
 	if c.Graphics != "" && c.Graphics != GraphicsSVGA && c.Graphics != GraphicsReims {
 		return &FieldError{"graphics", "expected " + GraphicsSVGA + " or " + GraphicsReims}
+	}
+	if c.Vulkan || c.RenderGPU != "" {
+		return &FieldError{"vulkan", "3D acceleration, Vulkan and the host GPU are for Linux and Other VMs"}
 	}
 	if c.Resolution != "" && !slices.Contains(Resolutions, c.Resolution) {
 		return &FieldError{"resolution", "expected one of " + strings.Join(Resolutions, ", ")}

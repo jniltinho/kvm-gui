@@ -46,6 +46,10 @@ export interface Config {
   root_patch?: boolean;
   graphics?: string;
   resolution?: string;
+  /** Linux and Other VMs with 3D: Vulkan through Venus. */
+  vulkan?: boolean;
+  /** PCI address of the host GPU a 3D VM draws on; absent = automatic. */
+  render_gpu?: string;
   guest?: string;
   profile?: string;
   firmware?: string;
@@ -91,7 +95,12 @@ export interface Catalog {
   macDiskGiB: number;
   workspace: string;
   reimsMissing: string;
+  render3D: { can3D: boolean; reason3D?: string; canVulkan: boolean; vulkanReasons?: string[] };
+  renderGPUs: RenderGPU[];
+  autoRenderGPU: string;
 }
+/** A host GPU with a render node, which 3D guests can draw on. */
+export interface RenderGPU { addr: string; id: string; name: string; driver: string; node: string; vulkan: boolean; twin: boolean }
 
 export interface Result { id?: string; notice?: string; field?: string; error?: string }
 

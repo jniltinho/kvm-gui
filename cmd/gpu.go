@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"path/filepath"
 	"text/tabwriter"
 
 	"github.com/spf13/cobra"
@@ -16,9 +17,22 @@ var gpuListCmd = &cobra.Command{
 	Short: "List display adapters and whether they can be passed to the VM",
 	Run: func(cmd *cobra.Command, _ []string) {
 		tw := tabwriter.NewWriter(cmd.OutOrStdout(), 0, 4, 2, ' ', 0)
-		fmt.Fprintln(tw, "ADDRESS\tID\tNAME\tELIGIBLE\tREASON")
-		for _, g := range core.SystemHost().GPUs() {
-			fmt.Fprintf(tw, "%s\t%s\t%s\t%v\t%s\n", g.Addr, g.ID, g.Name, g.Eligible, g.Reason)
+		h := core.SystemHost()
+		// 3D: the render node a Linux or Other VM's 3D acceleration can draw on, and its Vulkan driver.
+		render := map[string]string{}
+		for _, r := range h.RenderGPUs() {
+			render[r.Addr] = filepath.Base(r.Node)
+			if r.Vulkan {
+				render[r.Addr] += " +Vulkan"
+			}
+		}
+		fmt.Fprintln(tw, "ADDRESS\tID\tNAME\t3D\tPASSTHROUGH\tREASON")
+		for _, g := range h.GPUs() {
+			d3 := render[g.Addr]
+			if d3 == "" {
+				d3 = "-"
+			}
+			fmt.Fprintf(tw, "%s\t%s\t%s\t%s\t%v\t%s\n", g.Addr, g.ID, g.Name, d3, g.Eligible, g.Reason)
 		}
 		tw.Flush()
 	},

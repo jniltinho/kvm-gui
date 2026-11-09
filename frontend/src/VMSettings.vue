@@ -4,7 +4,7 @@
 // its page, marks the field and focuses it; nothing is saved). A reims-ctl VM changes only its processors,
 // memory, resolution and SSH port (the core hands them to reims-ctl), plus the app's own name and description.
 import { computed, nextTick, onMounted, ref, watch } from "vue";
-import { GetCatalog, PickFile, PickFolder, SaveVM, type Catalog, type Config, type VMInfo } from "./api";
+import { GetCatalog, PickFile, PickFolder, SaveVM, type Catalog, type Config, type RenderGPU, type VMInfo } from "./api";
 import { askConfirm } from "./ask";
 import Dropdown, { type Option } from "./Dropdown.vue";
 import Modal from "./Modal.vue";
@@ -69,11 +69,40 @@ const graphics = computed({
   get: () => (graphicsOf(c.value) === "virtio-vga-gl" ? "virtio-vga" : graphicsOf(c.value)),
   set: (g: string) => { c.value.graphics = g === "vmware-svga" ? "" : g === "virtio-vga" && accel3d.value ? "virtio-vga-gl" : g; },
 });
-const can3d = computed(() => !mac.value && c.value.guest !== "windows" && graphics.value === "virtio-vga");
+const can3d = computed(() => !mac.value && c.value.guest !== "windows" && graphics.value === "virtio-vga" && cat.value?.render3D?.can3D !== false);
 const accel3d = computed({
   get: () => c.value.graphics === "virtio-vga-gl",
-  set: (on: boolean) => { c.value.graphics = on ? "virtio-vga-gl" : "virtio-vga"; },
+  set: (on: boolean) => {
+    c.value.graphics = on ? "virtio-vga-gl" : "virtio-vga";
+    if (!on) c.value.vulkan = false; // Vulkan runs on 3D acceleration
+  },
 });
+const hint3d = computed(() => c.value.guest === "windows" ? "Not for Windows: it has no driver for it."
+  : graphics.value !== "virtio-vga" ? "Needs the Paravirtualized (virtio-vga) controller."
+    : cat.value?.render3D?.can3D === false ? `Not on this host: ${cat.value.render3D.reason3D}.`
+      : "The guest's OpenGL drawn by the host's GPU (virgl), with no passthrough: smoother desktops and video in Linux.");
+// Vulkan (Venus) and the host GPU that draws 3D (OpenSpec ubuntu-26-04-and-vulkan).
+const canVulkan = computed(() => accel3d.value && !!cat.value?.render3D?.canVulkan);
+const vulkan = computed({ get: () => !!c.value.vulkan, set: (on: boolean) => { c.value.vulkan = on; } });
+// lspci's "Vendor Inc. Chip [Marketing name] (rev xx)" as "Vendor Marketing name".
+const GPU_VENDORS: Record<string, string> = { "1002": "AMD", "10de": "NVIDIA", "8086": "Intel" };
+function shortGPU(g: RenderGPU): string {
+  const n = g.name.replace(/\s*\(rev [0-9a-f]+\)$/, "");
+  const last = [...n.matchAll(/\[([^\]]+)\]/g)].pop()?.[1];
+  const vendor = GPU_VENDORS[g.id.split(":")[0]];
+  return last && vendor && !last.includes("/ATI") ? `${vendor} ${last}` : n;
+}
+const autoGPU = computed(() => cat.value?.renderGPUs.find((g) => g.addr === cat.value?.autoRenderGPU));
+const gpuOptions = computed<Option<string>[]>(() => {
+  const gpus = cat.value?.renderGPUs ?? [];
+  const opts: Option<string>[] = [["", autoGPU.value ? `Automatic (${shortGPU(autoGPU.value)})` : "Automatic"]];
+  for (const g of gpus) opts.push([g.addr, `${shortGPU(g)} · ${g.driver}${g.vulkan ? "" : " · no Vulkan driver"}`]);
+  const saved = c.value.render_gpu;
+  if (saved && !gpus.some((g) => g.addr === saved)) opts.push([saved, `${saved} (not on this host)`]);
+  return opts;
+});
+const renderGPU = computed({ get: () => c.value.render_gpu ?? "", set: (v: string) => { c.value.render_gpu = v || undefined; } });
+const chosenGPU = computed(() => (c.value.render_gpu ? cat.value?.renderGPUs.find((g) => g.addr === c.value.render_gpu) : autoGPU.value));
 const RES_NAMES: Record<string, string> = {
   "1280x720": "HD", "1280x800": "WXGA", "1366x768": "HD laptop", "1440x900": "WXGA+", "1600x900": "HD+",
   "1680x1050": "WSXGA+", "1920x1080": "Full HD", "1920x1200": "WUXGA", "2560x1080": "Ultrawide Full HD",
@@ -246,9 +275,19 @@ onMounted(async () => { try { cat.value = await GetCatalog(); } catch (e) { prob
             <template v-if="!mac">
               <span class="lbl">Features</span>
               <div>
-                <label class="chk" :class="{ off: fixed || !can3d }"><input v-model="accel3d" type="checkbox" :disabled="fixed || !can3d" /> Enable 3D acceleration</label>
-                <p class="muted">{{ c.guest === "windows" ? "Not for Windows: it has no driver for it." : graphics !== "virtio-vga" ? "Needs the Paravirtualized (virtio-vga) controller." : "The guest's OpenGL drawn by the host's GPU (virgl), with no passthrough: smoother desktops and video in Linux." }}</p>
+                <label class="chk" :class="{ off: fixed || (!can3d && !accel3d) }"><input v-model="accel3d" type="checkbox" :disabled="fixed || (!can3d && !accel3d)" /> Enable 3D acceleration</label>
+                <p class="muted">{{ hint3d }}</p>
+                <label class="chk" :class="{ off: fixed || (!canVulkan && !vulkan) }"><input v-model="vulkan" type="checkbox" :disabled="fixed || (!canVulkan && !vulkan)" /> Enable Vulkan (Venus)</label>
+                <p class="muted">{{ !accel3d ? "Needs 3D acceleration." : cat?.render3D?.canVulkan ? "The guest's Vulkan runs on the host GPU's driver: games and apps that need Vulkan. The guest needs Mesa's virtio Vulkan driver (Ubuntu 24.04 or later have it)." : `Not on this host: ${(cat?.render3D?.vulkanReasons ?? []).join("; ")}.` }}</p>
               </div>
+              <template v-if="accel3d">
+                <span class="lbl">Host GPU</span>
+                <Dropdown v-model="renderGPU" :options="gpuOptions" :width="420" aria-label="Host GPU" :disabled="fixed" v-bind="inv('render_gpu')" />
+                <p v-if="c.render_gpu && !cat?.renderGPUs.some((g) => g.addr === c.render_gpu)" class="span2 note warn">This GPU is not on this host now: the VM will not start until you choose another one.</p>
+                <p v-else-if="vulkan && chosenGPU && !chosenGPU.vulkan" class="span2 note warn">{{ shortGPU(chosenGPU) }} has no Vulkan driver installed on this host.</p>
+                <p v-else-if="vulkan && chosenGPU?.twin" class="span2 muted">Another GPU of the same model is on this host: the guest's Vulkan lists both, and OpenGL draws on this one.</p>
+                <p v-if="display === 'window'" class="span2 muted">In QEMU's own window, OpenGL draws on the desktop's GPU: this choice applies to Vulkan only.</p>
+              </template>
             </template>
             <template v-if="c.graphics === 'reims-vgpu' || !mac">
               <span class="lbl">Resolution</span>

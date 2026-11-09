@@ -49,6 +49,7 @@ const sections = computed<Section[]>(() => {
     { page: "display", title: "Display", icon: "display", rows: [
       ["Graphics controller", label(graphicsOf(c))],
       ...(c.graphics === "reims-vgpu" ? [["Resolution", c.resolution || "1920x1080"]] as [string, string][] : []),
+      ...(c.graphics === "virtio-vga-gl" ? [["Vulkan", c.vulkan ? "Venus" : "Off"], ["Host GPU", c.render_gpu || "Automatic"]] as [string, string][] : []),
       ["Screen", c.display === "window" ? "QEMU's own window" : "Inside the app"],
       ...(mac && c.gpu ? [["GPU passthrough", c.gpu]] as [string, string][] : [])] },
     { page: "storage", title: "Storage", icon: "storage", rows: storage },

@@ -3,15 +3,15 @@
 # upstream's own scripts/install-ctl.sh, at a pinned commit, with reims-ctl and reims-util. Used by `kvm-gui reims build`
 # and by .github/workflows/reims-release.yml, which publishes the packages `reims install` uses.
 #
-#   docker build --build-arg UBUNTU=24.04 -t reims-build:24.04 - < Dockerfile
-#   docker run --rm -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) -v <dir>:/build reims-build:24.04
+#   docker build --build-arg UBUNTU=26.04 -t reims-build:26.04 - < Dockerfile
+#   docker run --rm -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) -v <dir>:/build reims-build:26.04
 #
 # Output: <dir>/share/reims-ctl/qemu/<date>-<commit>/ (bin/qemu-system-x86_64, bin/reims-ctl,
 # bin/reims-util and QEMU's data, stripped): one folder kvm-gui installs and activates as a whole;
 # <dir>/cache keeps the library's and QEMU's builds for the next run.
 # BASE picks another apt-based distribution, e.g. --build-arg BASE=debian:13 (its own build:
 # an Ubuntu build does not run there, the libraries differ).
-ARG UBUNTU=24.04
+ARG UBUNTU=26.04
 ARG BASE=ubuntu:${UBUNTU}
 FROM ${BASE}
 ARG REIMS_COMMIT=1fe0acb68b287db36f1e6c7b9f45383940b8a76f

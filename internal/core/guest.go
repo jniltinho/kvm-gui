@@ -29,7 +29,7 @@ const (
 const (
 	GraphicsVirtio = "virtio-vga"
 	// GraphicsVirtioGL is virtio-gpu with virgl: the guest's OpenGL drawn by a GPU of the host
-	// (RenderNode), with no passthrough. Linux and Other guests: Windows has no virgl driver.
+	// (guest3d.go), with no passthrough. Linux and Other guests: Windows has no virgl driver.
 	GraphicsVirtioGL = "virtio-vga-gl"
 	GraphicsVGA      = "vga"
 )
@@ -214,6 +214,12 @@ func (c Config) validateGuest() error {
 	default:
 		return &FieldError{"graphics", "expected " + GraphicsVirtio + ", " + GraphicsVirtioGL + " or " + GraphicsVGA}
 	}
+	if c.Vulkan && c.Graphics != GraphicsVirtioGL {
+		return &FieldError{"vulkan", "Vulkan needs 3D acceleration (graphics " + GraphicsVirtioGL + ")"}
+	}
+	if c.RenderGPU != "" && !pciAddrRe.MatchString(c.RenderGPU) {
+		return &FieldError{"render_gpu", "expected a PCI address such as 0000:03:00.0, or nothing for the automatic choice"}
+	}
 	if c.Resolution != "" && !slices.Contains(GuestResolutions, c.Resolution) {
 		return &FieldError{"resolution", "expected one of " + strings.Join(GuestResolutions, ", ")}
 	}
@@ -326,11 +332,12 @@ func guestArgs(c Config, dir string, fw Firmware, qmpSocket, tpmSock string) ([]
 	}
 	args := []string{
 		"-name", "guest=" + qemuPath(name), // guest=: a name like "process=x" stays a name
-		"-enable-kvm", "-machine", machine, "-cpu", cpu, "-m", strconv.Itoa(c.RAMMiB),
+		"-enable-kvm", "-machine", machine + venusMachine(c), "-cpu", cpu, "-m", strconv.Itoa(c.RAMMiB),
 		"-smp", fmt.Sprintf("%d,sockets=1,cores=%d,threads=%d", c.VCPUs, c.Cores, c.VCPUs/c.Cores),
 		"-device", "qemu-xhci,id=xhci",
 		"-device", "usb-kbd,bus=xhci.0", "-device", "usb-tablet,bus=xhci.0",
 	}
+	args = append(args, venusMemory(c)...)
 	if c.Firmware == FirmwareUEFI {
 		if c.SecureBoot {
 			args = append(args, "-global", "driver=cfi.pflash01,property=secure,value=on")
@@ -398,7 +405,7 @@ func guestArgs(c Config, dir string, fw Firmware, qmpSocket, tpmSock string) ([]
 	case GraphicsVirtio:
 		args = append(args, "-device", "virtio-vga"+edid)
 	case GraphicsVirtioGL:
-		args = append(args, "-device", "virtio-vga-gl"+edid)
+		args = append(args, "-device", "virtio-vga-gl"+edid+venusDevice(c))
 	default:
 		args = append(args, "-device", "VGA"+edid)
 	}
@@ -437,22 +444,3 @@ var amdHost = sync.OnceValue(func() bool {
 	b, _ := os.ReadFile("/proc/cpuinfo")
 	return strings.Contains(string(b), "AuthenticAMD")
 })
-
-// RenderNode is the host GPU that draws a 3D (virgl) guest: the first render node of a Mesa driver
-// (AMD, Intel, nouveau), which virglrenderer is tested on most, else the first one. "" when the
-// host has none. shortcut: no setting picks another GPU; add one when a host needs it.
-var RenderNode = func() string {
-	nodes, _ := filepath.Glob("/dev/dri/renderD*")
-	slices.Sort(nodes)
-	for _, n := range nodes {
-		drv, _ := os.Readlink(filepath.Join("/sys/class/drm", filepath.Base(n), "device", "driver"))
-		switch filepath.Base(drv) {
-		case "amdgpu", "radeon", "i915", "xe", "nouveau":
-			return n
-		}
-	}
-	if len(nodes) > 0 {
-		return nodes[0]
-	}
-	return ""
-}

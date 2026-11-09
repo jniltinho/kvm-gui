@@ -200,7 +200,7 @@ func TestReimsCommands(t *testing.T) {
 	t.Setenv("HOME", t.TempDir()) // the default Workspace, ~/macOS-VMs, may hold a real install
 	t.Setenv("MKG_REIMS_QEMU", "")
 	t.Cleanup(func() { reimsRelease = "" })
-	if _, err := run(t, "reims", "build", "--release", "22.04"); err == nil || !strings.Contains(err.Error(), "24.04 and 26.04") {
+	if _, err := run(t, "reims", "build", "--release", "24.04"); err == nil || !strings.Contains(err.Error(), "Ubuntu 26.04") {
 		t.Fatalf("an unsupported release: %v", err)
 	}
 	if _, err := run(t, "reims", "status"); err == nil || !strings.Contains(err.Error(), "not installed") {

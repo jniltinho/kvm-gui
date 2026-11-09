@@ -12,7 +12,7 @@ Two series live on this repository's releases:
 | kvm-gui | `vX.Y.Z` (one series: the old `macos-kvm-gui` releases continue in it) | `kvm-gui vX.Y.Z` | `go-release.yml`, manual: `gh workflow run go-release.yml --ref vX.Y.Z`; runs `ci.yml` (with the four clean-distribution checks) on the exact commit first, then publishes and marks the release **latest** |
 | Reims vGPU's QEMU, `reims-ctl`, `reims-util` | `reims-<7-digit commit>` (must match `ARG REIMS_COMMIT` in `reims/Dockerfile`) | `Reims vGPU QEMU <commit>` | `reims-release.yml`, on the tag push |
 
-Keep the last two releases of each series (`gh release delete <tag> --cleanup-tag -y` for older ones). To try the release build without publishing, run it on any ref with `-f publish=false`: the five files come back as the run's `kvm-gui-release` artifact.
+Keep the last two releases of each series (`gh release delete <tag> --cleanup-tag -y` for older ones), except those AGENTS.md keeps: `v0.13.0` (the upgrade fixture), `v0.15.0` and `reims-1fe0acb` (the last for Ubuntu 24.04 hosts), and `archive`. To try the release build without publishing, run it on any ref with `-f publish=false`: the five files come back as the run's `kvm-gui-release` artifact.
 
 ## Before you start
 

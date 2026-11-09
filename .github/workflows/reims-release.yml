@@ -27,7 +27,6 @@ jobs:
     strategy:
       matrix:
         include:
-          - { release: '24.04', image: 'ubuntu:24.04', dockerfile: Dockerfile, arg: 'UBUNTU=24.04' }
           - { release: '26.04', image: 'ubuntu:26.04', dockerfile: Dockerfile, arg: 'UBUNTU=26.04' }
           - { release: debian13, image: 'debian:13', dockerfile: Dockerfile, arg: 'BASE=debian:13' }
           - { release: rocky10, image: 'rockylinux/rockylinux:10', dockerfile: Dockerfile.rocky, arg: 'ROCKY=10' }
@@ -83,8 +82,11 @@ jobs:
             /q/bin/reims-ctl --version && /q/bin/reims-util --version'
 
       - name: Source archive
-        if: matrix.release == '24.04'
-        run: reims/package.sh src reims-build:${{ matrix.release }} dist
+        if: matrix.release == '26.04'
+        run: |
+          reims/package.sh src reims-build:${{ matrix.release }} dist
+          # The packages' corresponding source must be in the release: fail here rather than ship without it.
+          ls dist/reims-vgpu-src-*.tar.gz dist/reims-vgpu-src-*.tar.gz.sha256
 
       - uses: actions/upload-artifact@v4
         with:
@@ -119,7 +121,7 @@ jobs:
           target_commitish: ${{ github.sha }}
           make_latest: false # the app's own releases stay "latest"
           body: |
-            Reims vGPU's QEMU (https://github.com/steelbrain/reims-vgpu) built for Ubuntu 24.04 and 26.04, which `kvm-gui reims install` downloads when reims/manifest.json pins this commit, and for Debian 13 and Rocky Linux 10 (manual install: point reims_qemu at it). Upstream commit: https://github.com/steelbrain/reims-vgpu/commit/${{ inputs.commit || steps.v.outputs.version }}. The source archive is the corresponding source of these binaries (GPL-2.0); see THIRD_PARTY_NOTICES.md.
+            Reims vGPU's QEMU (https://github.com/steelbrain/reims-vgpu) built for Ubuntu 26.04, Debian 13 and Rocky Linux 10, which `kvm-gui reims install` downloads when reims/manifest.json pins this commit (Ubuntu 24.04 packages: release reims-1fe0acb, for kvm-gui v0.15.0). Upstream commit: https://github.com/steelbrain/reims-vgpu/commit/${{ inputs.commit || steps.v.outputs.version }}. The source archive is the corresponding source of these binaries (GPL-2.0); see THIRD_PARTY_NOTICES.md.
           files: |
             dist/*.tar.gz
             dist/*.sha256

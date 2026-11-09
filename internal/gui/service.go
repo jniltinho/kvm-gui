@@ -186,6 +186,11 @@ type Catalog struct {
 	Workspace    string `json:"workspace"`
 	// ReimsMissing says why Reims vGPU cannot run here ("" when its QEMU is installed).
 	ReimsMissing string `json:"reimsMissing"`
+	// Render3D says whether 3D and Vulkan guests can run here; RenderGPUs are the GPUs they can
+	// draw on, AutoRenderGPU the address of the automatic choice ("" with none).
+	Render3D      core.Guest3D     `json:"render3D"`
+	RenderGPUs    []core.RenderGPU `json:"renderGPUs"`
+	AutoRenderGPU string           `json:"autoRenderGPU"`
 }
 
 // Catalog lists the versions, profiles and host facts the forms need.
@@ -206,6 +211,14 @@ func (a *App) Catalog() Catalog {
 	}
 	if _, err := core.ReimsInstalled(); err != nil {
 		c.ReimsMissing = err.Error()
+	}
+	c.Render3D = h.Guest3DSupport(core.SystemQEMU())
+	c.RenderGPUs = h.RenderGPUs()
+	if c.RenderGPUs == nil {
+		c.RenderGPUs = []core.RenderGPU{}
+	}
+	if g, ok := core.AutoRenderGPU(c.RenderGPUs); ok {
+		c.AutoRenderGPU = g.Addr
 	}
 	return c
 }

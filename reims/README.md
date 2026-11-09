@@ -7,7 +7,7 @@ setup; this folder only packages it for kvm-gui.
 
 | File | What it does |
 | --- | --- |
-| `Dockerfile` | Builds upstream at the pinned commit (`ARG REIMS_COMMIT`) on Ubuntu 24.04/26.04 or, with `BASE=debian:13`, Debian 13 |
+| `Dockerfile` | Builds upstream at the pinned commit (`ARG REIMS_COMMIT`) on Ubuntu 26.04 or, with `BASE=debian:13`, Debian 13 |
 | `Dockerfile.rocky` | The same for Rocky Linux 10 |
 | `manifest.json` | The `reims-<commit>` release and each platform's package with its SHA-256; `kvm-gui reims install` downloads and checks them |
 | `package.sh` | Packs a build (`pkg`) and the corresponding source (`src`) for the release |
