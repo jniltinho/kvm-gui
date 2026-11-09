@@ -5,75 +5,117 @@
 <h1 align="center">kvm-gui</h1>
 
 <p align="center">
-  <b>Create and run macOS and other VMs on Linux KVM, from one binary.</b><br>
-  OpenCore and OVMF are built in; Reims vGPU gives macOS Metal through the host's Vulkan driver.
+  <b>A VirtualBox-like app for KVM on Linux: macOS, Linux and Windows VMs at native speed.</b><br>
+  One binary with the GUI, a command line and an MCP server for AI agents. Nothing else to clone or configure.
 </p>
 
 <p align="center">
-  <a href="https://github.com/jniltinho/kvm-gui/actions/workflows/ci.yml"><img src="https://github.com/jniltinho/kvm-gui/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="https://github.com/jniltinho/kvm-gui/releases/latest"><img src="https://img.shields.io/github/v/release/jniltinho/kvm-gui?color=blue" alt="Latest release"></a>
-  <a href="https://go.dev/"><img src="https://img.shields.io/badge/go-1.27-blue" alt="Go 1.27"></a>
+  <a href="https://github.com/jniltinho/kvm-gui/actions/workflows/ci.yml"><img src="https://github.com/jniltinho/kvm-gui/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
   <a href="LICENSE"><img src="https://img.shields.io/github/license/jniltinho/kvm-gui?color=blue" alt="License"></a>
 </p>
 
-> **For home lab use.** macOS is Apple's software, and its license only allows it on Apple-branded hardware. Make sure your use complies with Apple's macOS license terms. This project is not affiliated with Apple.
-
-## What it is
-
-One binary: a desktop GUI in Go + [Wails](https://wails.io) (Vue 3, Vite Plus, Tailwind) with VirtualBox-like workflows, the [command line](docs/cli.md) and an [MCP server](docs/mcp.md) for AI agents.
-
-- **macOS VMs**, with OpenCore and OVMF built in, or on [Reims vGPU](https://github.com/steelbrain/reims-vgpu) through upstream's `reims-ctl`.
-- **Linux, Windows and Other VMs**: OS profiles, ISO detection, UEFI with Secure Boot, TPM 2.0 through swtpm.
-- **Snapshots** (offline, journaled), **full clones**, and **bundles** to move a VM between hosts.
-- VMs started from the GUI or by an agent keep running when the app closes.
-
 ![kvm-gui: the Manager with a Sequoia VM on Reims vGPU](docs/screenshots/manager.png)
 
-More screens in [docs/screenshots](docs/screenshots/README.md).
+> **For home lab use.** macOS is Apple's software, and its license only allows it on Apple-branded hardware. Make sure your use complies with Apple's macOS license terms. This project is not affiliated with Apple.
 
-The work is planned in the OpenSpec change [`migrate-gui-to-go-wails`](openspec/changes/migrate-gui-to-go-wails/proposal.md); the Rust app `reims-gui` is archived, read-only, in [`archive/rust/reims-gui`](archive/rust/reims-gui/ARCHIVED.md), and its old builds in the [`archive`](https://github.com/jniltinho/kvm-gui/releases/tag/archive) release.
+## Why kvm-gui
+
+- **macOS in a few clicks.** Pick a version and kvm-gui downloads the recovery from Apple. OpenCore and OVMF are built in, so there is no OSX-KVM clone or config.plist to edit.
+- **Metal on macOS** with [Reims vGPU](https://github.com/steelbrain/reims-vgpu), a paravirtual GPU that runs on the host's Vulkan driver. You don't need a second graphics card.
+- **Linux, Windows and other OSes** from an ISO: OS profiles, UEFI with Secure Boot, TPM 2.0 for Windows 11, **3D acceleration** for Linux (virgl), screen sizes from HD to 4K.
+- **The VirtualBox workflow you know:** a Manager with Details, Screen, Snapshots and Logs; a New VM wizard; Settings; snapshots; full clones; **.ova import and export to and from VirtualBox**.
+- **Native KVM speed**, and VMs keep running after you close the app.
+- **Scriptable:** everything the GUI does is a [command](docs/cli.md), and AI agents (Claude, Cursor, Codex) can drive your VMs through the [MCP server](docs/mcp.md).
 
 ## Install
 
-Download the files from the [latest release](https://github.com/jniltinho/kvm-gui/releases/latest) ([v0.14.0](https://github.com/jniltinho/kvm-gui/releases/tag/v0.14.0), the first with the Wails GUI). Parts of the VirtualBox-like GUI are still being built (OpenSpec change [`migrate-gui-to-go-wails`](openspec/changes/migrate-gui-to-go-wails/tasks.md), groups 7 and 9). The archived Rust app's builds (`reims-gui` 0.1.5 and 0.1.6) are kept, for history only, in the [`archive`](https://github.com/jniltinho/kvm-gui/releases/tag/archive) release.
-
-Each release has five files: an AppImage, a plain binary, a `.deb`, an `.rpm` and `SHA256SUMS`. Check them first:
+Download the package for your distribution from the [latest release](https://github.com/jniltinho/kvm-gui/releases/latest), then:
 
 ```sh
-sha256sum -c --ignore-missing SHA256SUMS
+sha256sum -c --ignore-missing SHA256SUMS        # check the download
+sudo apt install ./kvm-gui_*_amd64.deb          # Ubuntu 24.04 / 26.04, Debian 13
 ```
 
-| Distribution | Install |
+On Rocky Linux 10 (WebKitGTK comes from EPEL):
+
+```sh
+sudo dnf install epel-release && sudo dnf install ./kvm-gui-*-1.x86_64.rpm
+```
+
+There is also an AppImage and a plain binary; they need GTK 4, WebKitGTK 6 and QEMU from your distribution ([details](docs/getting-started.md#install-a-release)).
+
+**You need** an x86_64 CPU with virtualization (VT-x / AMD-V) turned on in the firmware, and QEMU 8.2 or newer. The packages install QEMU for you.
+
+## Your first VM
+
+```sh
+kvm-gui setup      # once: loads KVM, adds you to the kvm group, installs anything missing
+kvm-gui            # opens the app
+```
+
+Click **New**, then:
+
+1. Choose **macOS** and its version, or **Linux / Windows / Other** with an ISO. kvm-gui detects the OS and fills in CPU, memory and disk for your host.
+2. Click **Start**. The screen shows up inside the app. A macOS VM boots its Recovery (*macOS Base System*) by itself: install macOS from there.
+
+The same steps from a terminal:
+
+```sh
+kvm-gui vm create Ubuntu --guest linux --profile ubuntu --iso ubuntu-24.04.iso
+kvm-gui vm start
+```
+
+Moving from VirtualBox? Use **File › Import Appliance…** with a VirtualBox `.ova`, or `kvm-gui vm import-ova box.ova`.
+
+More in [Getting started](docs/getting-started.md) and [Linux, Windows and Other guests](docs/guests.md).
+
+## Use it with AI agents
+
+```sh
+claude mcp add kvm-gui -- kvm-gui mcp
+```
+
+Then ask, for example, *"create an Ubuntu VM from ~/Downloads/ubuntu.iso and start it"*. An agent can create, start and stop VMs, see the screen and type into it, run commands over SSH, take snapshots, and import and export appliances. Destructive actions need an explicit confirmation. See [MCP server](docs/mcp.md).
+
+## Screenshots
+
+| | |
 |---|---|
-| Ubuntu 24.04, 26.04, Debian 13 | `sudo apt install ./kvm-gui_*_amd64.deb` |
-| Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install ./kvm-gui-*-1.x86_64.rpm` (WebKitGTK 6 comes from EPEL) |
-| AppImage or binary, Ubuntu/Debian | `sudo apt install libgtk-4-1 libwebkitgtk-6.0-4 qemu-system-x86 qemu-utils ovmf pkexec`, then `chmod +x` and run the file |
-| AppImage or binary, Rocky Linux 10 | `sudo dnf install epel-release && sudo dnf install gtk4 webkitgtk6.0 qemu-kvm qemu-img edk2-ovmf polkit`, then `chmod +x` and run the file |
+| ![New VM wizard](docs/screenshots/new-vm.png) | ![Settings](docs/screenshots/settings.png) |
+| ![Import a VirtualBox appliance](docs/screenshots/import-appliance.png) | ![The Manager, dark skin](docs/screenshots/manager-dark.png) |
 
-The packages replace `macos-kvm-gui` and keep `macos-kvm-gui` as a command name. Each install command above runs in a clean container of its distribution on every CI run (`scripts/check-dist.sh`).
+More in [docs/screenshots](docs/screenshots/README.md).
 
-**Upgrading from `macos-kvm-gui`.** The first start copies the old settings and VM list from `~/.config/macos-kvm-gui` to `~/.config/kvm-gui` and `~/.local/share/kvm-gui`, and leaves the old folder untouched; VMs stay in their folders. To be safe, back it up first: `tar czf ~/macos-kvm-gui-backup.tgz -C ~/.config macos-kvm-gui`. To roll back, reinstall the old package (`sudo apt install ./macos-kvm-gui_0.13.0_amd64.deb`): it reads its own untouched folder, so VMs created or changed after the upgrade are not in its list.
+## Supported hosts
 
-## Reims vGPU
+| Host | Package | Status |
+|---|---|---|
+| Ubuntu 24.04, 26.04 | `.deb` | tested on every CI run; the reference host is Ubuntu 24.04 |
+| Debian 13 | `.deb` | tested on every CI run |
+| Rocky Linux 10 | `.rpm` | tested on every CI run; macOS VMs need Reims vGPU there |
 
-[steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu) is the base of kvm-gui's Reims support: the paravirtual GPU, its QEMU build and `reims-ctl`. Its README and `docs/qemu.md` are the source of truth for the GPU and the guest's setup. This repository packages upstream's QEMU (with `reims-ctl` and `reims-util`) for Ubuntu 24.04, Ubuntu 26.04, Debian 13 and Rocky Linux 10 from [`reims/`](reims/README.md), on `reims-<commit>` releases. More in [docs/reims-vgpu.md](docs/reims-vgpu.md).
+macOS guests: Sonoma is validated end to end, and Sequoia runs on Reims vGPU on the reference host. The other versions, High Sierra through Tahoe, are experimental.
 
-## Build
+<details>
+<summary><b>Upgrading from <code>macos-kvm-gui</code></b></summary>
 
-Everything builds and runs in one Docker image; the host needs only Docker and make.
+The packages replace `macos-kvm-gui` and keep `macos-kvm-gui` as a command name. The first start copies the old settings and VM list from `~/.config/macos-kvm-gui` to `~/.config/kvm-gui` and `~/.local/share/kvm-gui`, and leaves the old folder untouched; VMs stay in their folders. To be safe, back it up first:
 
 ```sh
-make image      # the build image (build/linux.Dockerfile)
-make test       # gofmt, go vet, go test -race, every needed tool required
-make openspec   # openspec validate --all --strict
-make self-test  # the GUI opens and loads the VM list, under Xvfb
-make dist       # dist/: the AppImage, the binary, the .deb, the .rpm and SHA256SUMS
-scripts/check-dist.sh ubuntu24.04 all   # the artifacts on a clean distribution (also ubuntu26.04, debian13, rocky10)
+tar czf ~/macos-kvm-gui-backup.tgz -C ~/.config macos-kvm-gui
 ```
+
+To roll back, reinstall the old package (`sudo apt install ./macos-kvm-gui_0.13.0_amd64.deb`). It reads its own untouched folder, so VMs created or changed after the upgrade are not in its list.
+</details>
 
 ## Documentation
 
-[Overview](docs/overview.md) · [Getting started](docs/getting-started.md) · [Command line](docs/cli.md) · [MCP server](docs/mcp.md) · [Architecture](docs/architecture.md) · [GPU passthrough](docs/gpu-passthrough.md) · [Reims vGPU](docs/reims-vgpu.md) · [Troubleshooting](docs/troubleshooting.md) · [Development](docs/development.md) · [References](docs/references.md)
+[Getting started](docs/getting-started.md) · [Guests](docs/guests.md) · [Command line](docs/cli.md) · [MCP server](docs/mcp.md) · [Reims vGPU](docs/reims-vgpu.md) · [GPU passthrough](docs/gpu-passthrough.md) · [Troubleshooting](docs/troubleshooting.md) · [Architecture](docs/architecture.md)
+
+## Contributing
+
+Everything builds in one Docker image, so the host needs only Docker and make: `make image test dist`. See [Development](docs/development.md). Features are planned as [OpenSpec](openspec/) changes. The archived Rust app (`reims-gui`) is in [`archive/`](archive/rust/reims-gui/ARCHIVED.md).
 
 ## License
 
