@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Packages a built binary into dist/: kvm-gui's .deb (Ubuntu 24.04, 26.04, Debian 13) and .rpm
+# Packages a built binary into dist/: kvm-gui's .deb (Ubuntu 26.04, Debian 13) and .rpm
 # (Rocky Linux 10). Both replace an installed macos-kvm-gui and keep that name as a command link.
 # Runs in the build image (make package). Usage: scripts/package.sh <version, e.g. v1.0.0> <binary>
 set -euo pipefail

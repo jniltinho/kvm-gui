@@ -8,7 +8,7 @@ if [[ $(id -u) == 0 ]]; then
 	export DEBIAN_FRONTEND=noninteractive
 	apt-get update -qq >/dev/null
 	apt-get install -y -qq --no-install-recommends /dist/kvm-gui_*_amd64.deb mutter dbus-daemon dbus x11-utils wmctrl procps \
-		$([[ $v == 24.04 ]] && echo xvfb || echo xwayland) >/dev/null 2>&1 || { echo "FAIL: install" >&2; exit 1; }
+		$([[ $v == debian13 ]] && echo xvfb || echo xwayland) >/dev/null 2>&1 || { echo "FAIL: install" >&2; exit 1; }
 	useradd -m tester
 	exit 0
 fi
@@ -26,7 +26,7 @@ until_() { local n=$(($1 * 2)); shift; while ((n-- > 0)); do "$@" && return 0; s
 is() { [[ $(timeout 5 /fake/fakereims where "Reims vGPU ($1)") == "$2" ]]; }
 alive() { [[ $(awk '{print $3}' "/proc/$1/stat" 2>/dev/null) != Z && -e /proc/$1 ]]; }
 
-if [[ $v == 24.04 ]]; then
+if [[ $v == debian13 ]]; then
 	Xvfb :57 -screen 0 1600x1000x24 >/dev/null 2>&1 &
 	export DISPLAY=:57
 	sleep 1

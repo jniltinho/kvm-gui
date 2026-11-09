@@ -1,15 +1,19 @@
 #!/usr/bin/env bash
 # Embedding under GNOME's window manager, in a throwaway container with the .deb from dist/ (task 6.4):
-#   scripts/check-gnome.sh <24.04|26.04>
-# 24.04, GNOME on X11 (mutter 46): two fake Reims vGPU runs are embedded into their VM windows;
+#   scripts/check-gnome.sh <debian13|26.04>
+# debian13, GNOME on X11 (mutter 48, the last GNOME with an X11 session): two fake Reims vGPU runs are embedded into their VM windows;
 # closing one window puts its VM's window back on the desktop while the other stays embedded; a
 # SIGKILL of the app puts the other back too (the root-target save-set), and neither fake QEMU loses
 # its window.
-# 26.04, GNOME on Wayland only (mutter 50, XWayland on demand): the app embeds nothing and both VM
+# 26.04, Ubuntu's GNOME on Wayland only (mutter 50, XWayland on demand): the app embeds nothing and both VM
 # windows stay their own (design D6: XWayland crashes when an app holding a window dies).
 set -euo pipefail
-v=${1:?usage: check-gnome.sh <24.04|26.04>}
-[[ $v == 24.04 || $v == 26.04 ]] || { echo "unknown Ubuntu $v" >&2; exit 2; }
+v=${1:?usage: check-gnome.sh <debian13|26.04>}
+case $v in
+debian13) image=debian:13 ;;
+26.04) image=ubuntu:26.04 ;;
+*) echo "unknown host $v: debian13 or 26.04" >&2; exit 2 ;;
+esac
 root=$(cd "$(dirname "$0")/.." && pwd)
 ls "$root"/dist/kvm-gui_*_amd64.deb >/dev/null
 fake=$(mktemp -d) && chmod 755 "$fake"
@@ -30,7 +34,7 @@ check_host() {
 # Root installs in a confined container; the session runs unconfined (WebKit's sandbox) as tester.
 name="kvm-gui-gnome-$$" img="kvm-gui-gnome:$$"
 trap 'rm -rf "$fake"; docker rm -f "$name" >/dev/null 2>&1; docker rmi -f "$img" >/dev/null 2>&1' EXIT
-docker run --name "$name" -v "$root/dist:/dist:ro" -v "$root/scripts/check-gnome-inner.sh:/check.sh:ro" "ubuntu:$v" bash /check.sh "$v"
+docker run --name "$name" -v "$root/dist:/dist:ro" -v "$root/scripts/check-gnome-inner.sh:/check.sh:ro" "$image" bash /check.sh "$v"
 docker commit "$name" "$img" >/dev/null
 docker run --rm --init --user tester --security-opt seccomp=unconfined --security-opt apparmor=unconfined --security-opt systempaths=unconfined \
 	-v "$fake:/fake:ro" -v "$root/scripts/check-gnome-inner.sh:/check.sh:ro" "$img" timeout 600 bash /check.sh "$v"
