@@ -24,9 +24,9 @@ A Linux or Other VM with 3D acceleration SHALL be able to turn on Vulkan (Venus)
 - **WHEN** a VM with Vulkan starts on a host that has what Venus needs but virglrenderer fails to initialize it on the chosen GPU
 - **THEN** the start reports QEMU's error message and the VM's log keeps it
 
-#### Scenario: Debian 13 without the render server
-- **WHEN** the user opens Settings › Display of a Linux VM with 3D on Debian 13, whose virglrenderer has no render server
-- **THEN** Vulkan is unavailable and the reason names the missing render server
+#### Scenario: Debian 13
+- **WHEN** the user opens Settings › Display of a Linux VM with 3D on Debian 13, whose virglrenderer has no render server and whose Vulkan loader has no device filter
+- **THEN** Vulkan is unavailable and the reasons name both
 
 #### Scenario: QEMU without Venus
 - **WHEN** a VM with Vulkan on starts on a host whose QEMU's 3D device has no Venus support
@@ -51,13 +51,13 @@ A VM with 3D acceleration SHALL draw on the host GPU it names by PCI address, or
 - **WHEN** the user chooses the RTX 4070 for a VM with 3D and Vulkan and starts it
 - **THEN** OpenGL draws on the RTX 4070's render node and the guest's only Vulkan device is the RTX 4070
 
-#### Scenario: Selection layer missing
-- **WHEN** a VM with Vulkan names a GPU and the host lacks Mesa's Vulkan device-select layer, or the environment disables it
-- **THEN** the start is refused naming the missing layer and its package (an inherited variable that disables it is removed from QEMU's environment, so the selection still holds)
+#### Scenario: Inherited selector
+- **WHEN** kvm-gui runs with `MESA_VK_DEVICE_SELECT` or a Vulkan loader filter in its environment and starts a VM with Vulkan
+- **THEN** QEMU's environment has only the filter for the VM's GPU, and the guest's Vulkan device is that GPU
 
 #### Scenario: Two identical GPUs
 - **WHEN** the host has two GPUs with the same vendor and device IDs and the VM names the second by its PCI address
-- **THEN** OpenGL and the guest's only Vulkan device are the second GPU
+- **THEN** OpenGL draws on the second GPU, the guest's Vulkan lists both identical GPUs, and Settings says why
 
 #### Scenario: Renumbered render nodes
 - **WHEN** after a reboot the chosen GPU's render node is `renderD129` instead of `renderD128`
