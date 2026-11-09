@@ -265,6 +265,9 @@ func TestStartFlags(t *testing.T) {
 		{[]string{"vm", "start", "--embed-x11"}, "--embed-x11 needs --gui-run"},
 		{[]string{"vm", "start", "--gui-run", "--starter", "mcp"}, "cannot be used together"},
 		{[]string{"vm", "start", "--starter", "gui"}, `unknown starter "gui"`},
+		// A name without --vm used to be ignored, starting the selected VM.
+		{[]string{"vm", "start", "Nilton"}, `kvm-gui vm start takes no arguments (got ["Nilton"]); choose the VM with --vm <name>`},
+		{[]string{"vm", "list", "extra"}, "kvm-gui vm list takes no arguments"},
 	} {
 		vmGUIRun, vmEmbedX11, vmStarter = false, false, core.StarterCLI
 		vmStartCmd.Flags().Lookup("starter").Changed = false

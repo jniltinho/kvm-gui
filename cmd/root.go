@@ -41,8 +41,25 @@ func Execute(appVersion, licenseText string) {
 }
 
 func init() {
+	cobra.OnInitialize(func() { refuseStrayArgs(rootCmd) })
 	rootCmd.PersistentFlags().StringVar(&cfgFile, "config", "", "use this VM settings file instead of the VM list")
 	rootCmd.PersistentFlags().StringVar(&vmName, "vm", "", "VM to act on, by name or id (default: the selected VM)")
+}
+
+// refuseStrayArgs makes every command that declares no Args refuse arguments: Cobra would ignore
+// them, and `vm start Nilton` would then start the selected VM instead of Nilton.
+func refuseStrayArgs(c *cobra.Command) {
+	for _, s := range c.Commands() {
+		if s.Args == nil && !s.HasSubCommands() {
+			s.Args = func(cmd *cobra.Command, args []string) error {
+				if len(args) > 0 {
+					return fmt.Errorf("%s takes no arguments (got %q); choose the VM with --vm <name>", cmd.CommandPath(), args)
+				}
+				return nil
+			}
+		}
+		refuseStrayArgs(s)
+	}
 }
 
 // currentVM resolves which settings file the command acts on: --config, then --vm, then the
