@@ -13,6 +13,10 @@ on:
         description: build even when the release already exists (it is then updated)
         type: boolean
         default: false
+      publish:
+        description: publish the release (false keeps the packages as this run's artifacts and touches no release)
+        type: boolean
+        default: true
 
 jobs:
   resolve:
@@ -26,11 +30,12 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           FORCE: ${{ inputs.force }}
+          PUBLISH: ${{ inputs.publish }}
         run: |
           commit="$(git ls-remote https://github.com/steelbrain/reims-vgpu HEAD | cut -f1)" # the default branch, master
           echo "$commit" | grep -Eqx '[0-9a-f]{40}' || { echo "no upstream HEAD: '$commit'"; exit 1; }
           echo "commit=$commit" >> "$GITHUB_OUTPUT"
-          if gh release view "reims-${commit:0:7}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && [ "$FORCE" != true ]; then
+          if gh release view "reims-${commit:0:7}" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && [ "$FORCE" != true ] && [ "$PUBLISH" != false ]; then
             echo "reims-${commit:0:7} is already released" >> "$GITHUB_STEP_SUMMARY"
             echo "build=false" >> "$GITHUB_OUTPUT"
           else
@@ -46,3 +51,4 @@ jobs:
     uses: ./.github/workflows/reims-release.yml
     with:
       commit: ${{ needs.resolve.outputs.commit }}
+      publish: ${{ inputs.publish }}

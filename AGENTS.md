@@ -59,7 +59,7 @@ make test-integration  # real QEMU/KVM boot of the embedded OpenCore (needs /dev
 | `ci.yml` | push to `main`, PRs | `make test layers openspec frontend-check self-test dist` in the build image, then `scripts/check-dist.sh` on the four distributions |
 | `go-release.yml` | manual | runs `ci.yml` on the exact commit, then on a `v*` tag publishes the AppImage, binary, `.deb`, `.rpm` and `SHA256SUMS` as latest; `-f publish=false` keeps them as run artifacts |
 | `reims-release.yml` | tag `reims-<commit>`; called by `reims-upstream.yml` | Reims QEMU with `reims-ctl` and `reims-util` for 26.04, debian13, rocky10, and the source archive (made in the 26.04 job) |
-| `reims-upstream.yml` | manual | the same packages at the newest commit of upstream's default branch (`master`), as `reims-<commit>`, unless that release exists (`-f force=true` rebuilds); the app keeps installing the commit `reims/manifest.json` pins |
+| `reims-upstream.yml` | manual | the same packages at the newest commit of upstream's default branch (`master`), as `reims-<commit>`, unless that release exists (`-f force=true` rebuilds it; `-f publish=false` only builds and checks, keeping the packages as run artifacts); the app keeps installing the commit `reims/manifest.json` pins |
 
 ## Testing on real hardware
 

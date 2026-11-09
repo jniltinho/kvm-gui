@@ -8,6 +8,8 @@ name: Reims vGPU packages
 # After a release, reims/manifest.json takes the published SHA-256 files.
 # reims-upstream.yml calls it with another upstream commit (its `commit` input): the Dockerfiles are
 # then pinned to that commit for the build only, and the release is tagged at the calling commit.
+# With publish=false (reims-upstream.yml -f publish=false) nothing is released: the packages and the
+# source archive stay as the run's reims-<platform> artifacts.
 
 on:
   push:
@@ -19,6 +21,10 @@ on:
         description: upstream commit (40 hex digits) to build instead of the pinned one
         type: string
         required: true
+      publish:
+        description: publish the release; false keeps the packages as the run's artifacts only
+        type: boolean
+        default: true
 
 jobs:
   build:
@@ -95,6 +101,7 @@ jobs:
 
   release:
     needs: build
+    if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-24.04
     permissions:
       contents: write
