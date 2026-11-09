@@ -4,7 +4,7 @@
 
 ## Build
 
-Everything builds and runs in one Docker image, `build/linux.Dockerfile` (Ubuntu 24.04, Go from `go.mod`, Node and the OpenSpec CLI, `qemu-utils`, QEMU, Xvfb, `dpkg-dev`, `rpm`). The host needs only Docker and make; do not install Go or build dependencies on it.
+Everything builds and runs in one Docker image, `build/linux.Dockerfile` (Ubuntu 24.04, kept as the build ABI: its glibc 2.39 is the oldest of the supported hosts, Rocky Linux 10's; not itself a supported host; Go from `go.mod`, Node and the OpenSpec CLI, `qemu-utils`, QEMU, Xvfb, `dpkg-dev`, `rpm`). The host needs only Docker and make; do not install Go or build dependencies on it.
 
 ```sh
 make image          # build the image (kvm-gui-build:24.04)
@@ -12,14 +12,14 @@ make build          # dist/kvm-gui (CGO_ENABLED=0)
 make build-prod     # stripped, -trimpath, main.version from VERSION
 make self-test      # the GUI opens and loads the VM list, under Xvfb in the image
 make dist           # dist/: the AppImage, the binary, kvm-gui_<v>_amd64.deb, kvm-gui-<v>-1.x86_64.rpm and SHA256SUMS
-scripts/check-dist.sh <ubuntu24.04|ubuntu26.04|debian13|rocky10> all   # the artifacts in clean containers
-scripts/check-gnome.sh <24.04|26.04>   # Reims vGPU embedding under GNOME (X11 on 24.04, Wayland on 26.04)
+scripts/check-dist.sh <ubuntu26.04|debian13|rocky10> all   # the artifacts in clean containers
+scripts/check-gnome.sh <debian13|26.04>   # Reims vGPU embedding under GNOME (X11 on Debian 13, Wayland on Ubuntu 26.04)
 make test-embed     # the embedding package under Xvfb, with a fake reparenting window manager
 ```
 
 Go's build and module caches persist in `~/.cache/kvm-gui-build`. Boot assets are committed; a normal build does not fetch them.
 
-`make package` runs `scripts/package.sh` in the image. The `.deb` (Ubuntu 24.04, 26.04, Debian 13) depends on `qemu-system-x86`, `qemu-system-gui`, `qemu-utils`, `ovmf` and `pkexec` and recommends `swtpm`; the `.rpm` (Rocky Linux 10) requires `qemu-kvm`, `qemu-img`, `edk2-ovmf` and `polkit`. Both replace `macos-kvm-gui` and install `/usr/bin/macos-kvm-gui` as a link to `kvm-gui`. After each milestone, `make dist` leaves the milestone's artifacts in `dist/`.
+`make package` runs `scripts/package.sh` in the image. The `.deb` (Ubuntu 26.04, Debian 13) depends on `qemu-system-x86`, `qemu-system-gui`, `qemu-utils`, `ovmf` and `pkexec` and recommends `swtpm`; the `.rpm` (Rocky Linux 10) requires `qemu-kvm`, `qemu-img`, `edk2-ovmf` and `polkit`. Both replace `macos-kvm-gui` and install `/usr/bin/macos-kvm-gui` as a link to `kvm-gui`. After each milestone, `make dist` leaves the milestone's artifacts in `dist/`.
 
 The desktop GUI is being rebuilt in Go + Wails (OpenSpec change `migrate-gui-to-go-wails`); until it lands, the binary is the command line and the MCP server.
 
@@ -96,9 +96,9 @@ Read changes in context: `add-desktop-gui` describes the original clone/Python d
 
 | Workflow | Trigger and work |
 | --- | --- |
-| [CI](../.github/workflows/ci.yml) | Pushes to `main` and pull requests: `make test`, `layers`, `openspec`, `frontend-check`, `self-test` and `dist` in the build image, then `scripts/check-dist.sh` on Ubuntu 24.04, Ubuntu 26.04, Debian 13 and Rocky Linux 10 (Rocky's self-test runs on Wayland under a headless Weston: RHEL 10 has no Xorg server). New runs cancel earlier runs for the same ref. |
+| [CI](../.github/workflows/ci.yml) | Pushes to `main` and pull requests: `make test`, `layers`, `openspec`, `frontend-check`, `self-test` and `dist` in the build image, then `scripts/check-dist.sh` on Ubuntu 26.04, Debian 13 and Rocky Linux 10 (Rocky's self-test runs on Wayland under a headless Weston: RHEL 10 has no Xorg server). New runs cancel earlier runs for the same ref. |
 | [Release](../.github/workflows/go-release.yml) | By hand. It runs CI on the exact commit first; on a `v*` tag it then publishes the AppImage, the binary, the `.deb`, the `.rpm` and `SHA256SUMS` as the latest release. With `-f publish=false` (any ref) it keeps the five files as the run's artifact and publishes nothing. |
-| [Reims vGPU](../.github/workflows/reims-release.yml) | A `reims-<7-digit commit>` tag matching `reims/Dockerfile`: builds QEMU, `reims-ctl` and `reims-util` for Ubuntu 24.04, 26.04, Debian 13 and Rocky Linux 10, checks each in a clean container, and publishes them with the source archive. |
+| [Reims vGPU](../.github/workflows/reims-release.yml) | A `reims-<7-digit commit>` tag matching `reims/Dockerfile`: builds QEMU, `reims-ctl` and `reims-util` for Ubuntu 26.04, Debian 13 and Rocky Linux 10, checks each in a clean container, and publishes them with the source archive. |
 | [Reims vGPU from upstream](../.github/workflows/reims-upstream.yml) | By hand (`gh workflow run reims-upstream.yml`): the same packages at the newest commit of steelbrain/reims-vgpu's default branch (`master`), released as `reims-<commit>` unless that release exists; it pins nothing, so the app keeps installing the commit `reims/manifest.json` names. |
 
 Neither workflow runs the real-QEMU integration target, a macOS installation or a real-GPU test. Release does not run the separate OpenSpec job. Builds use committed boot assets rather than refetching them; tests may fetch `ocvalidate` on a fresh runner.

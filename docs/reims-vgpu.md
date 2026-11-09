@@ -26,7 +26,7 @@ Reims vGPU and GPU passthrough are mutually exclusive per VM. Other VMs keep VMw
 
 ## Requirements
 
-- **Ubuntu 24.04 or 26.04** for the prebuilt packages and the Docker build. Other distributions can point `reims_qemu` at a build of their own (see [which QEMU runs](#which-qemu-runs)).
+- **Ubuntu 26.04, Debian 13 or Rocky Linux 10** for the prebuilt packages, Ubuntu 26.04 for the Docker build (Ubuntu 24.04: kvm-gui v0.15.0 and the `reims-1fe0acb` package). Other distributions can point `reims_qemu` at a build of their own (see [which QEMU runs](#which-qemu-runs)).
 - **A Vulkan driver** for the host GPU: `mesa-vulkan-drivers` for AMD and Intel, or the NVIDIA driver. The app looks for an ICD manifest in `/usr/share/vulkan/icd.d` or `/etc/vulkan/icd.d`.
 - **`vm.max_map_count` of at least 64 per MiB of guest RAM plus 65536.** Reims vGPU maps guest memory in many small views: a 16 GiB VM needs 1114112, and Ubuntu's default (`/etc/sysctl.d/10-map-count.conf`) is 1048576. **Set up host** in the Host tab (or `kvm-gui setup`) raises it to 2097152, enough for 30 GiB, and keeps it in `/etc/sysctl.d/90-macos-kvm-gui.conf`. By hand:
 
@@ -49,7 +49,7 @@ Reims vGPU and GPU passthrough are mutually exclusive per VM. Other VMs keep VMw
 | `ReimsVgpu.kext` (macOS Tahoe guests) | **Yes**: downloaded at the first start and injected by OpenCore | nothing to do |
 | `METAL_ERROR_MODE` inside macOS | **No**: once per macOS install | the commands under [First boot in macOS](#first-boot-in-macos) (also shown in Settings › Display) |
 
-Starting a Reims vGPU VM on a host without its QEMU does not download anything: Start stops with *"Reims vGPU is not installed (looked for …): install it in the Host tab or with `kvm-gui reims install`"*. Prebuilt packages exist for Ubuntu 24.04 and 26.04, Debian 13 and Rocky Linux 10 (also RHEL and AlmaLinux 10); **Install Reims vGPU** picks the one for the host from `/etc/os-release` (reims-gui 0.1.5 and macos-kvm-gui 0.12.0 on; older versions knew only Ubuntu). **Build from source (Docker)** builds the Ubuntu ones only; on Debian and Rocky, install the package or build as below.
+Starting a Reims vGPU VM on a host without its QEMU does not download anything: Start stops with *"Reims vGPU is not installed (looked for …): install it in the Host tab or with `kvm-gui reims install`"*. Prebuilt packages exist for Ubuntu 26.04, Debian 13 and Rocky Linux 10 (also RHEL and AlmaLinux 10); **Install Reims vGPU** picks the one for the host from `/etc/os-release`. Ubuntu 24.04 hosts use kvm-gui v0.15.0, whose manifest pins the `reims-1fe0acb` 24.04 package. **Build from source (Docker)** runs on Ubuntu 26.04 hosts only; on Debian and Rocky, install the package.
 
 The app does not embed Reims vGPU. It installs a separate QEMU build into `<Workspace>/.reims/qemu/<build>` and points `<Workspace>/.reims/qemu/current` at it, next to `.kexts` and `.installers`. Nothing else on the host changes.
 
@@ -61,18 +61,17 @@ Click **Install Reims vGPU** in the Host tab, or run:
 kvm-gui reims install
 ```
 
-The app downloads the package for the host's platform (Ubuntu 24.04, Ubuntu 26.04, Debian 13, Rocky Linux 10) from this repository's Releases, from a release of its own tagged `reims-<commit>` (today `reims-c099dd5`), separate from the app's releases. The package is `reims-qemu-<commit>-<platform>-x86_64.tar.gz` (about 38 MB, upstream's QEMU and its data, stripped); the app checks it against the SHA-256 pinned in its embedded manifest (`reims/manifest.json`), unpacks it, refusing absolute paths, `..`, links that leave the folder and anything other than files, folders and links, and activates it.
+The app downloads the package for the host's platform (Ubuntu 26.04, Debian 13, Rocky Linux 10) from this repository's Releases, from a release of its own tagged `reims-<commit>` (today `reims-1fe0acb`), separate from the app's releases. The package is `reims-qemu-<commit>-<platform>-x86_64.tar.gz` (about 38 MB, upstream's QEMU and its data, stripped); the app checks it against the SHA-256 pinned in its embedded manifest (`reims/manifest.json`), unpacks it, refusing absolute paths, `..`, links that leave the folder and anything other than files, folders and links, and activates it.
 
 ### Build from source
 
 Click **Build from source** in the Host tab, or run:
 
 ```sh
-kvm-gui reims build                   # for the host's release
-kvm-gui reims build --release 26.04   # for another one: staged, not activated
+kvm-gui reims build                   # on an Ubuntu 26.04 host, for it
 ```
 
-The app builds upstream at the commit it pins with upstream's own `scripts/install-ctl.sh`, inside an `ubuntu:<release>` container from its embedded Dockerfile (`reims/Dockerfile`), and strips the binaries. The recipe runs all of `install-ctl.sh`, so a build also has upstream's `reims-ctl` and `reims-util` in its `bin/`; the packages published so far (`reims-c099dd5`) have QEMU only, and the next `reims-<commit>` release brings both programs. The first build downloads Rust, SDL3, QEMU's source and the Rust crates and took about 10 minutes on the reference host; the cache in `<Workspace>/.reims/build-<release>` makes later builds faster. Progress goes to the terminal.
+The app builds upstream at the commit it pins with upstream's own `scripts/install-ctl.sh`, inside an `ubuntu:<release>` container from its embedded Dockerfile (`reims/Dockerfile`), and strips the binaries. The recipe runs all of `install-ctl.sh`, so a build also has upstream's `reims-ctl` and `reims-util` in its `bin/`; the packages since `reims-1fe0acb` have them too (`reims-c099dd5` had QEMU only). The first build downloads Rust, SDL3, QEMU's source and the Rust crates and took about 10 minutes on the reference host; the cache in `<Workspace>/.reims/build-<release>` makes later builds faster. Progress goes to the terminal.
 
 ### Activation
 
@@ -221,7 +220,7 @@ The audio backend is PipeWire when its socket is in `$XDG_RUNTIME_DIR`, then Pul
 - **Measured upstream on macOS 26 only.** Other versions are offered with a note; this app's reference host validated Sequoia 15.8.1.
 - **Sleep** is reduced to a dark wake: S3 is off.
 - **AMD GPUs** need `/dev/udmabuf` (see [requirements](#requirements)).
-- Packages for Ubuntu 24.04 and 26.04, Debian 13 and Rocky Linux 10 (RHEL 10 family); Docker builds from the app for Ubuntu only; x86-64 hosts only.
+- Packages for Ubuntu 26.04, Debian 13 and Rocky Linux 10 (RHEL 10 family); Docker builds from the app on Ubuntu 26.04 only; x86-64 hosts only.
 - **Upstream is beta** and changes fast; the app pins one commit and updates it with its own releases.
 - `usb-audio` and `conditional-intr-mapping` follow upstream's macOS 26 command and are unmeasured on earlier versions.
 

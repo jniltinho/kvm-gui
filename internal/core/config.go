@@ -79,6 +79,8 @@ type Config struct {
 	RenderGPU string `json:"render_gpu,omitempty"`
 	// rootPatchWasOn is set by PrepareBoot when the previous boot had root-patch mode on.
 	rootPatchWasOn bool
+	// renderNode is set by a 3D start: the render node of the GPU it checked (guest3d.go).
+	renderNode string
 	// Extras is a start's snapshot of settings.yaml, never saved; nil
 	// (creating a VM) loads no extra kext. extraKexts is set by PrepareBoot: {folder, name}.
 	Extras     *ExtraKexts `json:"-"`

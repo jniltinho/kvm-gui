@@ -26,6 +26,18 @@ Display with **Reims vGPU (Metal)** as the graphics controller: the resolution, 
 
 ![Settings › Display, dark skin](settings-dark.png)
 
+![Settings › Display of a Linux VM with 3D acceleration and Vulkan](settings-display-vulkan.png)
+
+A Linux VM's Display with 3D acceleration, Vulkan (Venus) and the host GPU that draws it, on the reference host (Ubuntu 26.04: an RX 6700 XT, an RTX 4070 and the Ryzen iGPU). It was captured under its own Xvfb display with isolated settings.
+
+![Settings › Display of a VM in QEMU's window, dark skin](settings-display-vulkan-dark.png)
+
+A VM in QEMU's own window: OpenGL draws on the desktop's GPU, and Vulkan is offered only in the app's screen.
+
+![Settings › Display where 3D is unavailable](settings-display-vulkan-unavailable.png)
+
+The same page where the host's QEMU has no 3D device (the build image, as on Rocky Linux 10). The reasons are shown, and 3D can still be turned off.
+
 ![File › Preferences › Interface](preferences.png)
 
 File › Preferences: the Workspace (where new VMs get their folder), input, display (the interface scale) and the skin: System, Light, Dark and three more; `KVM_GUI_THEME` overrides it at start.

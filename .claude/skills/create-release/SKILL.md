@@ -66,7 +66,7 @@ The workflow attaches:
 |---|---|
 | `kvm-gui-vX.Y.Z-x86_64.AppImage` | any of the four distributions with GTK 4 and WebKitGTK 6 installed (the AppImage does not bundle them) |
 | `kvm-gui-vX.Y.Z-linux-amd64` | the plain binary, same libraries |
-| `kvm-gui_X.Y.Z_amd64.deb` | Ubuntu 24.04, 26.04, Debian 13; `/usr/bin/kvm-gui` and the `macos-kvm-gui` link; replaces `macos-kvm-gui` |
+| `kvm-gui_X.Y.Z_amd64.deb` | Ubuntu 26.04, Debian 13; `/usr/bin/kvm-gui` and the `macos-kvm-gui` link; replaces `macos-kvm-gui` |
 | `kvm-gui-X.Y.Z-1.x86_64.rpm` | Rocky Linux 10 (enable EPEL first: WebKitGTK 6 comes from it); same files; obsoletes `macos-kvm-gui` |
 | `SHA256SUMS` | all four files |
 
@@ -90,12 +90,12 @@ cat > /tmp/release-notes-$NEXT.md <<'EOF'
 
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS
-sudo apt install ./kvm-gui_X.Y.Z_amd64.deb      # Ubuntu 24.04, 26.04, Debian 13
+sudo apt install ./kvm-gui_X.Y.Z_amd64.deb      # Ubuntu 26.04, Debian 13
 sudo dnf install epel-release && sudo dnf install ./kvm-gui-X.Y.Z-1.x86_64.rpm   # Rocky Linux 10
 chmod +x kvm-gui-vX.Y.Z-x86_64.AppImage && ./kvm-gui-vX.Y.Z-x86_64.AppImage     # or the plain binary
 ```
 
-**Validated:** <what was really run, e.g. the Nilton VM (Sequoia 15.8.1, Reims vGPU) booted from the GUI on Ubuntu 24.04>
+**Validated:** <what was really run, e.g. the Nilton VM (Sequoia 15.8.1, Reims vGPU) booted from the GUI on Ubuntu 26.04>
 
 **Full Changelog**: https://github.com/jniltinho/kvm-gui/compare/vPREV...vNEXT
 EOF
@@ -108,7 +108,7 @@ gh release edit "$NEXT" --title "kvm-gui $NEXT" --notes-file /tmp/release-notes-
 gh api repos/jniltinho/kvm-gui/releases/latest --jq .tag_name    # must print $NEXT
 gh release view "$NEXT" --json name,assets --jq '.name, (.assets[].name)'
 gh release download "$NEXT" -D /tmp/check-$NEXT && (cd /tmp/check-$NEXT && sha256sum -c SHA256SUMS)
-for d in ubuntu24.04 ubuntu26.04 debian13 rocky10; do scripts/check-dist.sh "$d" all /tmp/check-$NEXT; done
+for d in ubuntu26.04 debian13 rocky10; do scripts/check-dist.sh "$d" all /tmp/check-$NEXT; done
 ```
 
 Check the title, that it is latest, the five assets and the checksums; `check-dist.sh` then installs and runs the downloaded files themselves on the four distributions (CI checked the same bytes before publishing them).
@@ -116,7 +116,7 @@ Check the title, that it is latest, the five assets and the checksums; `check-di
 ## Reims vGPU releases
 
 1. Pin the newest upstream commit in `reims/Dockerfile` and `reims/Dockerfile.rocky`, build and check locally in Docker (AGENTS.md), commit, then tag `reims-<7-digit commit>` on that commit and push the tag.
-2. `reims-release.yml` builds QEMU, `reims-ctl` and `reims-util` for `ubuntu24.04`, `ubuntu26.04`, `debian13` and `rocky10`, checks each in a clean container, and publishes them with `reims-vgpu-src-<commit>.tar.gz`.
+2. `reims-release.yml` builds QEMU, `reims-ctl` and `reims-util` for `ubuntu26.04`, `debian13` and `rocky10`, checks each in a clean container, and publishes them with `reims-vgpu-src-<commit>.tar.gz`.
 3. Notes: the home lab notice; that it is Reims vGPU's QEMU (with `reims-ctl` and `reims-util`), not an app; that `kvm-gui reims install` downloads the host's package and checks the SHA-256 the app pins; the assets table; **Validated** (what really ran, e.g. the Nilton VM on the 24.04 build). Credit [steelbrain/reims-vgpu](https://github.com/steelbrain/reims-vgpu) as the base. Do not mention the archived reims-gui.
 4. Commit `reims/manifest.json` with the published SHA-256 files.
 

@@ -37,18 +37,18 @@ make test        # gofmt, go vet, go test -race (MKG_REQUIRE_TOOLS=1: a missing 
 make openspec    # openspec validate --all --strict
 make self-test   # the GUI opens under Xvfb in the image
 make dist        # dist/: AppImage, binary, kvm-gui_<v>_amd64.deb, kvm-gui-<v>-1.x86_64.rpm, SHA256SUMS
-scripts/check-dist.sh <ubuntu24.04|ubuntu26.04|debian13|rocky10> all  # artifacts in clean containers
-scripts/check-gnome.sh <24.04|26.04>  # Reims embedding under GNOME (X11; Wayland: none), the .deb in clean containers
+scripts/check-dist.sh <ubuntu26.04|debian13|rocky10> all  # artifacts in clean containers
+scripts/check-gnome.sh <debian13|26.04>  # Reims embedding under GNOME (X11 on Debian 13; Wayland on Ubuntu 26.04: none), the .deb in clean containers
 make test-embed  # internal/embed under Xvfb
 make test-integration  # real QEMU/KVM boot of the embedded OpenCore (needs /dev/kvm)
 ```
 
-- **Packages.** The `.deb` installs on Ubuntu 24.04, 26.04 and Debian 13, the `.rpm` on Rocky Linux 10; both replace `macos-kvm-gui` and keep that name as a command link.
+- **Hosts and packages.** Supported hosts are Ubuntu 26.04, Debian 13 and Rocky Linux 10 (system QEMU 10.0 or later); Ubuntu 24.04 ended with v0.15.0. The `.deb` installs on Ubuntu 26.04 and Debian 13, the `.rpm` on Rocky Linux 10; both replace `macos-kvm-gui` and keep that name as a command link. The build image stays on Ubuntu 24.04 only as the glibc 2.39 build ABI.
 
 ### Reims vGPU's QEMU (`reims/`)
 
-- `reims/Dockerfile` (Ubuntu 24.04/26.04, `--build-arg BASE=debian:13` for Debian 13) and `reims/Dockerfile.rocky` pin upstream's commit (`ARG REIMS_COMMIT`) and run all of upstream's `scripts/install-ctl.sh`: QEMU, `reims-ctl` and `reims-util` end up in one build folder.
-- `docker build --build-arg UBUNTU=24.04 -t reims-build:24.04 - < reims/Dockerfile`, then `docker run --rm -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) -v <dir>:/build reims-build:24.04`.
+- `reims/Dockerfile` (Ubuntu 26.04, `--build-arg BASE=debian:13` for Debian 13) and `reims/Dockerfile.rocky` pin upstream's commit (`ARG REIMS_COMMIT`) and run all of upstream's `scripts/install-ctl.sh`: QEMU, `reims-ctl` and `reims-util` end up in one build folder.
+- `docker build --build-arg UBUNTU=26.04 -t reims-build:26.04 - < reims/Dockerfile`, then `docker run --rm -e HOST_UID=$(id -u) -e HOST_GID=$(id -g) -v <dir>:/build reims-build:26.04`.
 - `reims/package.sh pkg|src` packs a build and the corresponding source; `.github/workflows/reims-release.yml` does it for all four platforms on a `reims-<7-digit commit>` tag, and `reims/manifest.json` then takes the published SHA-256 files.
 - An Ubuntu build does not run on Debian (`libjpeg.so.8`); each platform needs its own.
 
@@ -58,12 +58,12 @@ make test-integration  # real QEMU/KVM boot of the embedded OpenCore (needs /dev
 |---|---|---|
 | `ci.yml` | push to `main`, PRs | `make test layers openspec frontend-check self-test dist` in the build image, then `scripts/check-dist.sh` on the four distributions |
 | `go-release.yml` | manual | runs `ci.yml` on the exact commit, then on a `v*` tag publishes the AppImage, binary, `.deb`, `.rpm` and `SHA256SUMS` as latest; `-f publish=false` keeps them as run artifacts |
-| `reims-release.yml` | tag `reims-<commit>`; called by `reims-upstream.yml` | Reims QEMU with `reims-ctl` and `reims-util` for 24.04, 26.04, debian13, rocky10, and the source archive |
+| `reims-release.yml` | tag `reims-<commit>`; called by `reims-upstream.yml` | Reims QEMU with `reims-ctl` and `reims-util` for 26.04, debian13, rocky10, and the source archive (made in the 26.04 job) |
 | `reims-upstream.yml` | manual | the same packages at the newest commit of upstream's default branch (`master`), as `reims-<commit>`, unless that release exists (`-f force=true` rebuilds); the app keeps installing the commit `reims/manifest.json` pins |
 
 ## Testing on real hardware
 
-- **Reference host:** Ubuntu 24.04, KDE Plasma on X11, Ryzen 9 9900X, RTX 4070 (Reims vGPU validated) and RX 6700 XT.
+- **Reference host:** Kubuntu 26.04 (KDE Plasma on Wayland, kernel 7.0, QEMU 10.2.1), Ryzen 9 9900X, RTX 4070 (NVIDIA 580; Reims vGPU validated on 24.04) and RX 6700 XT; 3D and Vulkan (Venus) validated on both GPUs. On Wayland the Reims window is not embedded (X11 only). Open GUI tests on a separate Xvfb with `GDK_BACKEND=x11` and `WAYLAND_DISPLAY` unset, or the window lands on the user's desktop.
 - **Test VM:** "Nilton" (macOS Sequoia 15.8.1, Reims vGPU) in `~/macOS-VMs/nilton`, SSH at `127.0.0.1:2223`, user `nilton`; the password comes from the user, never stored. Shut it down over SSH (`sudo shutdown -h now`), not with Force stop.
 - **Do not run two QEMUs on the same disk.** The live GNOME containers (`rg-live-img:24.04` / `26.04`) use a qcow2 overlay over the host disk mounted read-only; do not start the VM on the host while they run.
 

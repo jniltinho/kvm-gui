@@ -98,8 +98,12 @@ func runArgs(c Config, qmpSocket string) []string {
 		// lock-key-sync=off keeps QEMU from injecting Caps Lock presses inferred from keysyms.
 		display := "none"
 		if c.Graphics == GraphicsVirtioGL { // the host GPU draws, the VNC socket shows it
-			g, _ := renderGPU(c) // check3D refused the start when there is none
-			display = "egl-headless,rendernode=" + qemuPath(g.Node)
+			node := c.renderNode // set by the start from the GPU check3D resolved
+			if node == "" {
+				g, _ := renderGPU(c)
+				node = g.Node
+			}
+			display = "egl-headless,rendernode=" + qemuPath(node)
 		}
 		args = append(args, "-display", display, "-vnc", "unix:"+qemuPath(VNCSocket(qmpSocket))+",lock-key-sync=off")
 	} else if c.Graphics == GraphicsVirtioGL {

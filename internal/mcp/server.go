@@ -173,22 +173,6 @@ type vmStatusOut struct {
 	Render3D   string `json:"render_3d,omitempty" jsonschema:"a Linux or Other VM with 3D acceleration: OpenGL, and Vulkan when on, and the host GPU that draws it (or why it cannot)"`
 }
 
-// render3D describes a 3D VM's acceleration and the host GPU it draws on ("" without 3D).
-func render3D(c core.Config) string {
-	if c.Graphics != core.GraphicsVirtioGL {
-		return ""
-	}
-	what := "OpenGL (virgl)"
-	if c.Vulkan {
-		what += " and Vulkan (Venus)"
-	}
-	g, err := core.SystemHost().RenderGPUFor(c)
-	if err != nil {
-		return what + ": " + err.Error()
-	}
-	return what + " on " + g.Name + " (" + g.Addr + ")"
-}
-
 func vmStatus(_ context.Context, _ *mcp.CallToolRequest, in vmArg) (*mcp.CallToolResult, vmStatusOut, error) {
 	e, err := findVM(in.VM)
 	if err != nil {
@@ -196,7 +180,7 @@ func vmStatus(_ context.Context, _ *mcp.CallToolRequest, in vmArg) (*mcp.CallToo
 	}
 	out := vmStatusOut{vmInfo: vmInfo{e.ID, e.DisplayName(), e.Config.Version, false}, QEMUState: "stopped",
 		GuestPhase: "unknown", Layout: core.RecoveryKeyboard(), SSHPort: e.Config.SSHPort,
-		Warning: core.SSHPortWarning(e.Config.SSHPort, e.ID), Render3D: render3D(e.Config)}
+		Warning: core.SSHPortWarning(e.Config.SSHPort, e.ID), Render3D: core.Describe3D(e.Config)}
 	r, ok := core.FindRun(e)
 	if !ok {
 		return nil, out, nil

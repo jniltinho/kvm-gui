@@ -7,13 +7,13 @@
 ## Requirements
 
 - Linux x86_64 with VT-x/AMD-V enabled in BIOS/UEFI and read/write access to `/dev/kvm`.
-- QEMU **8.2.2 or newer**, `qemu-img` and `pkexec`. For Debian/Ubuntu:
+- QEMU **10.0 or newer**, `qemu-img` and `pkexec`. For Debian/Ubuntu:
 
   ```sh
   sudo apt install qemu-system-x86 qemu-utils pkexec
   ```
 
-- Ubuntu 24.04, Ubuntu 26.04, Debian 13 or Rocky Linux 10; the `.deb` and `.rpm` declare their runtime dependencies. On Rocky Linux 10 the app uses Rocky's QEMU, `/usr/libexec/qemu-kvm`, which has no `vmware-svga`: macOS VMs there use Reims vGPU.
+- Ubuntu 26.04, Debian 13 or Rocky Linux 10; the `.deb` and `.rpm` declare their runtime dependencies. Ubuntu 24.04 is no longer supported: v0.15.0 was the last release for it. On Rocky Linux 10 the app uses Rocky's QEMU, `/usr/libexec/qemu-kvm`, which has no `vmware-svga`: macOS VMs there use Reims vGPU.
 - At least **4096 MiB guest RAM**; the default is 8192 MiB. Leave resources for the host. Ventura and later require host SSE4.1 and AVX2.
 - A writable workspace with room for recovery and macOS. Recovery preparation checks for at least **4 GiB free**, but downloads, conversion and the installed system need additional space. The virtual disk minimum is **40 GiB**, with **80 GiB** prefilled in the UI; it grows on the host as used.
 - Internet access for Apple's recovery download and the installer inside macOS.
@@ -22,7 +22,7 @@ No OSX-KVM clone, Git or Python is needed at runtime. OpenCore, its kexts and OV
 
 ## Install a release
 
-A kvm-gui release on [GitHub Releases](https://github.com/jniltinho/kvm-gui/releases) has an AppImage, a plain binary, a `.deb` (Ubuntu 24.04, Ubuntu 26.04, Debian 13), an `.rpm` (Rocky Linux 10) and `SHA256SUMS`. Check and install:
+A kvm-gui release on [GitHub Releases](https://github.com/jniltinho/kvm-gui/releases) has an AppImage, a plain binary, a `.deb` (Ubuntu 26.04, Debian 13), an `.rpm` (Rocky Linux 10) and `SHA256SUMS`. Check and install:
 
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS

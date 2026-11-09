@@ -45,7 +45,7 @@ const controller = computed({
   get: () => (n.graphics === "virtio-vga-gl" ? "virtio-vga" : n.graphics),
   set: (g: string) => { n.graphics = g === "virtio-vga" && n.graphics === "virtio-vga-gl" ? "virtio-vga-gl" : g; },
 });
-const can3d = computed(() => !mac.value && n.guest !== "windows" && controller.value === "virtio-vga");
+const can3d = computed(() => !mac.value && n.guest !== "windows" && controller.value === "virtio-vga" && cat.value?.render3D?.can3D !== false);
 const accel3d = computed({ get: () => n.graphics === "virtio-vga-gl", set: (on: boolean) => { n.graphics = on ? "virtio-vga-gl" : "virtio-vga"; } });
 // macOS boots only with a power-of-two core count (cores of two threads): offer those.
 const macCPUs = computed<Option<number>[]>(() => [1, 2, 4, 8, 16, 32].filter((x) => x <= Math.max(2, cat.value?.hostThreads ?? 32)).map((x) => [x, `${x}`]));
@@ -286,7 +286,8 @@ onBeforeUnmount(() => off?.());
             <Dropdown v-model="controller" :options="graphicsOptions" :width="240" aria-label="Graphics" data-field="graphics" :disabled="reims" v-bind="inv('graphics')" />
             <template v-if="!mac">
               <span class="lbl"></span>
-              <label class="chk" :class="{ off: !can3d }"><input v-model="accel3d" type="checkbox" :disabled="!can3d" /> Enable 3D acceleration (virgl: the host's GPU draws the guest's OpenGL)</label>
+              <label class="chk" :class="{ off: !can3d && !accel3d }"><input v-model="accel3d" type="checkbox" :disabled="!can3d && !accel3d" /> Enable 3D acceleration (virgl: the host's GPU draws the guest's OpenGL)</label>
+              <span v-if="cat.render3D && !cat.render3D.can3D && n.guest !== 'windows'" class="span2 muted">3D acceleration is not available on this host: {{ cat.render3D.reason3D }}.</span>
             </template>
             <span v-if="msg('graphics')" id="wz-err-graphics" class="span2 bad">{{ msg("graphics") }}</span>
             <div v-if="n.graphics === 'reims-vgpu' && cat.reimsMissing" class="span2 note warn">

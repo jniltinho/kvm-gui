@@ -42,6 +42,14 @@ func TestVulkanSettings(t *testing.T) {
 	if err := set("render-gpu=auto"); err != nil || c.RenderGPU != "" {
 		t.Fatalf("auto: %v %q", err, c.RenderGPU)
 	}
+	if err := set("display=window"); err != nil || c.Vulkan {
+		t.Fatalf("QEMU's window must turn Vulkan off: %v %+v", err, c.Vulkan)
+	}
+	c.Vulkan = true
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "app's screen") {
+		t.Fatalf("Vulkan in QEMU's window: %v", err)
+	}
+	c.Display, c.Vulkan = "", true
 	if err := set("graphics=" + GraphicsVirtio); err != nil || c.Vulkan {
 		t.Fatalf("3D off must turn Vulkan off: %v %+v", err, c.Vulkan)
 	}
@@ -173,7 +181,7 @@ func TestGuest3DSupportAndStartChecks(t *testing.T) {
 			}
 		}
 		vm := Config{Graphics: GraphicsVirtioGL, Vulkan: true}
-		err := h.check3D(vm, "/qemu-"+name)
+		_, err := h.check3D(vm, "/qemu-"+name)
 		if (err == nil) != c.canVulkan || (err != nil && !strings.Contains(err.Error(), "Settings › Display")) {
 			t.Errorf("%s: Vulkan start: %v", name, err)
 		}
@@ -182,26 +190,38 @@ func TestGuest3DSupportAndStartChecks(t *testing.T) {
 	h.Output = func(string, ...string) ([]byte, error) { return help, nil }
 	write(t, filepath.Join(h.FirmwareRoot, "usr/libexec/virgl_render_server"), "")
 	write(t, filepath.Join(h.FirmwareRoot, "usr/lib/x86_64-linux-gnu/libvulkan.so.1"), "VK_LOADER_DEVICE_ID_FILTER")
-	if err := h.check3D(Config{Graphics: GraphicsVirtioGL, Vulkan: true, RenderGPU: "0000:01:00.0"}, "/qemu-u"); err == nil || !strings.Contains(err.Error(), "no Vulkan driver") {
+	if _, err := h.check3D(Config{Graphics: GraphicsVirtioGL, Vulkan: true, RenderGPU: "0000:01:00.0"}, "/qemu-u"); err == nil || !strings.Contains(err.Error(), "no Vulkan driver") {
 		t.Errorf("Vulkan on a GPU without an ICD: %v", err)
 	}
-	if err := h.check3D(Config{Graphics: GraphicsVirtioGL, RenderGPU: "0000:42:00.0"}, "/qemu-u"); err == nil || !strings.Contains(err.Error(), "0000:42:00.0") {
+	if _, err := h.check3D(Config{Graphics: GraphicsVirtioGL, RenderGPU: "0000:42:00.0"}, "/qemu-u"); err == nil || !strings.Contains(err.Error(), "0000:42:00.0") {
 		t.Errorf("a missing GPU: %v", err)
 	}
 	if os.Geteuid() != 0 {
 		os.Chmod(filepath.Join(h.DevDRI, "renderD128"), 0)
-		if err := h.check3D(Config{Graphics: GraphicsVirtioGL}, "/qemu-u"); err == nil || !strings.Contains(err.Error(), "render group") {
+		if _, err := h.check3D(Config{Graphics: GraphicsVirtioGL}, "/qemu-u"); err == nil || !strings.Contains(err.Error(), "render group") {
 			t.Errorf("an inaccessible node in the app's screen: %v", err)
 		}
-		if err := h.check3D(Config{Graphics: GraphicsVirtioGL, Display: DisplayWindow}, "/qemu-u"); err != nil {
+		if _, err := h.check3D(Config{Graphics: GraphicsVirtioGL, Display: DisplayWindow}, "/qemu-u"); err != nil {
 			t.Errorf("QEMU's window does not use the node for OpenGL: %v", err)
 		}
-		if err := h.check3D(Config{Graphics: GraphicsVirtioGL, Display: DisplayWindow, Vulkan: true}, "/qemu-u"); err == nil {
+		if _, err := h.check3D(Config{Graphics: GraphicsVirtioGL, Display: DisplayWindow, Vulkan: true}, "/qemu-u"); err == nil {
 			t.Error("Vulkan in QEMU's window still needs the node")
 		}
 	}
-	if err := h.check3D(Config{Graphics: GraphicsVirtio}, "/qemu-u"); err != nil {
+	if _, err := h.check3D(Config{Graphics: GraphicsVirtio}, "/qemu-u"); err != nil {
 		t.Errorf("2D: %v", err)
+	}
+	if g, err := h.check3D(Config{Graphics: GraphicsVirtioGL, RenderGPU: "0000:01:00.0"}, "/qemu-u"); err != nil || !strings.HasSuffix(g.Node, "renderD129") {
+		t.Errorf("the GPU a start uses is the one checked: %+v %v", g, err)
+	}
+	// A failed probe is not kept: installing QEMU's OpenGL modules shows without a restart.
+	h.Output = func(string, ...string) ([]byte, error) { return nil, errors.New("not found") }
+	if s := h.Guest3DSupport("/qemu-later"); s.Can3D {
+		t.Fatal("3D without the device")
+	}
+	h.Output = func(string, ...string) ([]byte, error) { return help, nil }
+	if s := h.Guest3DSupport("/qemu-later"); !s.Can3D {
+		t.Error("a repaired host still shows the old failure")
 	}
 }
 

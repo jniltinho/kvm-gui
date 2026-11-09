@@ -152,10 +152,10 @@ func (h Host) Guest3DSupport(qemu string) Guest3D {
 		out, err := h.Output(qemu, "-device", "virtio-vga-gl,help")
 		if err == nil && bytes.Contains(out, []byte("blob")) {
 			help = string(out)
+			gl3DHelpMu.Lock()
+			gl3DHelp[qemu] = help // only a success is kept: installing QEMU's OpenGL modules shows without a restart
+			gl3DHelpMu.Unlock()
 		}
-		gl3DHelpMu.Lock()
-		gl3DHelp[qemu] = help
-		gl3DHelpMu.Unlock()
 	}
 	var s Guest3D
 	if help == "" {
@@ -199,33 +199,55 @@ func (h Host) loaderHasFilters() bool {
 }
 
 // check3D refuses a 3D start this host cannot run, naming what is missing and Settings › Display.
-func (h Host) check3D(c Config, qemu string) error {
+// It returns the GPU the start uses, resolved once so the arguments and QEMU's environment name the
+// GPU that was checked.
+func (h Host) check3D(c Config, qemu string) (RenderGPU, error) {
 	if c.Graphics != GraphicsVirtioGL {
-		return nil
+		return RenderGPU{}, nil
 	}
 	s := h.Guest3DSupport(qemu)
 	if !s.Can3D {
-		return errors.New(s.Reason3D + ": turn 3D acceleration off in Settings › Display")
+		return RenderGPU{}, errors.New(s.Reason3D + ": turn 3D acceleration off in Settings › Display")
 	}
 	if c.Vulkan && !s.CanVulkan {
-		return errors.New("Vulkan (Venus) cannot run on this host: " + strings.Join(s.VulkanReasons, "; ") + ". Turn Vulkan off in Settings › Display")
+		return RenderGPU{}, errors.New("Vulkan (Venus) cannot run on this host: " + strings.Join(s.VulkanReasons, "; ") + ". Turn Vulkan off in Settings › Display")
 	}
 	g, err := h.RenderGPUFor(c)
 	if err != nil {
-		return err
+		return RenderGPU{}, err
 	}
 	if c.Vulkan && !g.Vulkan {
-		return fmt.Errorf("the host GPU %s (%s) has no Vulkan driver installed: install it, or turn Vulkan off in Settings › Display", g.Name, g.Driver)
+		return RenderGPU{}, fmt.Errorf("the host GPU %s (%s) has no Vulkan driver installed: install it, or turn Vulkan off in Settings › Display", g.Name, g.Driver)
 	}
 	if !c.InApp() && !c.Vulkan {
-		return nil // QEMU's window draws OpenGL on the desktop's GPU: the render node is not used
+		return g, nil // QEMU's window draws OpenGL on the desktop's GPU: the render node is not used
 	}
 	f, err := os.OpenFile(g.Node, os.O_RDWR, 0)
 	if err != nil {
-		return fmt.Errorf("3D acceleration cannot use the host GPU %s (%v): log in on the desktop, or join the render group (sudo usermod -aG render $USER, then log in again)", g.Name, err)
+		return RenderGPU{}, fmt.Errorf("3D acceleration cannot use the host GPU %s (%v): log in on the desktop, or join the render group (sudo usermod -aG render $USER, then log in again)", g.Name, err)
 	}
 	f.Close()
-	return nil
+	return g, nil
+}
+
+// Describe3D says how a 3D VM is accelerated and on which GPU, for `vm status` and vm_status
+// ("" without 3D).
+func Describe3D(c Config) string {
+	if c.Graphics != GraphicsVirtioGL {
+		return ""
+	}
+	if c.Display == DisplayWindow {
+		return "OpenGL (virgl) on the desktop's GPU, in QEMU's own window"
+	}
+	what := "OpenGL (virgl)"
+	if c.Vulkan {
+		what += " and Vulkan (Venus)"
+	}
+	g, err := SystemHost().RenderGPUFor(c)
+	if err != nil {
+		return what + ": " + err.Error()
+	}
+	return what + " on " + g.Name + " (" + g.Addr + ")"
 }
 
 // venusHostmem is the host-visible window a Venus guest maps GPU memory through; it is address

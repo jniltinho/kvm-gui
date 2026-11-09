@@ -17,7 +17,18 @@ Start with **Host › Check again** and the **Log** tab (last 1000 session lines
 | `mac_hdd_ng.img does not exist: create the disk in the Install tab` | Check the saved workspace path and create its disk. Do not replace a disk containing an existing installation. |
 | `VM folder <path> does not exist: create it in the Install tab` | Check the VM's folder in Settings › General and use Create VM folder in Install. |
 
-The Host tab's QEMU-version hint is `QEMU 8.2.2 or later is required`; missing tools show `not found in PATH`. Install/upgrade `qemu-system-x86` and `qemu-utils`, then recheck.
+The Host tab's QEMU-version hint is `QEMU 10.0 or later is required: Ubuntu 26.04, Debian 13 and Rocky Linux 10 have it`; missing tools show `not found in PATH`. Install/upgrade `qemu-system-x86` and `qemu-utils`, then recheck. On Ubuntu 24.04 (QEMU 8.2.2) the Host system check warns and Set up host changes nothing: v0.15.0 was the last release for it.
+
+**3D acceleration and Vulkan**
+
+| Message | Action |
+| --- | --- |
+| `this host's QEMU has no 3D graphics device (virtio-vga-gl)…` | Install `qemu-system-modules-opengl` (Ubuntu, Debian). Rocky Linux 10's QEMU has none: turn 3D off. |
+| `Vulkan (Venus) cannot run on this host: …` | The reasons name what is missing: QEMU without Venus, `virgl_render_server` (virglrenderer), or a Vulkan loader too old to limit a guest to one GPU. Ubuntu 26.04 has them; elsewhere turn Vulkan off. |
+| `the host GPU this VM draws on (<address>) is not here, or has no render node…` | The GPU was removed or reserved for passthrough (`gpu list`): choose another one, or Automatic, in Settings › Display. |
+| `the host GPU <name> (<driver>) has no Vulkan driver installed…` | Install its Vulkan driver (`mesa-vulkan-drivers` for AMD and Intel, NVIDIA's driver for NVIDIA), or turn Vulkan off. |
+| `3D acceleration cannot use the host GPU …: … render group` | Log in on the desktop, or `sudo usermod -aG render $USER` and log in again. |
+| `vulkaninfo` in the guest lists only llvmpipe | The guest lacks Mesa's virtio Vulkan driver (`mesa-vulkan-drivers`), or Vulkan is off for the VM. |
 
 ## ignore_msrs
 
@@ -249,8 +260,8 @@ These are limitations, not translated core error messages:
 
 | Message | Action |
 | --- | --- |
-| `Reims vGPU supports Ubuntu 24.04 and 26.04 hosts, and this one is <name>: there is no package for it (…)` | Packages and builds exist for those releases only. On another distribution, build Reims vGPU yourself and set `reims_qemu` in `settings.yaml`. |
-| `Reims vGPU builds for Ubuntu 24.04 and 26.04, not "<release>"` | `reims build --release` takes `24.04` or `26.04`. |
+| `Reims vGPU supports Ubuntu 26.04, Debian 13 and Rocky Linux 10 (RHEL 10 family) hosts, and this one is <name>: there is no package for it` | Packages exist for those hosts only (Ubuntu 24.04: kvm-gui v0.15.0 and its `reims-1fe0acb` package). On another distribution, build Reims vGPU yourself and set `reims_qemu` in `settings.yaml`. |
+| `Reims vGPU builds for Ubuntu 26.04, not "<release>" …` | `reims build --release` takes `26.04`; Debian 13 and Rocky Linux 10 hosts install the package. |
 | `<url>: the download's SHA-256 is <got>, the app expects <want>` | The package does not match the app's manifest: nothing was unpacked and `current` is unchanged. Retry; if it persists, use **Build from source** and report it. |
 | `unexpected path …`, `the link … points outside the archive`, `the archive expands to more than …` | The package was refused before activation. Same as a hash mismatch. |
 | `the build needs Docker: install it (sudo apt install docker.io) and add yourself to the docker group (…)` | Install Docker and join the `docker` group, log in again, then retry. Docker is needed only to build. |

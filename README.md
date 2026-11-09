@@ -23,7 +23,8 @@
 
 - **macOS in a few clicks.** Pick a version and kvm-gui downloads the recovery from Apple. OpenCore and OVMF are built in, so there is no OSX-KVM clone or config.plist to edit.
 - **Metal on macOS** with [Reims vGPU](https://github.com/steelbrain/reims-vgpu), a paravirtual GPU that runs on the host's Vulkan driver. You don't need a second graphics card.
-- **Linux, Windows and other OSes** from an ISO: OS profiles, UEFI with Secure Boot, TPM 2.0 for Windows 11, **3D acceleration** for Linux (virgl), screen sizes from HD to 4K.
+- **Linux, Windows and other OSes** from an ISO: OS profiles, UEFI with Secure Boot, TPM 2.0 for Windows 11, screen sizes from HD to 4K.
+- **3D and Vulkan in Linux guests** on the host GPU you pick, with no passthrough: OpenGL through virgl, Vulkan through Venus (`vulkaninfo` in the guest shows your AMD or NVIDIA card).
 - **The VirtualBox workflow you know:** a Manager with Details, Screen, Snapshots and Logs; a New VM wizard; Settings; snapshots; full clones; **.ova import and export to and from VirtualBox**.
 - **Native KVM speed**, and VMs keep running after you close the app.
 - **Scriptable:** everything the GUI does is a [command](docs/cli.md), and AI agents (Claude, Cursor, Codex) can drive your VMs through the [MCP server](docs/mcp.md).
@@ -34,7 +35,7 @@ Download the package for your distribution from the [latest release](https://git
 
 ```sh
 sha256sum -c --ignore-missing SHA256SUMS        # check the download
-sudo apt install ./kvm-gui_*_amd64.deb          # Ubuntu 24.04 / 26.04, Debian 13
+sudo apt install ./kvm-gui_*_amd64.deb          # Ubuntu 26.04, Debian 13
 ```
 
 On Rocky Linux 10 (WebKitGTK comes from EPEL):
@@ -45,7 +46,7 @@ sudo dnf install epel-release && sudo dnf install ./kvm-gui-*-1.x86_64.rpm
 
 There is also an AppImage and a plain binary; they need GTK 4, WebKitGTK 6 and QEMU from your distribution ([details](docs/getting-started.md#install-a-release)).
 
-**You need** an x86_64 CPU with virtualization (VT-x / AMD-V) turned on in the firmware, and QEMU 8.2 or newer. The packages install QEMU for you.
+**You need** an x86_64 CPU with virtualization (VT-x / AMD-V) turned on in the firmware, and QEMU 10.0 or newer. The packages install QEMU for you. On Ubuntu 24.04, use [v0.15.0](https://github.com/jniltinho/kvm-gui/releases/tag/v0.15.0), the last release for it.
 
 ## Your first VM
 
@@ -62,7 +63,7 @@ Click **New**, then:
 The same steps from a terminal:
 
 ```sh
-kvm-gui vm create Ubuntu --guest linux --profile ubuntu --iso ubuntu-24.04.iso
+kvm-gui vm create Ubuntu --guest linux --profile ubuntu --iso ubuntu-26.04.iso
 kvm-gui vm start
 ```
 
@@ -91,9 +92,10 @@ More in [docs/screenshots](docs/screenshots/README.md).
 
 | Host | Package | Status |
 |---|---|---|
-| Ubuntu 24.04, 26.04 | `.deb` | tested on every CI run; the reference host is Ubuntu 24.04 |
-| Debian 13 | `.deb` | tested on every CI run |
-| Rocky Linux 10 | `.rpm` | tested on every CI run; macOS VMs need Reims vGPU there |
+| Ubuntu 26.04 | `.deb` | tested on every CI run; the reference host (3D and Vulkan validated) |
+| Debian 13 | `.deb` | tested on every CI run; 3D without Vulkan (its virglrenderer has no render server) |
+| Rocky Linux 10 | `.rpm` | tested on every CI run; macOS VMs need Reims vGPU there, and its QEMU has no 3D |
+| Ubuntu 24.04 | — | no longer supported: [v0.15.0](https://github.com/jniltinho/kvm-gui/releases/tag/v0.15.0) is the last release for it |
 
 macOS guests: Sonoma is validated end to end, and Sequoia runs on Reims vGPU on the reference host. The other versions, High Sierra through Tahoe, are experimental.
 

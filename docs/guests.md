@@ -52,7 +52,7 @@ guest); USB devices can be passed through by vendor and product id when your use
 device node (kvm-gui never changes host permissions). A device the host's QEMU lacks (for example
 Rocky Linux's `qemu-kvm` has no `vmware-svga` and no 9p) stops the start with the setting to change.
 
-## Display: resolution and 3D acceleration
+## Display: resolution, 3D acceleration and Vulkan
 
 **Resolution** (Settings › Display, `config set resolution=2560x1440`) is the screen size the guest
 starts with, given to it as its display's preferred mode (EDID): HD (1280×720) to 4K UHD
@@ -61,13 +61,30 @@ starts with, given to it as its display's preferred mode (EDID): HD (1280×720) 
 **Enable 3D acceleration** (Settings › Display, under the Paravirtualized controller;
 `config set graphics=virtio-vga-gl`) gives Linux and Other guests virtio-gpu with virgl: the
 guest's OpenGL is drawn by a GPU of the host, with no passthrough, so the host keeps the GPU and
-its monitors. kvm-gui picks the first render node of a Mesa driver (AMD, Intel, nouveau), else the
-first one; the screen stays in the app (QEMU's `egl-headless` display feeds the VNC socket) or, with
-Screen set to QEMU's window, in a GTK window drawn with OpenGL. It needs QEMU's OpenGL modules
+its monitors. The screen stays in the app (QEMU's `egl-headless` display feeds the VNC socket) or,
+with Screen set to QEMU's window, in a GTK window drawn with OpenGL. It needs QEMU's OpenGL modules
 (`qemu-system-modules-opengl` on Ubuntu and Debian) and access to `/dev/dri/renderD*` (the desktop
-user has it; otherwise the `render` group). It is OpenGL only: Vulkan in the guest needs Venus
-(QEMU 9.2 or later, as on Ubuntu 26.04 and Debian 13), which kvm-gui does not set up yet. Windows
-has no virgl driver, so the box is off for Windows VMs.
+user has it; otherwise the `render` group). Windows has no virgl driver, so the box is off for
+Windows VMs. Rocky Linux 10's QEMU has no 3D device, so the box is off there, with the reason.
+
+**Enable Vulkan (Venus)** (under 3D acceleration; `config set vulkan=true`) runs the guest's Vulkan
+on the host GPU's own Vulkan driver: games and apps that need Vulkan, with no passthrough. The
+guest needs Mesa's virtio Vulkan driver (`mesa-vulkan-drivers`; Ubuntu 24.04 and later guests have
+it). `vulkaninfo` in the guest then lists `Virtio-GPU Venus (<the host GPU>)`. The host needs QEMU
+with Venus, virglrenderer's render server (`virgl_render_server`) and a Vulkan loader that can
+filter devices. Ubuntu 26.04 has all three. Debian 13 lacks the render server and the loader filter,
+so Vulkan is off there, with the reasons. The VM's memory is shared with the host's renderer (a
+memfd), and turning 3D off turns Vulkan off.
+
+**Host GPU** (under 3D acceleration; `config set render-gpu=0000:0c:00.0`, or `auto`) picks the GPU
+that draws, by PCI address (`kvm-gui gpu list` shows each GPU's render node and whether it has a
+Vulkan driver). Automatic takes the first GPU with a Mesa driver (AMD, Intel, nouveau), else the
+first one. With Vulkan on, the guest sees only that GPU's Vulkan device. Two GPUs of the same
+model are the exception: both reach the guest's Vulkan, since the filter works by vendor and device
+ID, and OpenGL still draws on the chosen one. In QEMU's own window, OpenGL draws on the desktop's
+GPU and Vulkan is not offered (that window cannot show another GPU's Vulkan output, and QEMU crashed
+there in testing): Vulkan runs in the app's screen, and choosing QEMU's window turns it off. A VM whose GPU is gone (removed, or reserved for
+passthrough) does not start until you choose another one.
 
 ## Import a VirtualBox appliance
 
@@ -105,6 +122,13 @@ file of the VM's own folder.
   Ubuntu and Windows 11 VMs exported by `vm export-ova` imported with their OS type, EFI, CPUs,
   memory, SATA disk, NAT adapter and TPM, the disks identical to the source; VirtualBox's own
   `.ova` imported by `vm import-ova` with an identical disk.
+- Vulkan (Venus) on the reference host (Ubuntu 26.04, QEMU 10.2.1, virglrenderer 1.2.0, Mesa
+  26.0.8): an Ubuntu 26.04 guest started by `kvm-gui vm start` with 3D and Vulkan listed only
+  `Virtio-GPU Venus (AMD Radeon RX 6700 XT (RADV NAVI22))`, its OpenGL was `virgl (AMD Radeon RX
+  6700 XT …)`, and `vkcube` rendered in the app's VNC screen. With the host GPU set to the RTX 4070
+  (NVIDIA 580), it showed `Virtio-GPU Venus (NVIDIA GeForce RTX 4070)` and `virgl (NVIDIA GeForce
+  RTX 4070/PCIe/SSE2)` instead. A VM naming a GPU the host does not have was refused before QEMU
+  started.
 - 3D acceleration on the reference host (Ubuntu 24.04, QEMU 8.2.2, virglrenderer 1.0): the
   Kubuntu 24.04.2 live ISO started from `kvm-gui vm start` with `graphics=virtio-vga-gl` showed its
   welcome screen at 1920×1080 over the VNC socket, QEMU drawing on the RX 6700 XT's render node.

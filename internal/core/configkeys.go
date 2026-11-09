@@ -14,8 +14,13 @@ import (
 var ConfigKeys = map[string]func(*Config, string) error{
 	"workspace": func(c *Config, v string) error { c.Workspace = v; return nil },
 	"version":   func(c *Config, v string) error { c.Version = v; return nil },
-	"display":   func(c *Config, v string) error { c.Display = v; return nil },
-	"gpu":       func(c *Config, v string) error { c.GPU = v; return nil },
+	"display": func(c *Config, v string) error {
+		if c.Display = v; v == DisplayWindow {
+			c.Vulkan = false // Vulkan runs in the app's screen only
+		}
+		return nil
+	},
+	"gpu": func(c *Config, v string) error { c.GPU = v; return nil },
 	"graphics": func(c *Config, v string) error {
 		if c.Graphics = v; v != GraphicsVirtioGL {
 			c.Vulkan = false // Vulkan runs on 3D acceleration: turning 3D off turns it off

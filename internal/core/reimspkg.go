@@ -496,18 +496,21 @@ func reimsInUseIn(proc, dir string) bool {
 // (release "" = the host's), caching the build in <ReimsDir>/build-<release>, then stages it and
 // activates it as InstallReims does.
 func BuildReims(ctx context.Context, release string, log func(string)) error {
-	if release == "" {
-		r, err := HostPlatform()
-		if err != nil {
-			return err
-		}
-		if !slices.Contains(ReimsReleases, r) {
-			return fmt.Errorf("Reims vGPU builds from source for Ubuntu %s only; this host is %s: install its prebuilt package instead (Install Reims vGPU, or `kvm-gui reims install`)", strings.Join(ReimsReleases, " and "), r)
-		}
-		release = r
-	} else if !slices.Contains(ReimsReleases, release) {
+	if release != "" && !slices.Contains(ReimsReleases, release) {
 		return fmt.Errorf("Reims vGPU builds for Ubuntu %s, not %q (%s hosts install the prebuilt package)", strings.Join(ReimsReleases, " and "), release, SupportedHosts)
 	}
+	// The build runs only on the release it builds for: a build for another host would only be staged.
+	r, err := HostPlatform()
+	if err != nil {
+		return err
+	}
+	if !slices.Contains(ReimsReleases, r) {
+		return fmt.Errorf("Reims vGPU builds from source on Ubuntu %s only; this host is %s: install its prebuilt package instead (Install Reims vGPU, or `kvm-gui reims install`)", strings.Join(ReimsReleases, " and "), r)
+	}
+	if release != "" && release != r {
+		return fmt.Errorf("Reims vGPU builds for this host's release (Ubuntu %s), not %q", r, release)
+	}
+	release = r
 	if _, err := exec.LookPath("docker"); err != nil {
 		return errors.New("the build needs Docker: install it (sudo apt install docker.io) and add yourself to the docker group (sudo usermod -aG docker $USER, then log in again)")
 	}

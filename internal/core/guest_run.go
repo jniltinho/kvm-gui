@@ -209,17 +209,18 @@ func (v *VM) startGuest(c Config) error {
 			return err
 		}
 	}
-	args, err := guestArgs(c, dir, fw, sock, tpmSock)
 	qemu := SystemQEMU()
+	g, err := SystemHost().check3D(c, qemu)
+	c.renderNode = g.Node // the arguments draw on the GPU just checked
+	var args []string
+	if err == nil {
+		args, err = guestArgs(c, dir, fw, sock, tpmSock)
+	}
 	if err == nil {
 		err = checkDevices(qemu, args)
 	}
-	if err == nil {
-		err = SystemHost().check3D(c, qemu)
-	}
 	var env []string
 	if err == nil && c.Vulkan {
-		g, _ := renderGPU(c)
 		env = vulkanEnv(os.Environ(), g)
 	}
 	if err != nil {

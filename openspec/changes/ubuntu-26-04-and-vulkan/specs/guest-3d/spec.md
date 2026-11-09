@@ -20,9 +20,9 @@ A Linux or Other VM with 3D acceleration SHALL be able to turn on Vulkan (Venus)
 - **WHEN** a Linux VM with a Mesa that has the virtio Vulkan driver starts with Vulkan on, on Ubuntu 26.04
 - **THEN** `vulkaninfo` in the guest lists a Venus device on the chosen host GPU, and a Vulkan program renders in the app's screen
 
-#### Scenario: Renderer fails at start
-- **WHEN** a VM with Vulkan starts on a host that has what Venus needs but virglrenderer fails to initialize it on the chosen GPU
-- **THEN** the start reports QEMU's error message and the VM's log keeps it
+#### Scenario: Renderer fails
+- **WHEN** a VM with Vulkan runs on a host that has what Venus needs but virglrenderer fails on the chosen GPU (Venus starts when the guest's driver first uses it, after the start returned)
+- **THEN** QEMU's error is kept in the VM's log, and `vm start` prints it when QEMU exits
 
 #### Scenario: Debian 13
 - **WHEN** the user opens Settings › Display of a Linux VM with 3D on Debian 13, whose virglrenderer has no render server and whose Vulkan loader has no device filter
@@ -40,8 +40,8 @@ A Linux or Other VM with 3D acceleration SHALL be able to turn on Vulkan (Venus)
 A VM with 3D acceleration SHALL draw on the host GPU it names by PCI address, or on the automatic choice (the first GPU with a Mesa driver, else the first GPU) when it names none. The GPUs offered SHALL be those with a render node, each with its name and driver. A start whose chosen GPU is absent or not accessible SHALL be refused, naming the GPU and the Display setting.
 
 #### Scenario: QEMU's own window
-- **WHEN** a VM with 3D, Vulkan and a chosen GPU uses QEMU's own window
-- **THEN** its Vulkan runs on the chosen GPU, its OpenGL on the desktop's GPU, and Settings says the choice applies to Vulkan only there
+- **WHEN** a VM with 3D and a chosen GPU uses QEMU's own window
+- **THEN** its OpenGL draws on the desktop's GPU, Vulkan is not offered (the window cannot show another GPU's Vulkan output), choosing the window turns Vulkan off, and Settings says the GPU choice applies in the app's screen
 
 #### Scenario: Passthrough GPU
 - **WHEN** a GPU is reserved for passthrough (bound to `vfio-pci`)

@@ -217,6 +217,11 @@ func (c Config) validateGuest() error {
 	if c.Vulkan && c.Graphics != GraphicsVirtioGL {
 		return &FieldError{"vulkan", "Vulkan needs 3D acceleration (graphics " + GraphicsVirtioGL + ")"}
 	}
+	if c.Vulkan && c.Display == DisplayWindow {
+		// QEMU's window draws with the desktop's GPU, which cannot show another GPU's Venus buffers:
+		// QEMU 10.2 crashed there on the first Vulkan frame (OpenSpec ubuntu-26-04-and-vulkan, 4.1).
+		return &FieldError{"vulkan", "Vulkan runs in the app's screen only: QEMU's own window draws with the desktop's GPU, which cannot show it (set Screen to Inside the app)"}
+	}
 	if c.RenderGPU != "" && !pciAddrRe.MatchString(c.RenderGPU) {
 		return &FieldError{"render_gpu", "expected a PCI address such as 0000:03:00.0, or nothing for the automatic choice"}
 	}
